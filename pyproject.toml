@@ -49,9 +49,10 @@ packages = [
   "apps/worker/ratereplay_worker",
   "packages/domain/ratereplay_domain",
   "packages/ingestion/ratereplay_ingestion",
-  "packages/tariffs/ratereplay_tariffs",
   "packages/optimizer/ratereplay_optimizer",
+  "packages/persistence/ratereplay_persistence",
   "packages/reports/ratereplay_reports",
+  "packages/tariffs/ratereplay_tariffs",
 ]
 
 [tool.uv]
@@ -60,6 +61,7 @@ package = true
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers --cov --cov-report=term-missing --cov-fail-under=85"
+markers = ["postgres: requires the isolated PostgreSQL integration service"]
 testpaths = ["apps", "packages", "tests"]
 pythonpath = [
   ".",
@@ -67,9 +69,10 @@ pythonpath = [
   "apps/worker",
   "packages/domain",
   "packages/ingestion",
-  "packages/tariffs",
   "packages/optimizer",
+  "packages/persistence",
   "packages/reports",
+  "packages/tariffs",
 ]
 
 [tool.coverage.run]
@@ -79,9 +82,10 @@ source = [
   "ratereplay_worker",
   "ratereplay_domain",
   "ratereplay_ingestion",
-  "ratereplay_tariffs",
   "ratereplay_optimizer",
+  "ratereplay_persistence",
   "ratereplay_reports",
+  "ratereplay_tariffs",
 ]
 
 [tool.ruff]

@@ -9,6 +9,7 @@ def test_modular_monolith_package_boundaries_import() -> None:
         "ratereplay_ingestion",
         "ratereplay_tariffs",
         "ratereplay_optimizer",
+        "ratereplay_persistence",
         "ratereplay_reports",
     ):
         assert importlib.import_module(package).__name__ == package

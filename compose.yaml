@@ -11,6 +11,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+    ports:
+      - "127.0.0.1:${RATEREPLAY_POSTGRES_PORT:-55432}:5432"
     secrets:
       - postgres_password
     volumes:
@@ -33,11 +35,11 @@ services:
       - object-data:/data
 secrets:
   postgres_password:
-    file: ./.local-secrets/postgres_password
+    file: ${RATEREPLAY_POSTGRES_PASSWORD_FILE:-./.local-secrets/postgres_password}
   minio_user:
-    file: ./.local-secrets/minio_user
+    file: ${RATEREPLAY_MINIO_USER_FILE:-./.local-secrets/minio_user}
   minio_password:
-    file: ./.local-secrets/minio_password
+    file: ${RATEREPLAY_MINIO_PASSWORD_FILE:-./.local-secrets/minio_password}
 volumes:
   postgres-data:
   object-data:
