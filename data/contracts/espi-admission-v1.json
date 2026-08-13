@@ -1,0 +1,57 @@
+{
+  "atom_namespace": "http://www.w3.org/2005/Atom",
+  "code_table_authority": "green-button-alliance-espi-xsd-4.0",
+  "contract_version": "espi-admission-v1",
+  "fatal_nonintegral_code": "NON_INTEGRAL_WATT_HOUR",
+  "limits": {
+    "maximum_depth": 64,
+    "maximum_file_bytes": 10485760,
+    "permitted_interval_seconds": [900, 3600]
+  },
+  "namespace": "http://naesb.org/espi",
+  "permitted_extension_policy": "Only the listed schema-valid ESPI resources are admitted. Non-ESPI entry content and unknown ESPI resources are fatal.",
+  "permitted_resource_kinds": [
+    "ElectricPowerUsageSummary",
+    "IntervalBlock",
+    "LocalTimeParameters",
+    "MeterReading",
+    "ReadingType",
+    "UsagePoint"
+  ],
+  "quality_policy": {
+    "absent": "VALID_ASSUMED_BY_ESPI_SCHEMA",
+    "fatal_unknown": true,
+    "warning_codes": {
+      "7": "MANUALLY_EDITED",
+      "8": "ESTIMATED_USING_REFERENCE_DAY"
+    }
+  },
+  "reading_type": {
+    "accumulationBehaviour": { "code": 4, "meaning": "DELTA_DATA" },
+    "commodity": {
+      "code": 1,
+      "meaning": "ELECTRICITY_SECONDARY_METERED_VALUE"
+    },
+    "dataQualifier": { "code": 12, "meaning": "NORMAL" },
+    "flowDirection": { "code": 1, "meaning": "FORWARD_DELIVERED_IMPORT" },
+    "kind": { "code": 12, "meaning": "ENERGY" },
+    "timeAttribute": { "code": 0, "meaning": "NOT_APPLICABLE" },
+    "uom": { "code": 72, "meaning": "WATT_HOUR" }
+  },
+  "relationship_rules": {
+    "IntervalBlock": "one up link to its collection and one owning MeterReading related collection",
+    "LocalTimeParameters": "one up link to its collection and exactly one UsagePoint related reference",
+    "MeterReading": "one up link, exactly one UsagePoint owner, one ReadingType, and at least one IntervalBlock",
+    "ReadingType": "one up link to its collection and exactly one MeterReading related reference",
+    "UsagePoint": "exactly one self link, one up link, one supported MeterReading, and one LocalTimeParameters"
+  },
+  "schema_artifact": "third_party/espi-schema/espi-4.0.xsd",
+  "schema_sha256": "5c40d509744cacb1813eb672305cfe83bb9b2ff494e254f269b093ce52010a33",
+  "schema_version": "4.0.20231213",
+  "service_category": { "code": 0, "meaning": "ELECTRICITY" },
+  "timezone": {
+    "dst_offset_seconds": 3600,
+    "iana_zone": "America/Los_Angeles",
+    "standard_offset_seconds": -28800
+  }
+}

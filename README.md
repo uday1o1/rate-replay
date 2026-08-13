@@ -4,7 +4,7 @@ RateReplay is an auditable household electricity bill-replay and flexible-load s
 It is not an official utility bill and currently admits only source-complete service windows and account classes documented in this repository.
 
 The authoritative implementation scope and acceptance gates are in [BUILD_PLAN.md](BUILD_PLAN.md).
-Milestone evidence is added under `docs/evidence` only after its gate passes.
+Accepted milestone evidence is indexed under [docs/evidence](docs/evidence).
 
 ## Foundation workflow
 

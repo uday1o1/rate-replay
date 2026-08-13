@@ -1,0 +1,19 @@
+{
+  "calendar_id": "ca-observed-holidays-2026-v1",
+  "content_sha256": "c8cbff346c9a83c4f6608c610f851994e29e172d14e13d5d38328075f2724e43",
+  "effective_range": ["2026-01-01", "2027-01-01"],
+  "exceptional_dates_used_in_july_window": [],
+  "holidays_used_in_july_window": [
+    {
+      "date": "2026-07-03",
+      "name": "Independence Day observed"
+    }
+  ],
+  "jurisdiction": "California",
+  "media_type": "application/pdf",
+  "redistribution": "DO_NOT_COMMIT_SOURCE_PDF_NORMALIZED_FACTS_ONLY",
+  "retrieved_at": "2026-08-13T22:30:00Z",
+  "source_id": "california-senate-2026-legislative-calendar",
+  "source_url": "https://www.senate.ca.gov/system/files/2026-04/2026-proposed-calendar-updated-march-2026.pdf",
+  "version": "updated-march-2026"
+}

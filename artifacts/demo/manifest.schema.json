@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ratereplay.invalid/schemas/public-demo-manifest-v1.json",
+  "additionalProperties": false,
+  "properties": {
+    "artifacts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "logical_id": { "type": "string" },
+          "media_type": { "enum": ["application/json", "application/pdf"] },
+          "path": {
+            "pattern": "^[a-z0-9-]+/[a-f0-9]{64}\\.(json|pdf)$",
+            "type": "string"
+          },
+          "sha256": { "pattern": "^[a-f0-9]{64}$", "type": "string" }
+        },
+        "required": ["logical_id", "media_type", "path", "sha256"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "calculation_manifest_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "generation_command": { "const": "make demo-artifacts" },
+    "manifest_version": { "const": "public-demo-manifest-v1" },
+    "simulated_only": { "const": true }
+  },
+  "required": [
+    "manifest_version",
+    "generation_command",
+    "simulated_only",
+    "calculation_manifest_sha256",
+    "artifacts"
+  ],
+  "type": "object"
+}

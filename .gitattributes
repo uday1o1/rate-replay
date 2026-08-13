@@ -1,0 +1,3 @@
+data/fixtures/espi/independent-pacific-hourly.xml -whitespace
+third_party/espi-schema/espi-4.0.xsd -whitespace
+third_party/pge-csv/provider-sample.csv -text -whitespace

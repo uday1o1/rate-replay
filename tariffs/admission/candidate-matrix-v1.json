@@ -1,0 +1,109 @@
+{
+  "comparison_component_keys": [
+    "bundled_energy",
+    "baseline_adjustment",
+    "base_services_charge",
+    "california_climate_credit",
+    "minimum_bill_adjustment"
+  ],
+  "matrix_version": "candidate-admission-matrix-v1",
+  "supported_charge_matrix": {
+    "BaselineAllowance": "REQUIRED_WHERE_APPLICABLE",
+    "BaselineCreditOrSurcharge": "REQUIRED_WHERE_APPLICABLE",
+    "ExplicitUnsupportedCharge": "PRESERVED_BUT_NEVER_RANKED_AS_ZERO",
+    "FixedDailyCharge": "REQUIRED",
+    "FixedMonthlyCharge": "REQUIRED_WHERE_APPLICABLE",
+    "MinimumBillAdjustment": "REQUIRED_WHERE_APPLICABLE",
+    "TieredEnergyCharge": "REQUIRED_WHERE_APPLICABLE",
+    "TimeOfUseEnergyCharge": "REQUIRED_WHERE_APPLICABLE"
+  },
+  "tariffs": [
+    {
+      "admission_status": "M0_SOURCE_COMPLETE_NOT_PRODUCTION_ADMITTED",
+      "calendar_dependency": "NONE",
+      "eligibility_gap": null,
+      "expected_july_rates": {
+        "base_service_tier3_usd_per_day": "0.79343",
+        "climate_credit_usd": "-36.18",
+        "tier1_usd_per_kwh": "0.32561",
+        "tier2_usd_per_kwh": "0.40702"
+      },
+      "required_implementation": [
+        "TieredEnergyCharge",
+        "FixedDailyCharge",
+        "FixedMonthlyCharge",
+        "BaselineAllowance"
+      ],
+      "tariff_id": "E-1"
+    },
+    {
+      "admission_status": "NOT_ADMITTED",
+      "calendar_dependency": "NONE_PEAK_IS_EVERY_DAY",
+      "eligibility_gap": "Active cumulative bill protection must be proved false from account attestation before ranking.",
+      "expected_july_rates": {
+        "baseline_credit_usd_per_kwh": "-0.08140",
+        "base_service_tier3_usd_per_day": "0.79343",
+        "off_peak_usd_per_kwh": "0.39940",
+        "peak_usd_per_kwh": "0.52240"
+      },
+      "required_implementation": [
+        "TimeOfUseEnergyCharge",
+        "BaselineCreditOrSurcharge",
+        "FixedDailyCharge",
+        "FixedMonthlyCharge"
+      ],
+      "tariff_id": "E-TOU-C"
+    },
+    {
+      "admission_status": "NOT_ADMITTED",
+      "calendar_dependency": "ca-observed-holidays-2026-v1",
+      "eligibility_gap": "Holiday compiler and complete eligibility predicate are not implemented.",
+      "expected_july_rates": {
+        "base_service_tier3_usd_per_day": "0.79343",
+        "off_peak_usd_per_kwh": "0.34212",
+        "peak_usd_per_kwh": "0.47708"
+      },
+      "required_implementation": [
+        "TimeOfUseEnergyCharge",
+        "FixedDailyCharge",
+        "FixedMonthlyCharge"
+      ],
+      "tariff_id": "E-TOU-D"
+    },
+    {
+      "admission_status": "NOT_ADMITTED",
+      "calendar_dependency": "NONE_PERIODS_APPLY_EVERY_DAY",
+      "eligibility_gap": "A dated qualifying-technology attestation and executable eligibility predicate are required.",
+      "expected_july_rates": {
+        "base_service_tier3_usd_per_day": "0.79343",
+        "off_peak_usd_per_kwh": "0.33358",
+        "part_peak_usd_per_kwh": "0.39026",
+        "peak_usd_per_kwh": "0.55214"
+      },
+      "required_implementation": [
+        "TimeOfUseEnergyCharge",
+        "FixedDailyCharge",
+        "FixedMonthlyCharge"
+      ],
+      "tariff_id": "E-ELEC"
+    },
+    {
+      "admission_status": "NOT_ADMITTED",
+      "calendar_dependency": "NONE_PERIODS_APPLY_EVERY_DAY",
+      "eligibility_gap": "EV qualification and the filed 800 percent annual-baseline test require dated facts not yet executable.",
+      "expected_july_rates": {
+        "base_service_tier3_usd_per_day": "0.79343",
+        "off_peak_usd_per_kwh": "0.22558",
+        "part_peak_usd_per_kwh": "0.42760",
+        "peak_usd_per_kwh": "0.53809"
+      },
+      "required_implementation": [
+        "TimeOfUseEnergyCharge",
+        "FixedDailyCharge",
+        "FixedMonthlyCharge",
+        "EligibilityPredicate"
+      ],
+      "tariff_id": "EV2-A"
+    }
+  ]
+}

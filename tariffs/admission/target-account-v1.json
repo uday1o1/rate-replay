@@ -1,0 +1,19 @@
+{
+  "predicate_id": "pge-bundled-residential-import-only-july-2026-v1",
+  "required_facts": {
+    "active_bill_protection": false,
+    "care_enrolled": false,
+    "cca_service": false,
+    "direct_access_service": false,
+    "fera_enrolled": false,
+    "income_tier": "TIER_3",
+    "medical_baseline": false,
+    "meter_count": 1,
+    "primary_meter_only": true,
+    "service_mode": "BUNDLED",
+    "service_provider": "PG&E",
+    "service_window": ["2026-07-01", "2026-08-01"],
+    "solar_or_export": false
+  },
+  "schema_version": "account-facts-v1"
+}

@@ -22,7 +22,7 @@ lint:
 	corepack pnpm lint
 
 typecheck:
-	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run mypy apps packages scripts
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run mypy apps packages scripts benchmarks/scripts
 	corepack pnpm typecheck
 
 test:
@@ -34,7 +34,8 @@ security:
 	./scripts/scan-secrets.sh
 
 dependency-audit:
-	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pip-audit --strict
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv export --quiet --frozen --all-groups --no-emit-project --format requirements.txt --output-file /private/tmp/rate-replay-audit-requirements.txt
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pip-audit --strict --disable-pip --require-hashes --requirement /private/tmp/rate-replay-audit-requirements.txt
 	corepack pnpm audit --audit-level high
 
 web-build:
@@ -44,6 +45,7 @@ compose-config:
 	$(COMPOSE) -f compose.yaml config --quiet
 
 check: format-check lint typecheck test security web-build compose-config
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_evidence.py
 
 clean-checkout-check:
 	./scripts/clean-checkout-check.sh

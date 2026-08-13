@@ -1,0 +1,24 @@
+{
+  "allowlist_version": "public-demo-allowlist-v1",
+  "logical_artifact_ids": [
+    "import-review",
+    "bill-replay",
+    "tariff-comparison",
+    "scenario-inputs",
+    "reference-result",
+    "heuristic-result",
+    "solver-result",
+    "verification-record",
+    "redacted-report"
+  ],
+  "permitted_media_types": ["application/json", "application/pdf"],
+  "prohibited_capabilities": [
+    "anonymous-api-mutation",
+    "authenticated-api-request",
+    "job-request",
+    "private-data-reference",
+    "server-side-visitor-state",
+    "shared-account",
+    "upload"
+  ]
+}

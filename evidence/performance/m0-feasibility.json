@@ -1,0 +1,65 @@
+{
+  "benchmark_version": "m0-feasibility-v1",
+  "cache_state": "warm process after declared warmups",
+  "hardware": {
+    "architecture": "arm64",
+    "logical_cpu_count": 10,
+    "machine": "Apple M5 developer laptop",
+    "memory_gib": 24,
+    "operating_system": "macOS-26.5.2-arm64-arm-64bit"
+  },
+  "measurements": {
+    "api_metadata": {
+      "maximum_ms": 0.535125,
+      "median_ms": 0.286021,
+      "minimum_ms": 0.255542,
+      "p95_ms": 0.333625,
+      "repetitions": 100
+    },
+    "argon2id_hash": {
+      "maximum_ms": 42.588792,
+      "median_ms": 39.288084,
+      "minimum_ms": 37.11675,
+      "p95_ms": 42.588792,
+      "repetitions": 5
+    },
+    "argon2id_verify": {
+      "maximum_ms": 41.233334,
+      "median_ms": 39.013583,
+      "minimum_ms": 35.619125,
+      "p95_ms": 41.233334,
+      "repetitions": 5
+    },
+    "e1_reference_replay": {
+      "maximum_ms": 0.006875,
+      "median_ms": 0.006375,
+      "minimum_ms": 0.00625,
+      "p95_ms": 0.006708,
+      "repetitions": 100
+    },
+    "espi_parse_and_schema_validate": {
+      "maximum_ms": 8.451375,
+      "median_ms": 5.585687,
+      "minimum_ms": 5.260083,
+      "p95_ms": 6.345167,
+      "repetitions": 20,
+      "tracemalloc_peak_bytes": 114159
+    }
+  },
+  "passed": true,
+  "process_topology": "single Python 3.12 process with in-process ASGI transport",
+  "thresholds": {
+    "api_metadata_p95_ms": 20,
+    "argon2id_hash_maximum_ms": 1500,
+    "argon2id_verify_maximum_ms": 1500,
+    "e1_reference_replay_p95_ms": 10,
+    "espi_parse_p95_ms": 250,
+    "espi_tracemalloc_peak_bytes": 33554432
+  },
+  "workloads": {
+    "canonical_profile_golden_sha256": "60f888697a7f2df0457f9555006277e56849fea88eda2a8dcf4554ba3d4011c3",
+    "e1_golden_sha256": "062eacfcb8c3dc4326de66b7f1a03c69dfdff9e77a4331dff3f18e1605ea6115",
+    "espi_fixture_sha256": "da68f74a2c9bcaf796af3aa540463cb662f1264da01e97432fe8c18dfeae1224",
+    "espi_schema_sha256": "5c40d509744cacb1813eb672305cfe83bb9b2ff494e254f269b093ce52010a33"
+  }
+}

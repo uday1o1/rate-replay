@@ -1,0 +1,49 @@
+{
+  "lock_version": "external-data-source-lock-v1",
+  "sources": [
+    {
+      "artifact_path": "third_party/espi-schema/espi-4.0.xsd",
+      "license": "Apache-2.0 with embedded NAESB copyright notice",
+      "media_type": "application/xml",
+      "namespace_set": ["http://naesb.org/espi"],
+      "redistribution": "COMMIT_VERBATIM_WITH_LICENSE_AND_NOTICES",
+      "repository_commit": "06666dc82396b53ed14e7a5c45266ed54015c1ce",
+      "schema_version": "4.0.20231213",
+      "sha256": "5c40d509744cacb1813eb672305cfe83bb9b2ff494e254f269b093ce52010a33",
+      "source_id": "green-button-alliance-espi-xsd-4.0",
+      "source_url": "https://github.com/GreenButtonAlliance/OpenESPI-GreenButton-Java/blob/06666dc82396b53ed14e7a5c45266ed54015c1ce/openespi-common/src/main/resources/schema/ESPI_4.0/espi.xsd"
+    },
+    {
+      "artifact_path": "data/fixtures/espi/independent-pacific-hourly.xml",
+      "license": "Embedded EnergyOS Apache-2.0 notice; containing repository MIT license also retained",
+      "media_type": "application/atom+xml",
+      "redistribution": "COMMIT_VERBATIM_WITH_LICENSE_AND_EMBEDDED_NOTICE",
+      "repository_commit": "01b82199fc267f85542ed991724cf97273bb69bd",
+      "sha256": "da68f74a2c9bcaf796af3aa540463cb662f1264da01e97432fe8c18dfeae1224",
+      "source_id": "cew821-independent-pacific-hourly-espi",
+      "source_url": "https://github.com/cew821/greenbutton/blob/01b82199fc267f85542ed991724cf97273bb69bd/spec/fixtures/sample_greenbutton_data.xml"
+    },
+    {
+      "artifact_path": "third_party/pge-csv/provider-sample.csv",
+      "license": "GPL-3.0",
+      "media_type": "text/csv; charset=utf-8",
+      "redistribution": "COMMIT_VERBATIM_WITH_GPL-3.0_LICENSE",
+      "repository_commit": "0847c16952862b6176d2ceadc9cb6921e479b5c4",
+      "sha256": "fab3fccd5f24070b892473ddefbab95c06689f9e41b0eb5981db2d18cbd8a0ac",
+      "source_id": "dchassin-provider-produced-pge-csv-sample",
+      "source_url": "https://github.com/dchassin/home_bill_analysis/blob/0847c16952862b6176d2ceadc9cb6921e479b5c4/data/pge_electric_interval_data_SAMPLE_2020-07-04_to_2020-08-31.csv"
+    },
+    {
+      "artifact_path": null,
+      "building_archetype": "California Single-Family Detached aggregate",
+      "data_release": "2021/resstock_amy2018_release_1",
+      "dataset_doi": "10.25984/1876417",
+      "license": "CC-BY-4.0",
+      "media_type": "text/csv",
+      "redistribution": "RAW_NOT_COMMITTED_DERIVED_PROFILE_COMMITTED_WITH_ATTRIBUTION",
+      "sha256": "db3eb84a48798d19423617f73300367fcaf53a8946b9da40032cf3c6b1246dd3",
+      "source_id": "nrel-resstock-2021-ca-single-family-detached",
+      "source_url": "https://oedi-data-lake.s3.amazonaws.com/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2021/resstock_amy2018_release_1/timeseries_aggregates/by_state/state=CA/ca-single-family_detached.csv"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "artifact_path": "data/demo/july-2026-simulated-profile.json",
+  "artifact_sha256": "47b449f47039960cde24666a5ed2723781b7773d624dbdd2b74de78e02da19ce",
+  "generator": "scripts/generate_demo_profile.py",
+  "generator_contract_version": "v1",
+  "source_sha256": "db3eb84a48798d19423617f73300367fcaf53a8946b9da40032cf3c6b1246dd3"
+}

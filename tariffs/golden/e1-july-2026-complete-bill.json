@@ -1,0 +1,31 @@
+{
+  "schema_version": "golden-tariff-case-v1",
+  "case_id": "pge-e1-july-2026-territory-t-basic-310kwh",
+  "author": "project-owner",
+  "review_method": "hand-derived independent worksheet with a separate decimal check",
+  "review_status": "self-reviewed-frozen-before-production-evaluator",
+  "source_ids": ["pge-advice-7921-e", "pge-advice-7846-e"],
+  "source_sheets": ["61362-E", "61097-E", "61099-E"],
+  "derivation": [
+    "July has 31 service days.",
+    "Territory T basic summer baseline is 6.5 kWh/day, so Tier 1 is 201.5 kWh.",
+    "Tier 1 is 201.5 kWh at $0.32561/kWh, or $65.610415 before cent rounding.",
+    "Tier 2 is 108.5 kWh at $0.40702/kWh, or $44.161670 before cent rounding.",
+    "Income Tier 3 base service is 31 days at $0.79343/day, or $24.596330 before cent rounding.",
+    "The service period ends in the August bill cycle, so the filed $36.18 California Climate Credit applies once.",
+    "Half-up cent rounding yields $65.61, $44.16, $24.60, and a $36.18 credit."
+  ],
+  "inputs": {
+    "billing_days": 31,
+    "energy_wh": 310000,
+    "baseline_wh": 201500,
+    "baseline_territory": "T",
+    "baseline_quantity_code": "BASIC",
+    "bill_cycle_month": 8,
+    "income_tier": "TIER_3"
+  },
+  "expected": {
+    "line_cents": [6561, 4416, 2460, -3618],
+    "total_cents": 9819
+  }
+}

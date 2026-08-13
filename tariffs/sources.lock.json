@@ -1,0 +1,139 @@
+{
+  "lock_version": "tariff-source-lock-v1",
+  "retrieved_at": "2026-08-13T22:00:00Z",
+  "review": {
+    "method": "PDF text extraction followed by page-image and arithmetic self-review",
+    "reviewed_at": "2026-08-13T23:00:00Z",
+    "reviewer_id": "repository-maintainer",
+    "reviewer_independence": "SELF_REVIEW"
+  },
+  "sources": [
+    {
+      "archive_location": "https://www.pge.com/tariffs/assets/pdf/adviceletter/ELEC_7921-E.pdf",
+      "effective_range": ["2026-06-01", null],
+      "extraction_notes": "Rate and California Climate Credit sheets effective for July 2026.",
+      "media_type": "application/pdf",
+      "redistribution": "DO_NOT_COMMIT_PDF_STABLE_REGULATOR_ARCHIVE",
+      "regulator_identifiers": ["Advice 7921-E", "Decision D.26-04-036"],
+      "rule_ids": [
+        "E1_TOTAL_ENERGY_2026_06_01",
+        "ETOUC_SUMMER_TOTAL_RATES_2026_06_01",
+        "ETOUD_SUMMER_TOTAL_RATES_2026_06_01",
+        "EELEC_SUMMER_TOTAL_RATES_2026_06_01",
+        "EV2A_SUMMER_TOTAL_RATES_2026_06_01",
+        "BSC_TIER3_2026_06_01",
+        "CALIFORNIA_CLIMATE_CREDIT_2026"
+      ],
+      "sha256": "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+      "source_id": "pge-advice-7921-e",
+      "source_url": "https://www.pge.com/tariffs/assets/pdf/adviceletter/ELEC_7921-E.pdf"
+    },
+    {
+      "archive_location": "https://www.pge.com/tariffs/assets/pdf/adviceletter/ELEC_7846-E.pdf",
+      "effective_range": ["2026-03-01", null],
+      "extraction_notes": "Applicability, baseline, schedule, component, and special-condition sheets still effective for July 2026.",
+      "media_type": "application/pdf",
+      "redistribution": "DO_NOT_COMMIT_PDF_STABLE_REGULATOR_ARCHIVE",
+      "regulator_identifiers": ["Advice 7846-E"],
+      "rule_ids": [
+        "E1_APPLICABILITY_2026_03_01",
+        "E1_BASELINE_T_BASIC_SUMMER_2026_03_01",
+        "ETOUC_APPLICABILITY_2026_03_01",
+        "ETOUC_PEAK_1600_2100_EVERY_DAY_2026_03_01",
+        "ETOUD_APPLICABILITY_2026_03_01",
+        "ETOUD_PEAK_1700_2000_NONHOLIDAY_WEEKDAY_2026_03_01",
+        "EELEC_APPLICABILITY_2026_03_01",
+        "EELEC_TOU_WINDOWS_2026_03_01",
+        "EV2A_APPLICABILITY_2026_03_01",
+        "EV2A_TOU_WINDOWS_2026_03_01"
+      ],
+      "sha256": "c7b7f7128aec0c2cd86d3ac0f8a076d71dcb65cc03bdd2f8042d0560c02b5877",
+      "source_id": "pge-advice-7846-e",
+      "source_url": "https://www.pge.com/tariffs/assets/pdf/adviceletter/ELEC_7846-E.pdf"
+    },
+    {
+      "archive_location": null,
+      "effective_range": ["2026-06-01", null],
+      "extraction_notes": "Mutable assembled tariffbook copy inspected only as a cross-check against the stable advice archives.",
+      "media_type": "application/pdf",
+      "redistribution": "DO_NOT_COMMIT_MUTABLE_UTILITY_PDF",
+      "regulator_identifiers": [
+        "CPUC sheets 61362-E and 61097-E through 61101-E"
+      ],
+      "rule_ids": ["E1_JULY_2026_DISCOVERY_COPY"],
+      "sha256": "39fbba73bbe0ee594705f52c1bbe1ab14d41ad9807742defc1dadcc39f577239",
+      "source_id": "pge-e1-tariffbook-retrieved-2026-08-13",
+      "source_url": "https://www.pge.com/tariffs/assets/pdf/tariffbook/ELEC_SCHEDS_E-1.pdf"
+    },
+    {
+      "archive_location": null,
+      "effective_range": ["2026-06-01", null],
+      "extraction_notes": "Candidate discovery copy. No support claim is made by this source record.",
+      "media_type": "application/pdf",
+      "redistribution": "DO_NOT_COMMIT_MUTABLE_UTILITY_PDF",
+      "regulator_identifiers": ["CPUC sheets 61124-E and 61364-E"],
+      "rule_ids": ["ETOUC_JULY_2026_DISCOVERY_COPY"],
+      "sha256": "053b572d9c86df2a0e05f583b171148f072ba870b6b846367b2d3c0d81b4a931",
+      "source_id": "pge-etou-c-tariffbook-retrieved-2026-08-13",
+      "source_url": "https://www.pge.com/tariffs/assets/pdf/tariffbook/ELEC_SCHEDS_E-TOU-C.pdf"
+    },
+    {
+      "archive_location": null,
+      "effective_range": ["2026-06-01", null],
+      "extraction_notes": "Candidate discovery copy. Holiday dependencies are separately locked.",
+      "media_type": "application/pdf",
+      "redistribution": "DO_NOT_COMMIT_MUTABLE_UTILITY_PDF",
+      "regulator_identifiers": ["CPUC sheets 61134-E and 61365-E"],
+      "rule_ids": ["ETOUD_JULY_2026_DISCOVERY_COPY"],
+      "sha256": "5304ac6764849642cec5943aaddf1aebfb41e8636f99f7a87777bb7a08719015",
+      "source_id": "pge-etou-d-tariffbook-retrieved-2026-08-13",
+      "source_url": "https://www.pge.com/tariffs/assets/pdf/tariffbook/ELEC_SCHEDS_E-TOU-D.pdf"
+    },
+    {
+      "archive_location": null,
+      "effective_range": ["2026-06-01", null],
+      "extraction_notes": "Candidate discovery copy. No support claim is made by this source record.",
+      "media_type": "application/pdf",
+      "redistribution": "DO_NOT_COMMIT_MUTABLE_UTILITY_PDF",
+      "regulator_identifiers": ["CPUC sheets 61116-E and 61363-E"],
+      "rule_ids": ["EELEC_JULY_2026_DISCOVERY_COPY"],
+      "sha256": "a515ec2cd50db78e4728c8690435d60180b75348fbc12731875a63e678063b2f",
+      "source_id": "pge-eelec-tariffbook-retrieved-2026-08-13",
+      "source_url": "https://www.pge.com/tariffs/assets/pdf/tariffbook/ELEC_SCHEDS_E-ELEC.pdf"
+    },
+    {
+      "archive_location": null,
+      "effective_range": ["2026-06-01", null],
+      "extraction_notes": "Candidate discovery copy. The filed schedule is EV2 and bills identify Rate A as EV2A.",
+      "media_type": "application/pdf",
+      "redistribution": "DO_NOT_COMMIT_MUTABLE_UTILITY_PDF",
+      "regulator_identifiers": ["CPUC sheets 61169-E and 61374-E"],
+      "rule_ids": ["EV2A_JULY_2026_DISCOVERY_COPY"],
+      "sha256": "7194e571a6df2aa3d23c02a236a21167821987587393ee58313860f48a3703a8",
+      "source_id": "pge-ev2-tariffbook-retrieved-2026-08-13",
+      "source_url": "https://www.pge.com/tariffs/assets/pdf/tariffbook/ELEC_SCHEDS_EV2.pdf"
+    }
+  ],
+  "tariff_component_vectors": [
+    {
+      "admission_status": "M0_SOURCE_COMPLETE_NOT_PRODUCTION_ADMITTED",
+      "components": [
+        {
+          "component_id": "e1-applicability-baseline-and-special-conditions",
+          "effective_range": ["2026-03-01", null],
+          "precedence": 1,
+          "source_id": "pge-advice-7846-e"
+        },
+        {
+          "component_id": "e1-total-rates-base-service-and-climate-credit",
+          "effective_range": ["2026-06-01", null],
+          "precedence": 2,
+          "source_id": "pge-advice-7921-e"
+        }
+      ],
+      "coverage_count_per_service_instant": 1,
+      "service_window": ["2026-07-01", "2026-08-01"],
+      "tariff_id": "pge-e1-2026-07"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Wrong commodity corpus seed</title>
+  <entry>
+    <link rel="self" href="UsagePoint/1"/>
+    <link rel="up" href="UsagePoint"/>
+    <content>
+      <UsagePoint xmlns="http://naesb.org/espi">
+        <ServiceCategory><kind>1</kind></ServiceCategory>
+      </UsagePoint>
+    </content>
+  </entry>
+</feed>

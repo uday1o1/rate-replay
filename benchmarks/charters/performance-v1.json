@@ -1,0 +1,64 @@
+{
+  "aggregation_rules": {
+    "deterministic_operations": "maximum for exact invariants and nearest-rank p95 for latency",
+    "nondeterministic_operations": "at least 10 measured repetitions, nearest-rank p50, p95, and p99 plus maximum",
+    "rounding": "six decimal places for milliseconds"
+  },
+  "cache_policy": {
+    "cold": "new application process, empty application caches, persistent services already healthy",
+    "warm": "declared warmups completed in the same process and no input or contract changes"
+  },
+  "charter_version": "performance-acceptance-v1",
+  "duplicate_result_threshold": 0,
+  "frozen_before_milestone": 1,
+  "hardware": {
+    "architecture": "arm64",
+    "logical_cpu_count": 10,
+    "machine": "Apple M5 developer laptop",
+    "memory_gib": 24,
+    "operating_system": "macOS 26.5"
+  },
+  "lease_and_heartbeat": {
+    "heartbeat_seconds": 5,
+    "lease_seconds": 20,
+    "recovery_deadline_seconds": 30
+  },
+  "process_topology": {
+    "api_processes": 1,
+    "database": "PostgreSQL 16.10 container",
+    "object_store": "MinIO RELEASE.2025-09-07T16-13-09Z container",
+    "web_processes": 1,
+    "worker_processes": 1
+  },
+  "repetitions": {
+    "api_latency": 30,
+    "deterministic_recovery_cases": 10,
+    "import_and_replay": 10,
+    "warmups": 3
+  },
+  "thresholds": {
+    "api_warm_cached_comparison_p95_ms": 1000,
+    "duplicate_successful_results": 0,
+    "import_peak_rss_one_month_bytes": 268435456,
+    "import_peak_rss_one_year_bytes": 536870912,
+    "import_wall_one_month_p95_ms": 3000,
+    "import_wall_one_year_p95_ms": 15000,
+    "july_comparison_uncached_p95_ms": 3000,
+    "july_replay_p95_ms": 1000,
+    "report_generation_p95_ms": 2000,
+    "worker_recovery_maximum_ms": 30000
+  },
+  "variance_policy": "No published run may omit a failed repetition. A coefficient of variation above 0.20 requires investigation and a new run without deleting the original result.",
+  "workload_manifest": {
+    "api_concurrency": 8,
+    "calculation_time_mode": "HISTORICAL_REPLAY",
+    "import_profiles": [
+      "one-month-15-minute",
+      "six-month-15-minute",
+      "one-year-15-minute"
+    ],
+    "july_profile_sha256": "47b449f47039960cde24666a5ed2723781b7773d624dbdd2b74de78e02da19ce",
+    "july_service_window": ["2026-07-01", "2026-08-01"],
+    "tariff_candidate_counts": [1, 3]
+  }
+}
