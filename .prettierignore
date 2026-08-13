@@ -1,0 +1,11 @@
+BUILD_PLAN.md
+third_party
+uv.lock
+pnpm-lock.yaml
+data/demo/source
+data/demo/*.json
+data/golden/*.json
+evidence/performance/*.json
+.env.example
+.nvmrc
+.python-version
