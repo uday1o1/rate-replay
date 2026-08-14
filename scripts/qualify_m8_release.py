@@ -1137,6 +1137,23 @@ def qualify() -> tuple[dict[str, Any], dict[str, Any]]:
             encoding="utf-8",
         )
         return release_payload, crash_payload
+    except Exception:
+        try:
+            diagnostic = deployment.run(
+                "logs",
+                "--no-color",
+                "postgres",
+                "migrate",
+                "api",
+                "worker",
+                timeout=30,
+            ).stdout[-12_000:]
+        except Exception as diagnostic_error:
+            diagnostic = f"DIAGNOSTIC_UNAVAILABLE:{type(diagnostic_error).__name__}"
+        for sensitive_value in sensitive_values:
+            diagnostic = diagnostic.replace(sensitive_value, "[REDACTED]")
+        print(f"M8_RELEASE_SERVICE_DIAGNOSTIC\n{diagnostic}", file=sys.stderr, flush=True)
+        raise
     finally:
         if core_client is not None:
             core_client.close()
