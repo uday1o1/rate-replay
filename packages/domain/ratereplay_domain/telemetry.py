@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -24,6 +25,7 @@ from opentelemetry.trace import Status, StatusCode
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 
 TraceExporterName = Literal["none", "console"]
+LogExporterName = Literal["none", "console"]
 T = TypeVar("T")
 
 TELEMETRY_SCHEMA_VERSION: Final = "ratereplay-telemetry-v1"
@@ -65,6 +67,7 @@ class TelemetryConfiguration:
     service_name: str
     environment: str
     trace_exporter: TraceExporterName = "none"
+    log_exporter: LogExporterName = "none"
 
     @classmethod
     def from_environment(
@@ -76,11 +79,16 @@ class TelemetryConfiguration:
         exporter = os.getenv("RATEREPLAY_TRACE_EXPORTER", "none")
         if exporter not in {"none", "console"}:
             raise RuntimeError("RATEREPLAY_TRACE_EXPORTER must be 'none' or 'console'")
+        log_exporter = os.getenv("RATEREPLAY_LOG_EXPORTER", "none")
+        if log_exporter not in {"none", "console"}:
+            raise RuntimeError("RATEREPLAY_LOG_EXPORTER must be 'none' or 'console'")
         selected_exporter: TraceExporterName = "console" if exporter == "console" else "none"
+        selected_log_exporter: LogExporterName = "console" if log_exporter == "console" else "none"
         return cls(
             service_name=_safe_service_name(service_name),
             environment=_safe_environment(environment),
             trace_exporter=selected_exporter,
+            log_exporter=selected_log_exporter,
         )
 
 
@@ -218,7 +226,18 @@ class Telemetry:
             ("outcome",),
             registry=self.registry,
         )
-        self._logger = logging.getLogger("ratereplay.telemetry")
+        self._logger = logging.getLogger(
+            f"ratereplay.telemetry.{configuration.service_name}.{id(self)}"
+        )
+        self._log_handler: logging.Handler | None = None
+        if configuration.log_exporter == "console":
+            handler = logging.StreamHandler(sys.stdout)
+            handler.setLevel(logging.INFO)
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            self._logger.addHandler(handler)
+            self._logger.setLevel(logging.INFO)
+            self._logger.propagate = False
+            self._log_handler = handler
         resource = Resource.create(
             {
                 "service.name": configuration.service_name,
@@ -424,6 +443,10 @@ class Telemetry:
         """Flush configured trace processors before process shutdown."""
 
         self._provider.shutdown()
+        if self._log_handler is not None:
+            self._logger.removeHandler(self._log_handler)
+            self._log_handler.close()
+            self._log_handler = None
 
 
 class HttpRequestObservation:

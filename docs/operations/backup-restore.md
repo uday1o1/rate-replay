@@ -112,4 +112,4 @@ It also injects primary loss after `PREPARED`, after database fencing, and after
 The drill preserves missing-ledger and tampered-ledger failures and verifies 30-day backup expiry.
 
 Only the evidence produced by that repository qualification command supports the `LOCAL_REPRODUCIBLE` claim.
-Real TLS, hosted storage durability, hosted encryption, hosted rollback, and hosted restore remain unvalidated until an explicitly authorized staging or production exercise passes.
+Public ACME TLS, hosted storage durability, hosted encryption, hosted rollback, and hosted restore remain unvalidated until an explicitly authorized staging or production exercise passes.

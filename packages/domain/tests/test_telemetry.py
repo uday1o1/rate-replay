@@ -92,6 +92,13 @@ def test_telemetry_configuration_rejects_arbitrary_resources(
             environment="test",
         )
     monkeypatch.setenv("RATEREPLAY_TRACE_EXPORTER", "none")
+    monkeypatch.setenv("RATEREPLAY_LOG_EXPORTER", "network-url-from-user")
+    with pytest.raises(RuntimeError, match="RATEREPLAY_LOG_EXPORTER"):
+        TelemetryConfiguration.from_environment(
+            service_name="ratereplay-api",
+            environment="test",
+        )
+    monkeypatch.setenv("RATEREPLAY_LOG_EXPORTER", "none")
     with pytest.raises(ValueError, match="service name"):
         TelemetryConfiguration.from_environment(
             service_name="owner-name",
@@ -118,6 +125,30 @@ def test_console_exporter_configuration_is_explicit_and_shutdown_flushes(
     assert telemetry.run_worker("IMPORT", lambda: True)
     telemetry.shutdown()
     assert len(exporter.spans) == 1
+
+
+def test_console_log_exporter_emits_one_message_only_json_event(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("RATEREPLAY_TRACE_EXPORTER", "none")
+    monkeypatch.setenv("RATEREPLAY_LOG_EXPORTER", "console")
+    telemetry = Telemetry(
+        TelemetryConfiguration.from_environment(
+            service_name="ratereplay-api",
+            environment="staging",
+        )
+    )
+
+    telemetry.log_event("http_request_completed", route="/readyz", status=200)
+    telemetry.shutdown()
+
+    assert json.loads(capsys.readouterr().out) == {
+        "event": "http_request_completed",
+        "route": "/readyz",
+        "schema_version": "ratereplay-telemetry-v1",
+        "status": 200,
+    }
 
 
 def test_operational_metrics_cover_fixed_sli_surface() -> None:

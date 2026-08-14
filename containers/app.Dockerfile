@@ -5,10 +5,22 @@ FROM python@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830
 ENV PATH="/app/.venv/bin:/usr/local/bin:${PATH}" \
     UV_CACHE_DIR=/tmp/uv-cache \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0
 WORKDIR /app
 RUN python -m pip install --no-cache-dir uv==0.11.23
-COPY . /app
+COPY pyproject.toml uv.lock README.md LICENSE /app/
+RUN uv sync --frozen --no-dev --no-editable --no-install-project \
+    && rm -rf /tmp/uv-cache
+COPY alembic.ini pnpm-lock.yaml /app/
+COPY apps/api /app/apps/api
+COPY apps/worker /app/apps/worker
+COPY artifacts/demo /app/artifacts/demo
+COPY data /app/data
+COPY migrations /app/migrations
+COPY packages /app/packages
+COPY tariffs /app/tariffs
+COPY third_party /app/third_party
 RUN uv sync --frozen --no-dev --no-editable \
     && rm -rf /tmp/uv-cache
 
