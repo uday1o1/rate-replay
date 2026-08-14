@@ -6,6 +6,7 @@ import {
   TariffSummary,
 } from "./ComparisonWorkspace";
 import { api } from "./api";
+import { ScenarioWorkspace } from "./ScenarioWorkspace";
 import "./styles.css";
 
 type SessionUser = { user_id: string; username: string };
@@ -827,21 +828,31 @@ export function App() {
           {replay !== null &&
             comparisonAccountFacts !== null &&
             csrf !== null && (
-              <ComparisonWorkspace
-                key={replay.replay_id}
-                replayId={replay.replay_id}
-                csrf={csrf}
-                accountFacts={comparisonAccountFacts}
-                tariffs={tariffs}
-                onMessage={setMessage}
-              />
+              <>
+                <ComparisonWorkspace
+                  key={`comparison-${replay.replay_id}`}
+                  replayId={replay.replay_id}
+                  csrf={csrf}
+                  accountFacts={comparisonAccountFacts}
+                  tariffs={tariffs}
+                  onMessage={setMessage}
+                />
+                <ScenarioWorkspace
+                  key={`scenario-${replay.replay_id}`}
+                  profileId={profile?.profile_version_id ?? ""}
+                  csrf={csrf}
+                  accountFacts={comparisonAccountFacts}
+                  tariffs={tariffs}
+                  onMessage={setMessage}
+                />
+              </>
             )}
 
           <section
             className="panel wide provenance"
             aria-labelledby="provenance-heading"
           >
-            <p className="step">05</p>
+            <p className="step">06</p>
             <h2 id="provenance-heading">Filed-source provenance</h2>
             {tariff === null ? (
               <p>Loading the admitted E-1 source vector.</p>

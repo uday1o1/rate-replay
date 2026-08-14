@@ -3,6 +3,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,7 +33,7 @@ const tariffDetail = {
     scope: {
       calculation_time_mode: "HISTORICAL_REPLAY",
       comparison_admitted: true,
-      optimization_admitted: false,
+      optimization_admitted: true,
     },
   },
   compilation: {
@@ -61,6 +62,7 @@ const tariffList = {
     plan_code,
     admission_status: "ADMITTED",
     comparison_admitted: true,
+    optimization_admitted: true,
   })),
 };
 
@@ -204,6 +206,145 @@ const blockedComparison = {
     winner_tariff_version_ids: [],
     savings_against_current_supported_cents: null,
     comparison_sha256: "8".repeat(64),
+  },
+};
+
+const scenarioSlots = Array.from({ length: 8 }, (_, index) => ({
+  slot_start_utc: new Date(Date.UTC(2026, 6, 7, index)).toISOString(),
+  duration_seconds: 3600,
+  measured_energy_wh: 500,
+}));
+
+const profileScenarioSlots = {
+  schema_version: "profile-scenario-slots-v1",
+  profile_version_id: "profile-one",
+  profile_content_sha256: "d".repeat(64),
+  calculation_time_mode: "HISTORICAL_REPLAY",
+  energy_basis: "METER_SIDE",
+  slots: scenarioSlots,
+};
+
+function resultEnergySlots(values: number[]) {
+  return scenarioSlots.map((slot, index) => ({
+    slot_start_utc: slot.slot_start_utc,
+    duration_seconds: slot.duration_seconds,
+    energy_wh: values[index] ?? 0,
+  }));
+}
+
+function verifiedSchedule(values: number[], supportedCostCents: number) {
+  return {
+    schedule: {
+      occurrences: [
+        {
+          occurrence_id: "scenario-uuid",
+          slots: resultEnergySlots(values),
+        },
+      ],
+    },
+    verification: {
+      status: "VALID",
+      objective: {
+        supported_cost_cents: supportedCostCents,
+        changed_occurrence_slot_count: 2,
+        completion_slot_index_sum: values.reduce(
+          (last, value, index) => (value > 0 ? index + 1 : last),
+          0,
+        ),
+        stable_slot_order_score: values.reduce(
+          (total, value, index) => total + value * (index + 1),
+          0,
+        ),
+      },
+      verification_sha256: `${supportedCostCents}`.padEnd(64, "0").slice(0, 64),
+    },
+    billing_result: {
+      supported_calculated_cents: supportedCostCents,
+      result_sha256: `${supportedCostCents}`.padEnd(64, "1").slice(0, 64),
+    },
+  };
+}
+
+const scenarioReference = [0, 0, 0, 7200, 0, 0, 0, 0];
+const scenarioSelected = [7200, 0, 0, 0, 0, 0, 0, 0];
+const referenceVerified = verifiedSchedule(scenarioReference, 2500);
+const selectedVerified = verifiedSchedule(scenarioSelected, 2000);
+
+const optimalScenario = {
+  scenario_id: "scenario-one",
+  state: "SUCCEEDED",
+  repeated: false,
+  result: {
+    calculation_time_mode: "HISTORICAL_REPLAY",
+    historical_addition_label: "HISTORICAL_COUNTERFACTUAL_NOT_FORECAST",
+    reference_validation: {
+      status: "VALID",
+      load_count: 1,
+      occurrence_count: 1,
+      slot_count: 8,
+    },
+    decomposition: {
+      fixed_background: resultEnergySlots(Array<number>(8).fill(500)),
+      shift_existing_reference: resultEnergySlots(Array<number>(8).fill(0)),
+      historical_addition_reference: resultEnergySlots(scenarioReference),
+      reconstructed_measured_profile: resultEnergySlots(
+        Array<number>(8).fill(500),
+      ),
+      unchanged_reference_profile: resultEnergySlots(
+        scenarioReference.map((value) => value + 500),
+      ),
+      exact_measured_reconstruction: true,
+    },
+    exact: {
+      search_status: "OPTIMAL",
+      selected_source: "SOLVER_INCUMBENT",
+      selection_reason: "INCUMBENT_STRICTLY_BETTER",
+      selected: selectedVerified,
+      reference: referenceVerified,
+      highest_objective_stage_proved_optimal: 4,
+      first_open_stage: null,
+      best_supported_cost_bound: 2000,
+      absolute_cost_gap_cents: 0,
+      relative_cost_gap: 0,
+    },
+    heuristic: {
+      search_status: "HEURISTIC_PROXY_OPTIMAL",
+      selection_outcome: "HEURISTIC_INCUMBENT_SELECTED",
+      bill_optimality_claim: false,
+      selected: selectedVerified,
+      fallback_reason: null,
+    },
+    manifest: {
+      calculation_sha256: "2".repeat(64),
+      solver_name: "OR-Tools CP-SAT",
+      solver_version: "9.15.6755",
+      rank_calendar_sha256: "3".repeat(64),
+      selected_verification_sha256:
+        selectedVerified.verification.verification_sha256,
+      warning_codes: [],
+    },
+    result_sha256: "4".repeat(64),
+  },
+};
+
+const bestFoundScenario = {
+  ...optimalScenario,
+  scenario_id: "scenario-best-found",
+  result: {
+    ...optimalScenario.result,
+    exact: {
+      ...optimalScenario.result.exact,
+      search_status: "BEST_FOUND",
+      highest_objective_stage_proved_optimal: 0,
+      first_open_stage: 1,
+      best_supported_cost_bound: 1999,
+      absolute_cost_gap_cents: 1,
+      relative_cost_gap: 0.0005,
+    },
+    manifest: {
+      ...optimalScenario.result.manifest,
+      warning_codes: ["EXACT_BEST_FOUND_OPEN_BOUND"],
+    },
   },
 };
 
@@ -534,5 +675,298 @@ describe("App", () => {
       dated_eligibility_facts: { annual_usage_wh: null };
     };
     expect(comparisonBody.dated_eligibility_facts.annual_usage_wh).toBeNull();
+  });
+
+  it("previews and runs a complete verified historical EV scenario", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(response(201, replayResource))
+      .mockResolvedValueOnce(response(200, profileScenarioSlots))
+      .mockResolvedValueOnce(response(201, optimalScenario));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "scenario-uuid" });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.click(
+      await screen.findByLabelText(/I attest that every locked account fact/i),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create historical replay" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Schedule a historical flexible load",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(/counterfactual, not a forecast/i)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Preview reference" }));
+    expect(
+      await screen.findByRole("heading", {
+        name: "Reference feasibility preview",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("7.2 kWh")).toBeVisible();
+    expect(
+      screen.getByText(/server will independently validate every slot/i),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run verified optimization" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Optimal" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/All four objective stages were proved optimal/i),
+    ).toBeVisible();
+    expect(screen.getByText("$25.00")).toBeVisible();
+    expect(screen.getByText("$20.00")).toBeVisible();
+    expect(screen.getByText(/Exact measured reconstruction/i)).toBeVisible();
+    expect(
+      screen.getByText(/This heuristic is not bill-optimal/i),
+    ).toBeVisible();
+    expect(screen.getAllByText(/not a forecast/i).length).toBeGreaterThan(0);
+
+    const slotCall = fetchMock.mock.calls[6] as [string, RequestInit];
+    const scenarioCall = fetchMock.mock.calls[7] as [string, RequestInit];
+    expect(slotCall[0]).toBe("/v1/profiles/profile-one/scenario-slots");
+    expect(scenarioCall[0]).toBe("/v1/scenarios");
+    const scenarioBody = JSON.parse(scenarioCall[1].body as string) as {
+      tariff_version_id: string;
+      loads: Array<{
+        mode: string;
+        occurrences: Array<{
+          reference_schedule: Array<{ energy_wh: number }>;
+        }>;
+      }>;
+      shift_existing_attestation_load_ids: string[];
+    };
+    expect(scenarioBody.tariff_version_id).toBe("pge-etoud-2026-07");
+    expect(scenarioBody.loads[0]?.mode).toBe("HISTORICAL_ADDITION");
+    const submittedReference =
+      scenarioBody.loads[0]?.occurrences[0]?.reference_schedule ?? [];
+    expect(submittedReference).toHaveLength(8);
+    expect(
+      submittedReference.reduce((total, slot) => total + slot.energy_wh, 0),
+    ).toBe(7200);
+    expect(scenarioBody.shift_existing_attestation_load_ids).toEqual([]);
+  });
+
+  it("explains aggregate-cap and reference-window failures before submission", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(response(201, replayResource))
+      .mockResolvedValueOnce(response(200, profileScenarioSlots))
+      .mockResolvedValueOnce(response(200, profileScenarioSlots));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "scenario-uuid" });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.click(
+      await screen.findByLabelText(/I attest that every locked account fact/i),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create historical replay" }),
+    );
+
+    fireEvent.change(
+      await screen.findByLabelText("Flexible-load aggregate cap, W, optional"),
+      { target: { value: "100" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Preview reference" }));
+    expect(
+      await screen.findByRole("heading", {
+        name: "REFERENCE_FLEXIBLE_LOAD_CAP_EXCEEDED",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("3")).toBeVisible();
+    expect(
+      fetchMock.mock.calls.some((call) => call[0] === "/v1/scenarios"),
+    ).toBe(false);
+
+    fireEvent.change(
+      screen.getByLabelText("Flexible-load aggregate cap, W, optional"),
+      { target: { value: "7200" } },
+    );
+    fireEvent.change(
+      screen.getByLabelText("Earliest start, exact UTC boundary"),
+      {
+        target: { value: "2026-07-07T02:00:00Z" },
+      },
+    );
+    fireEvent.change(
+      screen.getByLabelText("Unoptimized reference start, UTC"),
+      {
+        target: { value: "2026-07-07T01:00:00Z" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Preview reference" }));
+    expect(
+      await screen.findByRole("heading", {
+        name: "REFERENCE_ENERGY_OUTSIDE_WINDOW",
+      }),
+    ).toBeVisible();
+    expect(
+      fetchMock.mock.calls.some((call) => call[0] === "/v1/scenarios"),
+    ).toBe(false);
+  });
+
+  it("labels best-found schedules with an open bound instead of optimal", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(response(201, replayResource))
+      .mockResolvedValueOnce(response(200, profileScenarioSlots))
+      .mockResolvedValueOnce(response(201, bestFoundScenario));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "scenario-uuid" });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.click(
+      await screen.findByLabelText(/I attest that every locked account fact/i),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create historical replay" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Preview reference" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Run verified optimization" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Best found" }),
+    ).toBeVisible();
+    expect(screen.getByText(/first open stage is 1/i)).toBeVisible();
+    expect(
+      screen.queryByText(/All four objective stages were proved optimal/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows internal model failures as unsuccessful structured errors", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(response(201, replayResource))
+      .mockResolvedValueOnce(response(200, profileScenarioSlots))
+      .mockResolvedValueOnce(
+        response(500, {
+          schema_version: "problem-v1",
+          code: "EXACT_SOLVER_MODEL_INVALID",
+          message:
+            "The exact model failed validation and no schedule was published.",
+          request_id: "request-one",
+          field_paths: [],
+          witness: { solver_status: "MODEL_INVALID" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "scenario-uuid" });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.click(
+      await screen.findByLabelText(/I attest that every locked account fact/i),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create historical replay" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Preview reference" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Run verified optimization" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "EXACT_SOLVER_MODEL_INVALID",
+      }),
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole("alert")).getByText(/no schedule was published/i),
+    ).toBeVisible();
+    expect(screen.getByText("MODEL_INVALID")).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Optimal" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Best found" }),
+    ).not.toBeInTheDocument();
   });
 });

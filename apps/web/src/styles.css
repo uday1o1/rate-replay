@@ -336,6 +336,83 @@ dd {
   margin-top: 1.5rem;
 }
 
+.scenario-form {
+  margin-top: 1.5rem;
+}
+
+.scenario-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.scenario-preview,
+.scenario-result {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid #c5cbc3;
+}
+
+.scenario-preview h3 {
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.scenario-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.scenario-metrics div,
+.scenario-issue dl div {
+  min-width: 0;
+  padding: 0.8rem;
+  border-radius: 0.6rem;
+  background: #edf1ea;
+}
+
+.scenario-outcome {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.scenario-issue {
+  margin-top: 1.2rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid #c58e85;
+  border-left: 3px solid #9d3f34;
+  border-radius: 0.7rem;
+  background: #fbebe7;
+}
+
+.scenario-issue h4,
+.scenario-result h4 {
+  margin: 0.3rem 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.5rem;
+}
+
+.scenario-issue dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.counterfactual-note,
+.heuristic-note {
+  margin: 1rem 0;
+  padding: 1rem;
+  border-left: 3px solid #a26a2b;
+  background: #fbf2e4;
+}
+
+.heuristic-note {
+  border-color: #54779d;
+  background: #edf2f8;
+}
+
 .candidate-picker {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -649,6 +726,9 @@ code {
   }
 
   .reconciliation-fields,
+  .scenario-fields,
+  .scenario-metrics,
+  .scenario-issue dl,
   .candidate-picker,
   .eligibility-fields,
   .comparison-attestations,
@@ -665,6 +745,10 @@ code {
   }
 
   .comparison-outcome {
+    flex-direction: column;
+  }
+
+  .scenario-outcome {
     flex-direction: column;
   }
 }

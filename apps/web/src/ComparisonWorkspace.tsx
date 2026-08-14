@@ -28,6 +28,7 @@ export type TariffSummary = {
   plan_code: string;
   admission_status: "ADMITTED";
   comparison_admitted: boolean;
+  optimization_admitted: boolean;
 };
 
 type SourceCoverage = {
