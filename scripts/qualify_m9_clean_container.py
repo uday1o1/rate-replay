@@ -129,6 +129,7 @@ def _container_script() -> str:
     commands = "\n".join(QUALIFICATION_COMMANDS)
     return f"""
 set -eu
+cd /workspace
 tools=/workspace/.qualification-tools
 package_root="$tools/packages/root"
 mkdir -p "$tools" "$package_root" "$tools/node" "$tools/python" "$tools/uv-cache" \

@@ -39,6 +39,7 @@ def test_qualification_environment_pins_image_and_tool_downloads() -> None:
 
 def test_container_script_keeps_downloads_and_package_state_in_checkout() -> None:
     script = _container_script()
+    assert script.startswith("set -eu\ncd /workspace\n")
     assert "tools=/workspace/.qualification-tools" in script
     assert "apt-get" not in script
     assert "make_4.3-4.1build2_amd64.deb" in script
