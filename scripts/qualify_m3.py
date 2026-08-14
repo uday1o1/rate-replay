@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import tempfile
@@ -359,7 +360,18 @@ def qualify(output: Path = DEFAULT_OUTPUT) -> dict[str, Any]:
 
 
 def main() -> None:
-    result = qualify()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Generate qualification into a temporary path without rewriting historical evidence.",
+    )
+    args = parser.parse_args()
+    if args.check:
+        with tempfile.TemporaryDirectory(prefix="rate-replay-m3-check-") as temporary:
+            result = qualify(Path(temporary) / "m3-comparison-qualification.json")
+    else:
+        result = qualify()
     comparison = result["comparison"]
     print(
         "Milestone 3 qualification passed: "

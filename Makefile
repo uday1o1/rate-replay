@@ -96,8 +96,7 @@ qualification-m3-goldens:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_m3_goldens.py
 
 qualification-m3:
-	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.qualify_m3
-	corepack pnpm exec prettier --write evidence/correctness/m3-comparison-qualification.json
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.qualify_m3 --check
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov packages/tariffs/tests/test_comparison.py packages/tariffs/tests/test_etouc.py packages/tariffs/tests/test_etoud.py packages/tariffs/tests/test_eelec.py packages/tariffs/tests/test_ev2a.py packages/tariffs/tests/test_tariff_cli.py apps/api/tests/test_comparison_api.py apps/api/tests/test_replay_api.py
 	corepack pnpm test
 
