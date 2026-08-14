@@ -237,6 +237,8 @@ class AuthService:
         if row is None:
             raise self._authentication_required()
         record, user = row
+        if user.lifecycle_state != "ACTIVE":
+            raise self._authentication_required()
         now = self.now
         idle_expires_at = _aware(record.idle_expires_at)
         absolute_expires_at = _aware(record.absolute_expires_at)

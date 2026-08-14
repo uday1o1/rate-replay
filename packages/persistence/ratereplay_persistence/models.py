@@ -17,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -496,7 +497,13 @@ class DeletionIntentRecord(Base):
             "state IN ('INTENT_CREATED', 'PREPARED', 'CONSUMED', 'INVALIDATED')",
             name="ck_deletion_intent_state",
         ),
-        UniqueConstraint("owner_user_id", name="uq_deletion_intent_owner"),
+        Index(
+            "uq_deletion_intent_active_owner",
+            "owner_user_id",
+            unique=True,
+            postgresql_where=text("state != 'INVALIDATED'"),
+            sqlite_where=text("state != 'INVALIDATED'"),
+        ),
         UniqueConstraint(
             "owner_user_id",
             "idempotency_key",
@@ -566,6 +573,7 @@ class DeletionControlOperationRecord(Base):
     original_generation: Mapped[int] = mapped_column(Integer, nullable=False)
     deletion_generation: Mapped[int] = mapped_column(Integer, nullable=False)
     preparation_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    intent_proof_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     phase: Mapped[str] = mapped_column(String(32), nullable=False)
     deletion_job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id"))
     artifact_counts_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")

@@ -10,6 +10,8 @@ from pathlib import Path
 
 import typer
 from ratereplay_persistence.database import make_engine, make_session_factory
+from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
+from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.object_store import FilesystemObjectStore
@@ -50,6 +52,39 @@ def _configured_worker() -> tuple[ImportWorker, Engine]:
     return worker, engine
 
 
+def _configured_deletion_reconciler() -> tuple[DeletionCoordinator, Engine]:
+    database_url = os.getenv("RATEREPLAY_DATABASE_URL")
+    if database_url is None:
+        typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
+        raise typer.Exit(code=2)
+    ledger_root = Path(
+        os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
+    )
+    ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
+    restore_key = _required_key_file("RATEREPLAY_RESTORE_KEY_FILE")
+    engine = make_engine(database_url)
+    sessions = make_session_factory(engine)
+    coordinator = DeletionCoordinator(
+        sessions,
+        FilesystemDeletionLedger(ledger_root, integrity_key=ledger_key),
+        restore_key=restore_key,
+        restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+    )
+    return coordinator, engine
+
+
+def _required_key_file(variable: str) -> bytes:
+    path = os.getenv(variable)
+    if path is None:
+        typer.echo(f"{variable} is required", err=True)
+        raise typer.Exit(code=2)
+    value = Path(path).read_bytes().strip()
+    if len(value) < 32:
+        typer.echo(f"{variable} must reference at least 32 bytes", err=True)
+        raise typer.Exit(code=2)
+    return value
+
+
 @app.command("run-once")
 def run_once() -> None:
     """Lease and process at most one durable import job."""
@@ -70,6 +105,36 @@ def run() -> None:
             processed = worker.run_once(now=datetime.now(UTC))
             if not processed:
                 time.sleep(WORKER_POLL_SECONDS)
+    except KeyboardInterrupt:
+        typer.echo("stopped")
+    finally:
+        engine.dispose()
+
+
+@app.command("reconcile-deletions-once")
+def reconcile_deletions_once() -> None:
+    """Reconcile every externally prepared deletion once."""
+
+    coordinator, engine = _configured_deletion_reconciler()
+    try:
+        result = coordinator.reconcile(now=datetime.now(UTC))
+        typer.echo(
+            f"advanced={result.advanced} quarantined={result.quarantined} "
+            f"examined={result.prepared_examined + result.controls_examined}"
+        )
+    finally:
+        engine.dispose()
+
+
+@app.command("reconcile-deletions")
+def reconcile_deletions() -> None:
+    """Reconcile externally prepared deletions at startup and periodically."""
+
+    coordinator, engine = _configured_deletion_reconciler()
+    try:
+        while True:
+            coordinator.reconcile(now=datetime.now(UTC))
+            time.sleep(WORKER_POLL_SECONDS)
     except KeyboardInterrupt:
         typer.echo("stopped")
     finally:

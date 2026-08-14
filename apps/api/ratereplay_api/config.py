@@ -14,7 +14,11 @@ class AppSettings:
     database_url: str
     allowed_origin: str
     session_key: bytes
+    deletion_ledger_key: bytes
+    restore_suppression_key: bytes
+    restore_key_version: str
     object_store_root: Path
+    deletion_ledger_root: Path
     espi_schema_path: Path
     repository_root: Path
     secure_cookies: bool = True
@@ -30,6 +34,12 @@ class AppSettings:
         allowed_origin = os.getenv("RATEREPLAY_ALLOWED_ORIGIN", "https://localhost:5173")
         object_store_root = Path(
             os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/private/tmp/rate-replay-objects")
+        )
+        deletion_ledger_root = Path(
+            os.getenv(
+                "RATEREPLAY_DELETION_LEDGER_ROOT",
+                "/private/tmp/rate-replay-deletion-ledger",
+            )
         )
         espi_schema_path = Path(
             os.getenv(
@@ -47,12 +57,24 @@ class AppSettings:
             session_key = Path(secret_path).read_bytes().strip()
             if len(session_key) < 32:
                 raise RuntimeError("Session secret must contain at least 32 bytes")
+        deletion_ledger_key = _load_control_key(
+            environment=environment,
+            variable="RATEREPLAY_DELETION_LEDGER_KEY_FILE",
+        )
+        restore_suppression_key = _load_control_key(
+            environment=environment,
+            variable="RATEREPLAY_RESTORE_KEY_FILE",
+        )
         return cls(
             environment=environment,
             database_url=database_url,
             allowed_origin=allowed_origin,
             session_key=session_key,
+            deletion_ledger_key=deletion_ledger_key,
+            restore_suppression_key=restore_suppression_key,
+            restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
             object_store_root=object_store_root,
+            deletion_ledger_root=deletion_ledger_root,
             espi_schema_path=espi_schema_path,
             repository_root=repository_root,
             auto_create_schema=environment == "development",
@@ -65,6 +87,7 @@ class AppSettings:
         database_url: str = "sqlite+pysqlite:///:memory:",
         allowed_origin: str = "https://app.ratereplay.test",
         object_store_root: Path = Path("/private/tmp/rate-replay-test-objects"),
+        deletion_ledger_root: Path = Path("/private/tmp/rate-replay-test-deletion-ledger"),
         espi_schema_path: Path = Path("third_party/espi-schema/espi-4.0.xsd"),
         repository_root: Path = Path("."),
     ) -> AppSettings:
@@ -73,9 +96,25 @@ class AppSettings:
             database_url=database_url,
             allowed_origin=allowed_origin,
             session_key=b"rate-replay-test-session-key-v1!",
+            deletion_ledger_key=b"rate-replay-test-ledger-key-v1!!",
+            restore_suppression_key=b"rate-replay-test-restore-key-v1!",
+            restore_key_version="restore-test-v1",
             object_store_root=object_store_root,
+            deletion_ledger_root=deletion_ledger_root,
             espi_schema_path=espi_schema_path,
             repository_root=repository_root.resolve(),
             secure_cookies=True,
             auto_create_schema=True,
         )
+
+
+def _load_control_key(*, environment: str, variable: str) -> bytes:
+    path = os.getenv(variable)
+    if path is None:
+        if environment in {"production", "staging"}:
+            raise RuntimeError(f"{variable} is required")
+        return secrets.token_bytes(32)
+    value = Path(path).read_bytes().strip()
+    if len(value) < 32:
+        raise RuntimeError(f"{variable} must reference at least 32 bytes")
+    return value

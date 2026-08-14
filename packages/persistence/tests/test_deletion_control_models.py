@@ -117,6 +117,7 @@ def test_receipt_and_control_rows_persist_without_owner_foreign_keys() -> None:
                 original_generation=0,
                 deletion_generation=1,
                 preparation_digest="f" * 64,
+                intent_proof_digest="9" * 64,
                 phase="FENCE",
                 artifact_counts_json="{}",
                 created_at=NOW,

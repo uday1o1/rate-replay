@@ -11,6 +11,8 @@ from ratereplay_ingestion.simulated import load_locked_simulated_profile
 from ratereplay_persistence import models as persistence_models  # noqa: F401
 from ratereplay_persistence.comparisons import ComparisonService
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
+from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
+from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.object_store import FilesystemObjectStore
@@ -22,6 +24,7 @@ from ratereplay_api.auth import AuthService, LoginRateLimiter
 from ratereplay_api.auth_routes import router as auth_router
 from ratereplay_api.comparison_routes import router as comparison_router
 from ratereplay_api.config import AppSettings
+from ratereplay_api.deletion_routes import router as deletion_router
 from ratereplay_api.import_routes import router as import_router
 from ratereplay_api.problems import install_problem_handler
 from ratereplay_api.replay_routes import router as replay_router
@@ -38,6 +41,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     application.state.engine = engine
     application.state.session_factory = make_session_factory(engine)
     application.state.object_store = FilesystemObjectStore(resolved.object_store_root)
+    application.state.deletion_ledger = FilesystemDeletionLedger(
+        resolved.deletion_ledger_root,
+        integrity_key=resolved.deletion_ledger_key,
+    )
     application.state.built_in_simulated_profile = load_locked_simulated_profile(
         resolved.repository_root
     )
@@ -46,6 +53,12 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         application.state.object_store,
     )
     application.state.job_service = JobService(application.state.session_factory)
+    application.state.deletion_coordinator = DeletionCoordinator(
+        application.state.session_factory,
+        application.state.deletion_ledger,
+        restore_key=resolved.restore_suppression_key,
+        restore_key_version=resolved.restore_key_version,
+    )
     application.state.replay_service = ReplayService(application.state.session_factory)
     application.state.comparison_service = ComparisonService(application.state.session_factory)
     application.state.scenario_service = ScenarioService(application.state.session_factory)
@@ -68,7 +81,12 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         allow_origins=[resolved.allowed_origin],
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Content-Type", "X-CSRF-Token", "Idempotency-Key"],
+        allow_headers=[
+            "Content-Type",
+            "X-CSRF-Token",
+            "Idempotency-Key",
+            "X-Deletion-Receipt-Secret",
+        ],
     )
     install_problem_handler(application)
 
@@ -99,6 +117,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     application.include_router(replay_router)
     application.include_router(comparison_router)
     application.include_router(scenario_router)
+    application.include_router(deletion_router)
     return application
 
 
