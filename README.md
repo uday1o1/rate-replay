@@ -8,11 +8,13 @@ Accepted milestone evidence is indexed under [docs/evidence](docs/evidence).
 
 ## Current supported workflow
 
-The currently admitted calculations are historical replay and unchanged-usage comparison across July 2026 PG&E E-1, E-TOU-C, E-TOU-D, E-ELEC, and EV2-A for the locked bundled Tier 3 EV account class.
+The currently admitted calculations are historical replay, unchanged-usage comparison, and verified flexible-load scheduling across July 2026 PG&E E-1, E-TOU-C, E-TOU-D, E-ELEC, and EV2-A for the locked bundled Tier 3 EV account class.
 Current-plan replay emits auditable supported charge lines, exact provenance, optional user-entered unsupported lines, and a signed unexplained residual.
 Alternative-plan results contain eligibility, comparable-component coverage, supported subtotals, and filed-source provenance without propagating the current bill's unsupported lines or residual.
 RateReplay ranks plans and displays a supported-charge savings value only when every candidate is eligible and every difference-making component is covered.
-It does not yet optimize flexible loads, forecast a future bill, claim utility-bill equivalence, or generalize these results beyond the locked account and service window.
+Historical additions are labeled counterfactual rather than forecast, and every published schedule passes a separate verifier before it can replace the unchanged reference.
+Exact results distinguish optimal, best-found, and unsuccessful solver statuses, while the off-peak heuristic explicitly makes no bill-optimality claim.
+RateReplay does not forecast a future bill, claim utility-bill equivalence, or generalize these results beyond the locked account and service window.
 
 Compile the source-locked tariff and reproduce the frozen complete-bill request with:
 
@@ -20,6 +22,7 @@ Compile the source-locked tariff and reproduce the frozen complete-bill request 
 uv run ratereplay-tariff compile-e1
 uv run ratereplay-tariff replay-e1 tariffs/examples/e1-replay-input.json
 make qualification-m3
+make qualification-m4
 ```
 
 The authoring, numeric, eligibility, reconciliation, and admission rules are documented in [docs/tariff-methodology.md](docs/tariff-methodology.md).
@@ -32,10 +35,20 @@ Then run:
 ```sh
 make bootstrap
 make check
-make qualification-m3
+make qualification-m4
 ```
 
 The frozen 750 kWh profile produces supported subtotals of $277.28 for E-1, $302.53 for E-TOU-C, $260.21 for E-TOU-D, $302.78 for E-ELEC, and $268.90 for EV2-A.
 Under only that locked comparable-cost contract, E-TOU-D is the lowest supported subtotal and is $17.07 below E-1.
+The frozen historical-addition workload measured a one-load optimization p95 of 656.535 ms against a 10,000 ms threshold and a five-load p95 of 2,508.454 ms against a 30,000 ms threshold on the named Apple M5 development machine.
+The earlier performance-v2 `SHIFT_EXISTING` workload failed exact decomposition with `NEGATIVE_FIXED_BACKGROUND`; that result remains preserved and was not relabeled as passing.
+
+The portfolio-ready core can be reproduced from a clean tree with:
+
+```sh
+make clean-checkout-check
+```
+
+That gate installs dependencies from locks, runs the full repository verification suite, regenerates the accepted M3 and M4 qualifications, and exercises the production-authenticated API journey from simulated import through verified optimization.
 
 The built-in public demo remains unavailable until its production artifacts pass the Milestone 6 release build.

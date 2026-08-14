@@ -1,0 +1,120 @@
+{
+  "schema_version": "m4-optimizer-qualification-v1",
+  "milestone": 4,
+  "gate_result": "PASS",
+  "commands": {
+    "qualification": "make qualification-m4",
+    "performance": "make benchmark-m4-optimization",
+    "postgres_integration": "make integration-m4",
+    "clean_checkout": "make clean-checkout-check"
+  },
+  "inputs": {
+    "workload_path": "benchmarks/workloads/m4-july-optimization-v2.json",
+    "workload_sha256": "9f9b0b1cef2a8d3b86037e12dec41575ada69d2dc4642cf6b56d390e9108494b",
+    "charter_path": "benchmarks/charters/performance-v3.json",
+    "charter_sha256": "62685dc66a9a311ef83ebac45066be78dfd1f182ed4bd61df875f54e3b1154f4",
+    "profile_path": "data/demo/july-2026-simulated-profile.json",
+    "profile_sha256": "47b449f47039960cde24666a5ed2723781b7773d624dbdd2b74de78e02da19ce",
+    "calculation_time_mode": "HISTORICAL_REPLAY",
+    "historical_addition_label": "HISTORICAL_COUNTERFACTUAL_NOT_FORECAST"
+  },
+  "portfolio_scenario": {
+    "reference_validation_status": "VALID",
+    "exact_measured_reconstruction": true,
+    "exact_search_status": "OPTIMAL",
+    "highest_objective_stage_proved_optimal": 4,
+    "selected_source": "SOLVER_INCUMBENT",
+    "selected_objective_tuple": [26267, 8, 564, 4049535],
+    "reference_objective_tuple": [26365, 0, 552, 3963600],
+    "selected_verification_status": "VALID",
+    "heuristic_status": "HEURISTIC_PROXY_OPTIMAL",
+    "heuristic_selection_outcome": "HEURISTIC_INCUMBENT_SELECTED",
+    "heuristic_bill_optimality_claim": false,
+    "result_sha256": "fb2564ab1e1c08021a54f21200189fef4912ce1aef9e51681520e3e330887875",
+    "verification_sha256": "416f1f4a2b3006b61e0cb996dd1067999473b1905179061cb5d1f07348689085",
+    "solver_lowering_sha256": "62f02c142cb2c9066647a6cbf20d0da37c2f909be164b8cadc5391adc3529151",
+    "rank_calendar_sha256": "f8cee75e3e130be855c69a162f1dd97520986c9286cf1cd7ab3428eb87d40413",
+    "repeatable_under_locked_environment": true
+  },
+  "independent_exhaustive_oracle": {
+    "enumerated_feasible_schedule_count": 2556,
+    "objective_tuple": [-1144, 2, 1, 70],
+    "complete_final_optimum_set": [[70, 0, 0]],
+    "returned_schedule": [70, 0, 0],
+    "returned_schedule_in_optimum_set": true,
+    "returned_verification_status": "VALID",
+    "seeded_corruption": {
+      "mutation": "add_one_watt_hour_to_first_selected_slot",
+      "observed_code": "VERIFIER_ENERGY_CONSERVATION_FAILED",
+      "passed": true
+    }
+  },
+  "public_tariff_lowering": {
+    "optimization_admitted_plan_codes": [
+      "E-1",
+      "E-TOU-C",
+      "E-TOU-D",
+      "E-ELEC",
+      "EV2-A"
+    ],
+    "count": 5,
+    "randomized_equivalence_test": "packages/optimizer/tests/test_solver.py::test_every_public_tariff_lowering_matches_fresh_reference_billing",
+    "passed": true
+  },
+  "status_and_rejection_contracts": {
+    "pre_solve_codes": [
+      "OVERLAPPING_LOAD_OCCURRENCES",
+      "NON_ALIGNED_OCCURRENCE_BOUNDARY",
+      "NEGATIVE_FIXED_BACKGROUND"
+    ],
+    "distinct_statuses": [
+      "OPTIMAL",
+      "BEST_FOUND",
+      "INVALID_REFERENCE",
+      "MODEL_CONTRACT_VIOLATION",
+      "UNKNOWN",
+      "MODEL_INVALID"
+    ],
+    "unsupported_operator_code": "UNSUPPORTED_IR_OPERATOR",
+    "api_and_ui_contract_tests_passed": true
+  },
+  "performance": {
+    "evidence_path": "evidence/performance/m4-optimization-performance-v3.json",
+    "evidence_sha256": "f959fb3e4e2cf2f41e3b58d5d0e4d77ff5c754136ef1622aa74faaa6278ed729",
+    "gate_result": "PASS",
+    "measurements_by_load_count": {
+      "1": {
+        "repetitions": 10,
+        "warmups": 3,
+        "durations_ms": [
+          651.302375, 656.535459, 650.324333, 626.115875, 644.884292,
+          615.893833, 646.417458, 624.419375, 654.666792, 641.707916
+        ],
+        "p50_ms": 644.884292,
+        "p95_ms": 656.535459,
+        "p99_ms": 656.535459,
+        "maximum_ms": 656.535459,
+        "threshold_ms": 10000,
+        "result_sha256": "fb2564ab1e1c08021a54f21200189fef4912ce1aef9e51681520e3e330887875",
+        "deterministic": true,
+        "passed": true
+      },
+      "5": {
+        "repetitions": 10,
+        "warmups": 3,
+        "durations_ms": [
+          2508.453792, 2451.68375, 2402.221416, 2385.319833, 2394.78125,
+          2410.3015, 2436.15325, 2361.046875, 2438.755208, 2446.364292
+        ],
+        "p50_ms": 2410.3015,
+        "p95_ms": 2508.453792,
+        "p99_ms": 2508.453792,
+        "maximum_ms": 2508.453792,
+        "threshold_ms": 30000,
+        "result_sha256": "bcc1457ef05753f798221ceae733795b744458c93a5c5c7b7c0eaa6289b7b8c1",
+        "deterministic": true,
+        "passed": true
+      }
+    }
+  }
+}

@@ -337,6 +337,101 @@ def _validate_m4_performance_charter() -> None:
         == "HISTORICAL_COUNTERFACTUAL_NOT_FORECAST",
         "M4_V3_COUNTERFACTUAL_LABEL_MISSING",
     )
+    performance = _json("evidence/performance/m4-optimization-performance-v3.json")
+    _require(performance["gate_result"] == "PASS", "M4_V3_PERFORMANCE_FAILED")
+    _require(
+        performance["charter_sha256"] == _sha256(ROOT / "benchmarks/charters/performance-v3.json"),
+        "M4_V3_PERFORMANCE_CHARTER_HASH_MISMATCH",
+    )
+    _require(
+        performance["workload_sha256"]
+        == _sha256(ROOT / "benchmarks/workloads/m4-july-optimization-v2.json"),
+        "M4_V3_PERFORMANCE_WORKLOAD_HASH_MISMATCH",
+    )
+    measurements = performance["measurements_by_load_count"]
+    _require(set(measurements) == {"1", "5"}, "M4_V3_LOAD_MEASUREMENT_DRIFT")
+    for load_count, measurement in measurements.items():
+        _require(measurement["repetitions"] == 10, "M4_V3_REPETITION_DRIFT")
+        _require(len(measurement["durations_ms"]) == 10, "M4_V3_DURATION_COUNT_DRIFT")
+        _require(measurement["deterministic"] is True, "M4_V3_RESULT_NONDETERMINISTIC")
+        _require(measurement["passed"] is True, "M4_V3_LOAD_THRESHOLD_FAILED")
+        _require(
+            measurement["p95_ms"] <= measurement["threshold_ms"],
+            f"M4_V3_LOAD_{load_count}_P95_FAILED",
+        )
+    _require(
+        performance["duplicate_successful_results"] == 0,
+        "M4_V3_DUPLICATE_RESULT",
+    )
+    _require(
+        performance["worker_recovery_qualification"]
+        == "PENDING_MILESTONE_5_DURABLE_SCENARIO_WORKER",
+        "M4_V3_WORKER_RECOVERY_SCOPE_DRIFT",
+    )
+
+
+def _validate_m4_correctness_evidence() -> None:
+    qualification = _json("evidence/correctness/m4-optimizer-qualification.json")
+    _require(qualification["gate_result"] == "PASS", "M4_QUALIFICATION_FAILED")
+    inputs = qualification["inputs"]
+    _require(
+        inputs["workload_sha256"]
+        == _sha256(ROOT / "benchmarks/workloads/m4-july-optimization-v2.json"),
+        "M4_QUALIFICATION_WORKLOAD_HASH_MISMATCH",
+    )
+    _require(
+        inputs["charter_sha256"] == _sha256(ROOT / "benchmarks/charters/performance-v3.json"),
+        "M4_QUALIFICATION_CHARTER_HASH_MISMATCH",
+    )
+    portfolio = qualification["portfolio_scenario"]
+    _require(
+        portfolio["reference_validation_status"] == "VALID",
+        "M4_REFERENCE_VALIDATION_FAILED",
+    )
+    _require(
+        portfolio["exact_measured_reconstruction"] is True,
+        "M4_RECONSTRUCTION_FAILED",
+    )
+    _require(portfolio["exact_search_status"] == "OPTIMAL", "M4_EXACT_NOT_OPTIMAL")
+    _require(
+        portfolio["highest_objective_stage_proved_optimal"] == 4,
+        "M4_LEXICOGRAPHIC_STAGE_INCOMPLETE",
+    )
+    _require(
+        portfolio["selected_verification_status"] == "VALID",
+        "M4_SELECTED_SCHEDULE_UNVERIFIED",
+    )
+    _require(
+        portfolio["heuristic_bill_optimality_claim"] is False,
+        "M4_HEURISTIC_OPTIMALITY_OVERCLAIM",
+    )
+    _require(
+        portfolio["repeatable_under_locked_environment"] is True,
+        "M4_REPEATABILITY_FAILED",
+    )
+    oracle = qualification["independent_exhaustive_oracle"]
+    _require(
+        oracle["complete_final_optimum_set"] == [[70, 0, 0]],
+        "M4_ORACLE_OPTIMUM_SET_DRIFT",
+    )
+    _require(
+        oracle["returned_schedule_in_optimum_set"] is True,
+        "M4_RETURNED_SCHEDULE_NOT_OPTIMAL",
+    )
+    _require(
+        oracle["seeded_corruption"]["observed_code"] == "VERIFIER_ENERGY_CONSERVATION_FAILED",
+        "M4_SEEDED_CORRUPTION_REASON_DRIFT",
+    )
+    _require(
+        qualification["public_tariff_lowering"]["count"] == 5,
+        "M4_OPTIMIZABLE_TARIFF_COUNT_DRIFT",
+    )
+    performance = qualification["performance"]
+    _require(
+        performance["evidence_sha256"]
+        == _sha256(ROOT / "evidence/performance/m4-optimization-performance-v3.json"),
+        "M4_QUALIFICATION_PERFORMANCE_HASH_MISMATCH",
+    )
 
 
 def _validate_m2_evidence() -> None:
@@ -506,6 +601,7 @@ def main() -> None:
     _validate_generated_evidence()
     _validate_m1_evidence()
     _validate_m4_performance_charter()
+    _validate_m4_correctness_evidence()
     _validate_m2_evidence()
     _validate_m3_evidence()
     print("Repository evidence locks are internally consistent.")

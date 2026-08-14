@@ -187,6 +187,7 @@ class ImportService:
         ).hexdigest()
         profile_hash = artifact.content.sha256()
         resolved_now = now.astimezone(UTC)
+        last_integrity_error: IntegrityError | None = None
         for _attempt in range(3):
             try:
                 with self._session_factory.begin() as database:
@@ -247,21 +248,21 @@ class ImportService:
                             lifecycle_generation=0,
                             created_at=resolved_now,
                         )
-                        database.add(
-                            ImportRecord(
-                                id=import_id,
-                                owner_user_id=owner_user_id,
-                                state="CONFIRMED",
-                                lifecycle_state="ACTIVE",
-                                lifecycle_generation=0,
-                                adapter="SIMULATED_PROFILE_V1",
-                                raw_content_hash=artifact.artifact_sha256,
-                                created_at=resolved_now,
-                                published_at=resolved_now,
-                                confirmed_at=resolved_now,
-                                profile_version_id=profile.id,
-                            )
+                        imported = ImportRecord(
+                            id=import_id,
+                            owner_user_id=owner_user_id,
+                            state="CONFIRMED",
+                            lifecycle_state="ACTIVE",
+                            lifecycle_generation=0,
+                            adapter="SIMULATED_PROFILE_V1",
+                            raw_content_hash=artifact.artifact_sha256,
+                            created_at=resolved_now,
+                            published_at=resolved_now,
+                            confirmed_at=resolved_now,
+                            profile_version_id=profile.id,
                         )
+                        database.add(imported)
+                        database.flush()
                         database.add(profile)
                         database.add_all(
                             [
@@ -284,12 +285,13 @@ class ImportService:
                     )
                     database.flush()
                     return SimulatedProfileInstallation(profile, repeated)
-            except IntegrityError:
+            except IntegrityError as error:
+                last_integrity_error = error
                 continue
         raise ImportServiceError(
             "OPERATION_CONFLICT",
             "Built-in simulated import could not resolve a concurrent request",
-        )
+        ) from last_integrity_error
 
     def _record_submission(
         self,

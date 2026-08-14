@@ -57,8 +57,8 @@ def _sha256(path: Path) -> str:
 def _facts() -> tuple[AccountFacts, DatedEligibilityFacts]:
     payload = _json(ROOT / "tariffs/examples/m3-comparison-account.json")
     return (
-        AccountFacts.model_validate(payload["account_facts"]),
-        DatedEligibilityFacts.model_validate(payload["dated_eligibility_facts"]),
+        AccountFacts.model_validate_json(json.dumps(payload["account_facts"])),
+        DatedEligibilityFacts.model_validate_json(json.dumps(payload["dated_eligibility_facts"])),
     )
 
 

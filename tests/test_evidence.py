@@ -5,6 +5,7 @@ from scripts.validate_evidence import (
     _validate_m1_evidence,
     _validate_m2_evidence,
     _validate_m3_evidence,
+    _validate_m4_correctness_evidence,
     _validate_m4_performance_charter,
     _validate_tariffs,
 )
@@ -33,6 +34,10 @@ def test_milestone_one_recovery_evidence_matches_frozen_charter() -> None:
 
 def test_milestone_four_performance_charter_is_frozen_before_tuning() -> None:
     _validate_m4_performance_charter()
+
+
+def test_milestone_four_optimizer_evidence_remains_historically_locked() -> None:
+    _validate_m4_correctness_evidence()
 
 
 def test_milestone_two_tariff_evidence_remains_historically_locked() -> None:

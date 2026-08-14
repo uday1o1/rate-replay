@@ -4,3 +4,4 @@
 - [Milestone 1](milestone-1.md): canonical ingestion, authenticated review, and durable import recovery, `ACCEPTED`.
 - [Milestone 2](milestone-2.md): source-locked E-1 compilation, historical replay, and reconciliation, `ACCEPTED`.
 - [Milestone 3](milestone-3.md): five-tariff admission, fail-closed comparable-cost replay, and authenticated comparison views, `ACCEPTED`.
+- [Milestone 4](milestone-4.md): exact and heuristic flexible-load scheduling, independent verification, measured optimization, and the authenticated portfolio-core workflow, `ACCEPTED`.

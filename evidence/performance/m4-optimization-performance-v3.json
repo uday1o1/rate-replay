@@ -1,0 +1,74 @@
+{
+  "schema_version": "m4-optimization-performance-v1",
+  "charter_version": "performance-acceptance-v3",
+  "charter_sha256": "62685dc66a9a311ef83ebac45066be78dfd1f182ed4bd61df875f54e3b1154f4",
+  "workload_version": "m4-july-optimization-v2",
+  "workload_sha256": "9f9b0b1cef2a8d3b86037e12dec41575ada69d2dc4642cf6b56d390e9108494b",
+  "hardware": {
+    "architecture": "arm64",
+    "logical_cpu_count": 10,
+    "machine": "Apple M5 developer laptop",
+    "memory_gib": 24,
+    "operating_system": "macOS 26.5"
+  },
+  "runtime": {
+    "python": "3.12.13",
+    "machine": "arm64",
+    "platform": "macOS-26.5.2-arm64-arm-64bit"
+  },
+  "calculation_time_mode": "HISTORICAL_REPLAY",
+  "historical_addition_label": "HISTORICAL_COUNTERFACTUAL_NOT_FORECAST",
+  "measurements_by_load_count": {
+    "1": {
+      "repetitions": 10,
+      "warmups": 3,
+      "durations_ms": [
+        651.302375,
+        656.535459,
+        650.324333,
+        626.115875,
+        644.884292,
+        615.893833,
+        646.417458,
+        624.419375,
+        654.666792,
+        641.707916
+      ],
+      "p50_ms": 644.884292,
+      "p95_ms": 656.535459,
+      "p99_ms": 656.535459,
+      "maximum_ms": 656.535459,
+      "threshold_ms": 10000,
+      "result_sha256": "fb2564ab1e1c08021a54f21200189fef4912ce1aef9e51681520e3e330887875",
+      "deterministic": true,
+      "passed": true
+    },
+    "5": {
+      "repetitions": 10,
+      "warmups": 3,
+      "durations_ms": [
+        2508.453792,
+        2451.68375,
+        2402.221416,
+        2385.319833,
+        2394.78125,
+        2410.3015,
+        2436.15325,
+        2361.046875,
+        2438.755208,
+        2446.364292
+      ],
+      "p50_ms": 2410.3015,
+      "p95_ms": 2508.453792,
+      "p99_ms": 2508.453792,
+      "maximum_ms": 2508.453792,
+      "threshold_ms": 30000,
+      "result_sha256": "bcc1457ef05753f798221ceae733795b744458c93a5c5c7b7c0eaa6289b7b8c1",
+      "deterministic": true,
+      "passed": true
+    }
+  },
+  "duplicate_successful_results": 0,
+  "worker_recovery_qualification": "PENDING_MILESTONE_5_DURABLE_SCENARIO_WORKER",
+  "gate_result": "PASS"
+}

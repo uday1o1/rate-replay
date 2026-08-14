@@ -16,3 +16,4 @@ git archive "$tree" | tar -x -C "$checkout_dir"
 make -C "$checkout_dir" bootstrap
 make -C "$checkout_dir" check
 make -C "$checkout_dir" qualification-m3
+make -C "$checkout_dir" qualification-m4

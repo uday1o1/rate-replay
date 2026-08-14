@@ -3,7 +3,7 @@ UV_CACHE_DIR ?= /private/tmp/rate-replay-uv-cache
 PNPM_STORE_DIR ?= /private/tmp/rate-replay-pnpm-store
 COMPOSE ?= $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-m1 integration-m2 integration-m3 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3
+.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-m1 integration-m2 integration-m3 integration-m4 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4
 
 bootstrap:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync --frozen --all-groups
@@ -73,6 +73,12 @@ integration-m3:
 	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic check
 	@RATEREPLAY_TEST_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov -m postgres tests/integration/test_auth_postgres.py tests/integration/test_import_postgres.py tests/integration/test_replay_postgres.py tests/integration/test_comparison_postgres.py
 
+integration-m4:
+	@test -n "$(RATEREPLAY_TEST_DATABASE_URL)"
+	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic upgrade head
+	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic check
+	@RATEREPLAY_TEST_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov -m postgres tests/integration/test_auth_postgres.py tests/integration/test_import_postgres.py tests/integration/test_replay_postgres.py tests/integration/test_comparison_postgres.py tests/integration/test_scenario_postgres.py
+
 benchmark-m1-recovery:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python benchmarks/scripts/m1_recovery.py
 
@@ -94,3 +100,10 @@ qualification-m3:
 	corepack pnpm exec prettier --write evidence/correctness/m3-comparison-qualification.json
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov packages/tariffs/tests/test_comparison.py packages/tariffs/tests/test_etouc.py packages/tariffs/tests/test_etoud.py packages/tariffs/tests/test_eelec.py packages/tariffs/tests/test_ev2a.py packages/tariffs/tests/test_tariff_cli.py apps/api/tests/test_comparison_api.py apps/api/tests/test_replay_api.py
 	corepack pnpm test
+
+qualification-m4:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.qualify_m4
+	corepack pnpm exec prettier --write evidence/correctness/m4-optimizer-qualification.json
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov packages/optimizer/tests/test_scenario.py packages/optimizer/tests/test_solver.py packages/optimizer/tests/test_verification.py apps/api/tests/test_scenario_api.py apps/api/tests/test_portfolio_core_api.py
+	corepack pnpm test
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_evidence.py
