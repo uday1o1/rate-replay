@@ -1,0 +1,163 @@
+{
+  "schema_version": "m2-e1-qualification-v1",
+  "milestone": 2,
+  "gate_result": "PASS",
+  "scope": "July 2026 PG&E E-1 historical replay for the locked target account only",
+  "commands": {
+    "qualification": "make qualification-m2",
+    "compile": "uv run ratereplay-tariff compile-e1",
+    "replay": "uv run ratereplay-tariff replay-e1 tariffs/examples/e1-replay-input.json"
+  },
+  "compilation": {
+    "deterministic": true,
+    "bundle_sha256": "e16480cac02971961646a1a5cfda8e37ec48ec1863ef8c60e5fa3e873b43a938",
+    "compiler_content_sha256": "ae003e7717fbb8fa964aac75ba21efa737f4db54bdba2abcb90b1a22d81a0016",
+    "normalized_ast_sha256": "eee9e211e15620438e7990163b2d6d0a488817126b0c22f28329c4cd4a7915e4",
+    "tariff_version_id": "pge-e1-2026-07",
+    "operator_count": 4,
+    "service_windows": [
+      {
+        "start": "2026-07-01",
+        "end": "2026-08-01"
+      }
+    ],
+    "component_keys": [
+      "e1-applicability-baseline-and-special-conditions",
+      "e1-total-rates-base-service-and-climate-credit"
+    ],
+    "active_component_count_by_key": [1, 1]
+  },
+  "goldens": {
+    "complete_bill_sha256": "1d98537784017ec7208f39f0e5b643c0f2d32a206450c14777897cab34a1d0af",
+    "boundary_suite_sha256": "94faa707c4d48b01e774beb1c38953319979a2f98923e7f43a3d9fa2d53615b9",
+    "complete_bill_case_id": "pge-e1-july-2026-territory-t-basic-310kwh",
+    "boundary_case_count": 10,
+    "covered_rule_ids": [
+      "BSC_TIER3_2026_06_01",
+      "CALIFORNIA_CLIMATE_CREDIT_2026",
+      "E1_APPLICABILITY_2026_03_01",
+      "E1_BASELINE_T_BASIC_SUMMER_2026_03_01",
+      "E1_TOTAL_ENERGY_2026_06_01"
+    ]
+  },
+  "deliberate_invalid_inputs": [
+    {
+      "case": "component_gap",
+      "expected_code": "COMPONENT_COVERAGE_GAP",
+      "observed_code": "COMPONENT_COVERAGE_GAP",
+      "passed": true
+    },
+    {
+      "case": "component_overlap",
+      "expected_code": "COMPONENT_OVERLAP",
+      "observed_code": "COMPONENT_OVERLAP",
+      "passed": true
+    },
+    {
+      "case": "invalid_tier",
+      "expected_code": "INVALID_TIER",
+      "observed_code": "INVALID_TIER",
+      "passed": true
+    },
+    {
+      "case": "unknown_unit",
+      "expected_code": "UNKNOWN_UNIT",
+      "observed_code": "UNKNOWN_UNIT",
+      "passed": true
+    },
+    {
+      "case": "source_mismatch",
+      "expected_code": "SOURCE_HASH_MISMATCH",
+      "observed_code": "SOURCE_HASH_MISMATCH",
+      "passed": true
+    }
+  ],
+  "rate_and_boundary_mutations": [
+    {
+      "mutation": "tier_1_rate",
+      "failure_mode": "GOLDEN_MISMATCH",
+      "passed": true
+    },
+    {
+      "mutation": "tier_2_rate",
+      "failure_mode": "GOLDEN_MISMATCH",
+      "passed": true
+    },
+    {
+      "mutation": "daily_rate",
+      "failure_mode": "GOLDEN_MISMATCH",
+      "passed": true
+    },
+    {
+      "mutation": "credit_amount",
+      "failure_mode": "GOLDEN_MISMATCH",
+      "passed": true
+    },
+    {
+      "mutation": "baseline_boundary",
+      "failure_mode": "GOLDEN_MISMATCH",
+      "passed": true
+    },
+    {
+      "mutation": "tier_boundary",
+      "failure_mode": "GOLDEN_MISMATCH",
+      "passed": true
+    },
+    {
+      "mutation": "credit_month_boundary",
+      "failure_mode": "GOLDEN_MISMATCH",
+      "passed": true
+    },
+    {
+      "mutation": "income_applicability",
+      "failure_mode": "GOLDEN_MISMATCH",
+      "passed": true
+    },
+    {
+      "mutation": "baseline_applicability",
+      "failure_mode": "TARIFF_UNKNOWN",
+      "passed": true
+    },
+    {
+      "mutation": "effective_date_boundary",
+      "failure_mode": "RULE_COVERAGE_GAP",
+      "passed": true
+    }
+  ],
+  "replay": {
+    "deterministic": true,
+    "input_sha256": "75ae49d0da9f5305175a9f3fe9e28a85ecbb9ee8497c6a0d70c8db6653b3e96b",
+    "result_sha256": "76834e533e16e7111886df895dd35870659a5241a738ca029293bfc5f05fd8e0",
+    "line_cents": [6561, 4416, 2460, -3618],
+    "line_total_cents": 9819,
+    "supported_calculated_cents": 9819,
+    "entered_bill_total_cents": 11000,
+    "user_unsupported_cents": 200,
+    "unexplained_residual_cents": 981,
+    "classification": "REVIEW_REQUIRED",
+    "reconciliation_input_sha256": "adb041ae65dc2861ac962e1f74dadafcca798c28f998f97b169a5cdeebbcb796",
+    "reconciliation_policy_sha256": "d105cced6e00c4d221d783cad319d6a613c7d748aa654621e0dbd76cf2f85742",
+    "calculation_sha256": "396934c60b119925e9ca204c9681159957aecaaed69b763c00fe5ca5f94d403d"
+  },
+  "provenance": [
+    {
+      "source_id": "pge-advice-7846-e",
+      "source_sha256": "c7b7f7128aec0c2cd86d3ac0f8a076d71dcb65cc03bdd2f8042d0560c02b5877",
+      "source_url": "https://www.pge.com/tariffs/assets/pdf/adviceletter/ELEC_7846-E.pdf",
+      "linked_rule_ids": [
+        "E1_APPLICABILITY_2026_03_01",
+        "E1_BASELINE_T_BASIC_SUMMER_2026_03_01"
+      ]
+    },
+    {
+      "source_id": "pge-advice-7921-e",
+      "source_sha256": "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+      "source_url": "https://www.pge.com/tariffs/assets/pdf/adviceletter/ELEC_7921-E.pdf",
+      "linked_rule_ids": [
+        "BSC_TIER3_2026_06_01",
+        "CALIFORNIA_CLIMATE_CREDIT_2026",
+        "E1_TOTAL_ENERGY_2026_06_01"
+      ]
+    }
+  ]
+}

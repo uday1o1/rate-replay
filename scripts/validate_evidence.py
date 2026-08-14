@@ -219,13 +219,72 @@ def _validate_m1_evidence() -> None:
     _require(recovery["duplicate_terminal_results"] == 0, "M1_DUPLICATE_TERMINAL")
 
 
+def _validate_m2_evidence() -> None:
+    qualification = _json("evidence/correctness/m2-e1-qualification.json")
+    admission = _json("tariffs/admission/pge-e1-2026-07.json")
+    complete_golden = _json("tariffs/golden/e1-july-2026-complete-bill.json")
+    boundary_golden = _json("tariffs/golden/e1-july-2026-boundaries.json")
+    _require(qualification["gate_result"] == "PASS", "M2_QUALIFICATION_FAILED")
+    compilation = qualification["compilation"]
+    _require(compilation["deterministic"] is True, "M2_COMPILATION_NONDETERMINISTIC")
+    _require(
+        compilation["compiler_content_sha256"] == admission["compiler_content_sha256"],
+        "M2_COMPILER_EVIDENCE_DRIFT",
+    )
+    _require(
+        compilation["active_component_count_by_key"] == [1, 1],
+        "M2_COMPONENT_COVERAGE_DRIFT",
+    )
+    goldens = qualification["goldens"]
+    _require(
+        goldens["complete_bill_sha256"]
+        == _sha256(ROOT / "tariffs/golden/e1-july-2026-complete-bill.json"),
+        "M2_COMPLETE_GOLDEN_DRIFT",
+    )
+    _require(
+        goldens["boundary_suite_sha256"]
+        == _sha256(ROOT / "tariffs/golden/e1-july-2026-boundaries.json"),
+        "M2_BOUNDARY_GOLDEN_DRIFT",
+    )
+    _require(
+        goldens["boundary_case_count"] == len(boundary_golden["cases"]),
+        "M2_BOUNDARY_CASE_COUNT_DRIFT",
+    )
+    replay = qualification["replay"]
+    _require(replay["deterministic"] is True, "M2_REPLAY_NONDETERMINISTIC")
+    _require(
+        replay["line_cents"] == complete_golden["expected"]["line_cents"],
+        "M2_LINE_GOLDEN_MISMATCH",
+    )
+    _require(
+        replay["supported_calculated_cents"] == complete_golden["expected"]["total_cents"],
+        "M2_TOTAL_GOLDEN_MISMATCH",
+    )
+    _require(
+        replay["line_total_cents"] == replay["supported_calculated_cents"],
+        "M2_LINE_TOTAL_MISMATCH",
+    )
+    _require(replay["user_unsupported_cents"] == 200, "M2_UNSUPPORTED_LINE_HIDDEN")
+    _require(replay["unexplained_residual_cents"] == 981, "M2_RESIDUAL_DRIFT")
+    _require(bool(replay["reconciliation_input_sha256"]), "M2_RECONCILIATION_HASH_MISSING")
+    _require(bool(replay["reconciliation_policy_sha256"]), "M2_POLICY_HASH_MISSING")
+    invalids = qualification["deliberate_invalid_inputs"]
+    _require(len(invalids) == 5, "M2_INVALID_CASE_COUNT_DRIFT")
+    _require(all(item["passed"] is True for item in invalids), "M2_INVALID_CASE_FAILED")
+    mutations = qualification["rate_and_boundary_mutations"]
+    _require(len(mutations) == 10, "M2_MUTATION_COUNT_DRIFT")
+    _require(all(item["passed"] is True for item in mutations), "M2_MUTATION_SURVIVED")
+    _require(len(qualification["provenance"]) == 2, "M2_PROVENANCE_COUNT_DRIFT")
+
+
 def main() -> None:
     _validate_external_sources()
     _validate_csv()
     _validate_tariffs()
     _validate_generated_evidence()
     _validate_m1_evidence()
-    print("Repository evidence locks are internally consistent through the admitted E-1 slice.")
+    _validate_m2_evidence()
+    print("Repository evidence locks are internally consistent through Milestone 2.")
 
 
 if __name__ == "__main__":
