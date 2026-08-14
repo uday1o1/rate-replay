@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -232,7 +234,7 @@ def _oracle_qualification() -> dict[str, Any]:
     }
 
 
-def qualify() -> dict[str, Any]:
+def qualify(output: Path = OUTPUT) -> dict[str, Any]:
     workload = _json(V3_WORKLOAD)
     performance = _json(V3_RESULT)
     if performance["gate_result"] != "PASS":
@@ -359,13 +361,24 @@ def qualify() -> dict[str, Any]:
             "measurements_by_load_count": performance["measurements_by_load_count"],
         },
     }
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return payload
 
 
 def main() -> None:
-    result = qualify()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Generate qualification into a temporary path without rewriting historical evidence.",
+    )
+    arguments = parser.parse_args()
+    if arguments.check:
+        with tempfile.TemporaryDirectory(prefix="rate-replay-m4-check-") as temporary:
+            result = qualify(Path(temporary) / "m4-optimizer-qualification.json")
+    else:
+        result = qualify()
     portfolio = result["portfolio_scenario"]
     print(
         "Milestone 4 qualification passed: "

@@ -196,8 +196,7 @@ qualification-m3:
 	corepack pnpm test
 
 qualification-m4:
-	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.qualify_m4
-	corepack pnpm exec prettier --write evidence/correctness/m4-optimizer-qualification.json
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.qualify_m4 --check
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov packages/optimizer/tests/test_scenario.py packages/optimizer/tests/test_solver.py packages/optimizer/tests/test_verification.py apps/api/tests/test_scenario_api.py apps/api/tests/test_portfolio_core_api.py
 	corepack pnpm test
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_evidence.py
