@@ -1,5 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 
+import {
+  AccountFacts,
+  ComparisonWorkspace,
+  TariffSummary,
+} from "./ComparisonWorkspace";
+import { api } from "./api";
 import "./styles.css";
 
 type SessionUser = { user_id: string; username: string };
@@ -42,8 +48,8 @@ type TariffDetail = {
     compiler_content_sha256: string;
     scope: {
       calculation_time_mode: "HISTORICAL_REPLAY";
-      comparison_admitted: false;
-      optimization_admitted: false;
+      comparison_admitted: boolean;
+      optimization_admitted: boolean;
     };
   };
   compilation: {
@@ -105,18 +111,6 @@ function csrfCookie(): string | null {
     : decodeURIComponent(value.slice(prefix.length));
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { credentials: "same-origin", ...init });
-  const body = (await response.json().catch(() => null)) as
-    (T & { message?: string }) | null;
-  if (!response.ok) {
-    throw new Error(
-      body?.message ?? "RateReplay could not complete that request.",
-    );
-  }
-  return body as T;
-}
-
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -125,7 +119,10 @@ export function App() {
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [tariff, setTariff] = useState<TariffDetail | null>(null);
+  const [tariffs, setTariffs] = useState<TariffSummary[]>([]);
   const [replay, setReplay] = useState<ReplayResource | null>(null);
+  const [comparisonAccountFacts, setComparisonAccountFacts] =
+    useState<AccountFacts | null>(null);
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<Set<string>>(
     new Set(),
   );
@@ -146,10 +143,12 @@ export function App() {
     if (session === null) return;
     void Promise.all([
       api<{ items: Profile[] }>("/v1/profiles?page_size=1"),
+      api<{ items: TariffSummary[] }>("/v1/tariffs"),
       api<TariffDetail>("/v1/tariffs/pge-e1-2026-07"),
     ])
-      .then(([profiles, detail]) => {
+      .then(([profiles, listedTariffs, detail]) => {
         setProfile(profiles.items[0] ?? null);
+        setTariffs(listedTariffs.items);
         setTariff(detail);
       })
       .catch((error) => {
@@ -209,6 +208,7 @@ export function App() {
       setImportStatus(value);
       setProfile(null);
       setReplay(null);
+      setComparisonAccountFacts(null);
       setAcknowledgedWarnings(new Set());
       setPgeAttested(false);
       setMessage(
@@ -301,6 +301,7 @@ export function App() {
       if (window === undefined) {
         throw new Error("The admitted E-1 service window is unavailable.");
       }
+      const accountFacts = lockedAccountFacts(window, new Date().toISOString());
       const value = await api<ReplayResource>("/v1/replays", {
         method: "POST",
         headers: {
@@ -312,26 +313,7 @@ export function App() {
           request_schema_version: "replay-operation-v1",
           profile_version_id: profile.profile_version_id,
           tariff_version_id: tariff.admission.tariff_version_id,
-          account_facts: {
-            schema_version: "account-facts-v1",
-            service_window: { start: window[0], end: window[1] },
-            service_provider: "PG&E",
-            service_mode: "BUNDLED",
-            meter_count: 1,
-            primary_meter_only: true,
-            income_tier: "TIER_3",
-            care_enrolled: false,
-            fera_enrolled: false,
-            medical_baseline: false,
-            cca_service: false,
-            direct_access_service: false,
-            active_bill_protection: false,
-            solar_or_export: false,
-            baseline_territory: "T",
-            baseline_quantity_code: "BASIC",
-            qualifying_technologies: [],
-            user_attested_at: new Date().toISOString(),
-          },
+          account_facts: accountFacts,
           current_bill_total_cents: currentBill,
           user_unsupported_lines:
             unsupportedAmount === null
@@ -346,6 +328,7 @@ export function App() {
         }),
       });
       setReplay(value);
+      setComparisonAccountFacts(accountFacts);
       setMessage("Immutable E-1 historical replay created.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Replay failed.");
@@ -364,7 +347,9 @@ export function App() {
       setImportStatus(null);
       setProfile(null);
       setTariff(null);
+      setTariffs([]);
       setReplay(null);
+      setComparisonAccountFacts(null);
       setAcknowledgedWarnings(new Set());
       setPgeAttested(false);
       setMessage("Signed out and revoked the application session.");
@@ -653,6 +638,7 @@ export function App() {
                   <span>Income Tier 3</span>
                   <span>Territory T, basic baseline</span>
                   <span>One primary import-only meter</span>
+                  <span>One qualifying EV at the premises</span>
                 </div>
                 <div className="reconciliation-fields">
                   <label>
@@ -687,7 +673,8 @@ export function App() {
                   attest that every locked account fact above applies for the
                   displayed July 2026 service window, and that CARE, FERA,
                   medical baseline, CCA, direct access, solar or export, and
-                  active bill protection do not apply.
+                  active bill protection do not apply. I also attest that an EV
+                  was a qualifying technology at the premises.
                 </label>
                 <button className="primary" type="submit">
                   Create historical replay
@@ -837,20 +824,33 @@ export function App() {
             )}
           </section>
 
+          {replay !== null &&
+            comparisonAccountFacts !== null &&
+            csrf !== null && (
+              <ComparisonWorkspace
+                replayId={replay.replay_id}
+                csrf={csrf}
+                accountFacts={comparisonAccountFacts}
+                tariffs={tariffs}
+                onMessage={setMessage}
+              />
+            )}
+
           <section
             className="panel wide provenance"
             aria-labelledby="provenance-heading"
           >
-            <p className="step">04</p>
+            <p className="step">05</p>
             <h2 id="provenance-heading">Filed-source provenance</h2>
             {tariff === null ? (
               <p>Loading the admitted E-1 source vector.</p>
             ) : (
               <>
                 <p>
-                  E-1 is admitted only for historical replay in the locked July
-                  2026 account class. Comparison and optimization are not yet
-                  admitted.
+                  This is the current E-1 filed-source vector for the locked
+                  July 2026 account class. Candidate source vectors appear with
+                  each completed plan replay. Optimization is admitted
+                  separately.
                 </p>
                 <ul className="source-list">
                   {tariff.compilation.reports.source_coverage.map((source) => (
@@ -883,6 +883,32 @@ export function App() {
 function formatUtc(value: number | null): string {
   if (value === null) return "pending coverage";
   return new Date(value / 1_000_000).toISOString().replace(".000Z", "Z");
+}
+
+function lockedAccountFacts(
+  window: [string, string],
+  userAttestedAt: string,
+): AccountFacts {
+  return {
+    schema_version: "account-facts-v1",
+    service_window: { start: window[0], end: window[1] },
+    service_provider: "PG&E",
+    service_mode: "BUNDLED",
+    meter_count: 1,
+    primary_meter_only: true,
+    income_tier: "TIER_3",
+    care_enrolled: false,
+    fera_enrolled: false,
+    medical_baseline: false,
+    cca_service: false,
+    direct_access_service: false,
+    active_bill_protection: false,
+    solar_or_export: false,
+    baseline_territory: "T",
+    baseline_quantity_code: "BASIC",
+    qualifying_technologies: ["EV"],
+    user_attested_at: userAttestedAt,
+  };
 }
 
 function optionalDollarsToCents(
