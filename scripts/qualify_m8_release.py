@@ -604,14 +604,7 @@ def _restart_count(container: str) -> int:
 def _sql(
     deployment: ComposeDeployment,
     statement: str,
-    *,
-    variables: dict[str, str] | None = None,
 ) -> str:
-    variable_arguments = tuple(
-        argument
-        for key, value in sorted((variables or {}).items())
-        for argument in ("-v", f"{key}={value}")
-    )
     return deployment.run(
         "exec",
         "-T",
@@ -620,7 +613,6 @@ def _sql(
         "-X",
         "-v",
         "ON_ERROR_STOP=1",
-        *variable_arguments,
         "-U",
         "ratereplay",
         "-d",
@@ -642,31 +634,32 @@ def _job_database_result(
         _require(HEX_IDENTIFIER.fullmatch(identifier) is not None, "DATABASE_IDENTIFIER_INVALID")
     _require(result_table in {"imports", "scenario_results"}, "RESULT_TABLE_INVALID")
     _require(result_owner_column in {"id", "scenario_id"}, "RESULT_COLUMN_INVALID")
+    job_literal = f"'{job_id}'"
+    result_owner_literal = f"'{result_owner_id}'"
     attempt_count = int(
         _sql(
             deployment,
-            "SELECT attempt_count FROM jobs WHERE id=:'job_id'",
-            variables={"job_id": job_id},
+            f"SELECT attempt_count FROM jobs WHERE id={job_literal}",  # noqa: S608
         )
     )
     result_statements = {
-        ("imports", "id"): "SELECT COUNT(*) FROM imports WHERE id=:'owner_id'",
+        ("imports", "id"): f"SELECT COUNT(*) FROM imports WHERE id={result_owner_literal}",  # noqa: S608
         (
             "scenario_results",
             "scenario_id",
-        ): "SELECT COUNT(*) FROM scenario_results WHERE scenario_id=:'owner_id'",
+        ): (
+            f"SELECT COUNT(*) FROM scenario_results WHERE scenario_id={result_owner_literal}"  # noqa: S608
+        ),
     }
     result_count = int(
         _sql(
             deployment,
             result_statements[(result_table, result_owner_column)],
-            variables={"owner_id": result_owner_id},
         )
     )
     attempt_states = _sql(
         deployment,
-        "SELECT state FROM job_attempts WHERE job_id=:'job_id' ORDER BY attempt_number",
-        variables={"job_id": job_id},
+        f"SELECT state FROM job_attempts WHERE job_id={job_literal} ORDER BY attempt_number",  # noqa: S608
     ).splitlines()
     return attempt_count, result_count, attempt_states
 
@@ -729,8 +722,7 @@ def _recover_import_workers(
         reading_count = int(
             _sql(
                 deployment,
-                "SELECT COUNT(*) FROM import_readings WHERE import_id=:'import_id'",
-                variables={"import_id": import_id},
+                f"SELECT COUNT(*) FROM import_readings WHERE import_id='{import_id}'",  # noqa: S608
             )
         )
         recovered = (
