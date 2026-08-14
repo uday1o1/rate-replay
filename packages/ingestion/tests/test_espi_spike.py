@@ -116,3 +116,110 @@ def test_entry_order_does_not_change_normalized_readings() -> None:
         payload[:first_start] + payload[first_end:feed_end] + first_entry + payload[feed_end:]
     )
     assert parse_espi(payload).readings == parse_espi(reordered).readings
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "code"),
+    [
+        ("flowDirection", "19", "UNSUPPORTED_READING_SEMANTICS"),
+        ("kind", "37", "UNSUPPORTED_READING_SEMANTICS"),
+        ("dataQualifier", "2", "UNSUPPORTED_READING_SEMANTICS"),
+        ("timeAttribute", "1", "UNSUPPORTED_READING_SEMANTICS"),
+        ("uom", "38", "UNSUPPORTED_READING_SEMANTICS"),
+    ],
+)
+def test_every_unsupported_reading_semantic_fails_closed(
+    field: str, replacement: str, code: str
+) -> None:
+    payload = _payload()
+    opening = f"<{field}>".encode()
+    reading_type_start = payload.index(b"<ReadingType")
+    start = payload.index(opening, reading_type_start) + len(opening)
+    end = payload.index(f"</{field}>".encode(), start)
+    mutated = payload[:start] + replacement.encode() + payload[end:]
+    with pytest.raises(EspiParseError) as raised:
+        parse_espi(mutated)
+    assert raised.value.code == code
+
+
+def test_fifteen_minute_stream_is_admitted_but_gaps_are_reported() -> None:
+    payload = (
+        _payload()
+        .replace(
+            b"<intervalLength>3600</intervalLength>",
+            b"<intervalLength>900</intervalLength>",
+            1,
+        )
+        .replace(b"<duration>3600</duration>", b"<duration>900</duration>")
+    )
+    document = parse_espi(payload)
+    assert document.interval_seconds == 900
+    assert {finding.code for finding in document.findings} == {"INTERVAL_GAP"}
+
+
+@pytest.mark.parametrize(
+    ("second_start", "code"),
+    [
+        (1293868800, "DUPLICATE_INTERVALS"),
+        (1293870600, "OVERLAPPING_INTERVALS"),
+    ],
+)
+def test_duplicate_and_overlap_intervals_are_fatal(second_start: int, code: str) -> None:
+    payload = _payload().replace(
+        b"<start>1293872400</start>",
+        f"<start>{second_start}</start>".encode(),
+        1,
+    )
+    with pytest.raises(EspiParseError) as raised:
+        parse_espi(payload)
+    assert raised.value.code == code
+
+
+@pytest.mark.parametrize(
+    ("quality", "expected_code"),
+    [("7", "MANUALLY_EDITED"), ("8", "ESTIMATED_USING_REFERENCE_DAY")],
+)
+def test_known_quality_codes_become_warnings(quality: str, expected_code: str) -> None:
+    payload = _payload().replace(
+        b"<timePeriod>",
+        (
+            b"<ReadingQuality><quality>"
+            + quality.encode()
+            + b"</quality></ReadingQuality><timePeriod>"
+        ),
+        1,
+    )
+    document = parse_espi(payload)
+    assert {finding.code for finding in document.findings} == {expected_code}
+    assert expected_code in document.readings[0].quality_flags
+
+
+def test_unknown_quality_code_is_fatal() -> None:
+    payload = _payload().replace(
+        b"<timePeriod>",
+        b"<ReadingQuality><quality>99</quality></ReadingQuality><timePeriod>",
+        1,
+    )
+    with pytest.raises(EspiParseError) as raised:
+        parse_espi(payload)
+    assert raised.value.code == "UNSUPPORTED_READING_QUALITY"
+
+
+def test_multiple_usage_points_are_fatal() -> None:
+    payload = _payload()
+    marker = b"<entry>"
+    first_start = payload.index(marker)
+    first_end = payload.index(b"</entry>", first_start) + len(b"</entry>")
+    first_entry = payload[first_start:first_end].replace(b"UsagePoint/01", b"UsagePoint/02", 1)
+    mutated = payload[:first_end] + first_entry + payload[first_end:]
+    with pytest.raises(EspiParseError) as raised:
+        parse_espi(mutated)
+    assert raised.value.code == "MULTIPLE_USAGE_POINTS"
+
+
+def test_entity_declaration_is_rejected_even_after_first_chunk() -> None:
+    padding = b" " * (64 * 1024 + 1)
+    payload = b'<feed xmlns="http://www.w3.org/2005/Atom">' + padding + b"<!ENTITY x 'y'></feed>"
+    with pytest.raises(EspiParseError) as raised:
+        parse_espi(payload)
+    assert raised.value.code == "XML_ENTITY_EXPANSION"
