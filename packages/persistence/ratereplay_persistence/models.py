@@ -234,6 +234,8 @@ class JobRecord(Base):
     not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     failure_code: Mapped[str | None] = mapped_column(String(64))
+    requested_semantic_hash: Mapped[str | None] = mapped_column(String(64))
+    calculation_contract_version: Mapped[str | None] = mapped_column(String(64))
     terminal_result_type: Mapped[str | None] = mapped_column(String(32))
     terminal_result_id: Mapped[str | None] = mapped_column(String(32))
     terminal_semantic_hash: Mapped[str | None] = mapped_column(String(64))

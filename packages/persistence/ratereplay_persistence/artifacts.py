@@ -322,6 +322,14 @@ class ArtifactService:
                     "STALE_RESULT_ATTEMPT",
                     "Result attempt does not hold a live publication fence",
                 )
+            if job.requested_semantic_hash not in {
+                None,
+                semantic_hash,
+            } or job.calculation_contract_version not in {None, calculation_contract_version}:
+                raise ArtifactServiceError(
+                    "RESULT_SEMANTIC_IDENTITY_MISMATCH",
+                    "Result identity differs from the submitted calculation",
+                )
             prior = database.scalar(
                 select(JobResultClaimRecord).where(
                     JobResultClaimRecord.owner_user_id == owner_user_id,
