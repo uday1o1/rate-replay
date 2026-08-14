@@ -13,6 +13,7 @@ from typing import BinaryIO, Final
 
 from ratereplay_domain.profile_hash import CanonicalFinding, CanonicalReading, FlowDirection
 from ratereplay_ingestion.normalize import NormalizedDraft, confirm_draft
+from ratereplay_ingestion.simulated import LockedSimulatedProfile
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -32,6 +33,8 @@ from ratereplay_persistence.object_store import FilesystemObjectStore, StoredObj
 
 IMPORT_ROUTE: Final = "POST:/v1/imports"
 IMPORT_REQUEST_SCHEMA: Final = "import-request-v1"
+SIMULATED_IMPORT_ROUTE: Final = "POST:/v1/imports/built-in-simulated-profile"
+SIMULATED_IMPORT_REQUEST_SCHEMA: Final = "built-in-simulated-import-v1"
 RAW_RETENTION: Final = timedelta(hours=24)
 IDEMPOTENCY_RETENTION: Final = timedelta(hours=24)
 
@@ -46,6 +49,12 @@ class ImportServiceError(RuntimeError):
 class ImportSubmission:
     import_id: str
     job_id: str
+    repeated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SimulatedProfileInstallation:
+    profile: ProfileVersionRecord
     repeated: bool
 
 
@@ -158,6 +167,129 @@ class ImportService:
         except Exception:
             self._objects.delete(object_key)
             raise
+
+    def install_simulated_profile(
+        self,
+        *,
+        owner_user_id: str,
+        idempotency_key: str,
+        artifact: LockedSimulatedProfile,
+        now: datetime,
+    ) -> SimulatedProfileInstallation:
+        """Install the frozen repository profile as owner-scoped immutable data."""
+
+        if not 8 <= len(idempotency_key) <= 128:
+            raise ImportServiceError(
+                "INVALID_IDEMPOTENCY_KEY", "Idempotency key must contain 8 to 128 characters"
+            )
+        payload_hash = hashlib.sha256(
+            b"RateReplay.BuiltInSimulatedImport.v1\x00" + artifact.artifact_sha256.encode("ascii")
+        ).hexdigest()
+        profile_hash = artifact.content.sha256()
+        resolved_now = now.astimezone(UTC)
+        for _attempt in range(3):
+            try:
+                with self._session_factory.begin() as database:
+                    existing_operation = database.scalar(
+                        select(OperationRequestRecord).where(
+                            OperationRequestRecord.owner_user_id == owner_user_id,
+                            OperationRequestRecord.route_id == SIMULATED_IMPORT_ROUTE,
+                            OperationRequestRecord.idempotency_key == idempotency_key,
+                        )
+                    )
+                    if existing_operation is not None:
+                        if existing_operation.canonical_payload_hash != payload_hash:
+                            raise ImportServiceError(
+                                "IDEMPOTENCY_KEY_REUSED",
+                                "Idempotency key is bound to another request",
+                            )
+                        existing_profile = database.scalar(
+                            select(ProfileVersionRecord).where(
+                                ProfileVersionRecord.id == existing_operation.operation_id,
+                                ProfileVersionRecord.owner_user_id == owner_user_id,
+                            )
+                        )
+                        if existing_profile is None:
+                            raise ImportServiceError(
+                                "OPERATION_INCOMPLETE",
+                                "Built-in simulated import is incomplete",
+                            )
+                        return SimulatedProfileInstallation(existing_profile, True)
+                    user = database.get(UserRecord, owner_user_id)
+                    if user is None or user.lifecycle_state != "ACTIVE":
+                        raise ImportServiceError(
+                            "OWNER_NOT_ACTIVE", "Account cannot accept imports"
+                        )
+                    profile = database.scalar(
+                        select(ProfileVersionRecord).where(
+                            ProfileVersionRecord.owner_user_id == owner_user_id,
+                            ProfileVersionRecord.content_hash == profile_hash,
+                        )
+                    )
+                    repeated = profile is not None
+                    if profile is None:
+                        import_id = secrets.token_hex(16)
+                        profile = ProfileVersionRecord(
+                            id=secrets.token_hex(16),
+                            owner_user_id=owner_user_id,
+                            import_id=import_id,
+                            content_hash=profile_hash,
+                            canonical_content=artifact.content.to_bytes(),
+                            billing_period_start_utc_ns=(
+                                artifact.content.billing_period_start_utc_ns
+                            ),
+                            billing_period_end_utc_ns=(artifact.content.billing_period_end_utc_ns),
+                            tariff_timezone=artifact.content.tariff_timezone,
+                            interval_resolution_seconds=(
+                                artifact.content.interval_resolution_seconds
+                            ),
+                            lifecycle_state="ACTIVE",
+                            lifecycle_generation=0,
+                            created_at=resolved_now,
+                        )
+                        database.add(
+                            ImportRecord(
+                                id=import_id,
+                                owner_user_id=owner_user_id,
+                                state="CONFIRMED",
+                                lifecycle_state="ACTIVE",
+                                lifecycle_generation=0,
+                                adapter="SIMULATED_PROFILE_V1",
+                                raw_content_hash=artifact.artifact_sha256,
+                                created_at=resolved_now,
+                                published_at=resolved_now,
+                                confirmed_at=resolved_now,
+                                profile_version_id=profile.id,
+                            )
+                        )
+                        database.add(profile)
+                        database.add_all(
+                            [
+                                _reading_record(import_id, reading)
+                                for reading in artifact.content.readings
+                            ]
+                        )
+                    database.add(
+                        OperationRequestRecord(
+                            id=secrets.token_hex(16),
+                            owner_user_id=owner_user_id,
+                            route_id=SIMULATED_IMPORT_ROUTE,
+                            idempotency_key=idempotency_key,
+                            request_schema_version=SIMULATED_IMPORT_REQUEST_SCHEMA,
+                            canonical_payload_hash=payload_hash,
+                            operation_id=profile.id,
+                            created_at=resolved_now,
+                            expires_at=resolved_now + IDEMPOTENCY_RETENTION,
+                        )
+                    )
+                    database.flush()
+                    return SimulatedProfileInstallation(profile, repeated)
+            except IntegrityError:
+                continue
+        raise ImportServiceError(
+            "OPERATION_CONFLICT",
+            "Built-in simulated import could not resolve a concurrent request",
+        )
 
     def _record_submission(
         self,

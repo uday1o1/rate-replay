@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from ratereplay_ingestion.simulated import load_locked_simulated_profile
 from ratereplay_persistence import models as persistence_models  # noqa: F401
 from ratereplay_persistence.comparisons import ComparisonService
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
@@ -37,6 +38,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     application.state.engine = engine
     application.state.session_factory = make_session_factory(engine)
     application.state.object_store = FilesystemObjectStore(resolved.object_store_root)
+    application.state.built_in_simulated_profile = load_locked_simulated_profile(
+        resolved.repository_root
+    )
     application.state.import_service = ImportService(
         application.state.session_factory,
         application.state.object_store,

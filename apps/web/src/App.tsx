@@ -30,10 +30,18 @@ type ImportStatus = {
   profile_version_id?: string | null;
 };
 type Profile = {
+  import_id: string;
   profile_version_id: string;
   content_hash: string;
   billing_period_start_utc_ns: number;
   billing_period_end_utc_ns: number;
+};
+type BuiltInSimulatedProfile = {
+  simulated: true;
+  label: string;
+  source_artifact_sha256: string;
+  repeated: boolean;
+  profile: Profile;
 };
 type SourceCoverage = {
   source_id: string;
@@ -217,6 +225,45 @@ export function App() {
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Upload failed.");
+    }
+  }
+
+  async function installBuiltInProfile() {
+    setMessage(null);
+    if (csrf === null) {
+      setMessage(
+        "Your security token is unavailable. Sign in again before importing.",
+      );
+      return;
+    }
+    try {
+      const installed = await api<BuiltInSimulatedProfile>(
+        "/v1/imports/built-in-simulated-profile",
+        {
+          method: "POST",
+          headers: {
+            "Idempotency-Key": `browser-demo-${crypto.randomUUID()}`,
+            "X-CSRF-Token": csrf,
+          },
+        },
+      );
+      setImportStatus(null);
+      setProfile(installed.profile);
+      setReplay(null);
+      setComparisonAccountFacts(null);
+      setAcknowledgedWarnings(new Set());
+      setPgeAttested(false);
+      setMessage(
+        installed.repeated
+          ? "Your existing immutable simulated July profile is ready."
+          : `${installed.label} imported as immutable account data.`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The built-in simulated profile could not be imported.",
+      );
     }
   }
 
@@ -495,6 +542,21 @@ export function App() {
                 Upload securely
               </button>
             </form>
+            <div className="built-in-import">
+              <p className="eyebrow">No private data required</p>
+              <h3>Start with the simulated July profile</h3>
+              <p>
+                Install the locked NREL-derived 750 kWh profile in this private
+                account. It is always labeled simulated and contains no utility
+                credentials or household data.
+              </p>
+              <button
+                type="button"
+                onClick={() => void installBuiltInProfile()}
+              >
+                Use built-in simulated July profile
+              </button>
+            </div>
           </section>
 
           <section className="panel" aria-labelledby="quality-heading">

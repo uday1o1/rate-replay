@@ -12,6 +12,7 @@ from typing import Annotated, Literal, cast
 from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from ratereplay_ingestion.normalize import ConfirmationError
+from ratereplay_ingestion.simulated import LockedSimulatedProfile
 from ratereplay_persistence.imports import ImportService, ImportServiceError
 from ratereplay_persistence.models import (
     ImportFindingRecord,
@@ -103,6 +104,17 @@ class ProfileListResponse(BaseModel):
     next_cursor: str | None
 
 
+class BuiltInSimulatedProfileResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "built-in-simulated-import-v1"
+    simulated: Literal[True] = True
+    label: str
+    source_artifact_sha256: str
+    repeated: bool
+    profile: ProfileResponse
+
+
 def _imports(request: Request) -> ImportService:
     return cast(ImportService, request.app.state.import_service)
 
@@ -115,6 +127,7 @@ def _problem(error: Exception) -> ApiProblem:
         "IMPORT_NOT_FOUND": 404,
         "IMPORT_NOT_READY": 409,
         "INVALID_IDEMPOTENCY_KEY": 422,
+        "OPERATION_CONFLICT": 409,
         "OVERSIZED_FILE": 413,
         "PGE_SERVICE_ATTESTATION_REQUIRED": 422,
         "UNSUPPORTED_ADAPTER": 422,
@@ -165,6 +178,42 @@ async def create_import(
         job_id=submission.job_id,
         state_url=f"/v1/imports/{submission.import_id}",
         repeated=submission.repeated,
+    )
+
+
+@router.post(
+    "/v1/imports/built-in-simulated-profile",
+    response_model=BuiltInSimulatedProfileResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses=problem_openapi_responses(401, 403, 409, 422, 503),
+)
+def create_built_in_simulated_profile(
+    request: Request,
+    authenticated: Annotated[AuthenticatedSession, Depends(require_csrf_session)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+) -> BuiltInSimulatedProfileResponse:
+    """Install the immutable repository-owned July profile for this account."""
+
+    limiter: LoginRateLimiter = request.app.state.upload_limiter
+    limiter.check(f"owner:{authenticated.user_id}", now=datetime.now(UTC))
+    artifact = cast(
+        LockedSimulatedProfile,
+        request.app.state.built_in_simulated_profile,
+    )
+    try:
+        installed = _imports(request).install_simulated_profile(
+            owner_user_id=authenticated.user_id,
+            idempotency_key=idempotency_key,
+            artifact=artifact,
+            now=datetime.now(UTC),
+        )
+    except ImportServiceError as error:
+        raise _problem(error) from error
+    return BuiltInSimulatedProfileResponse(
+        label=artifact.label,
+        source_artifact_sha256=artifact.artifact_sha256,
+        repeated=installed.repeated,
+        profile=_profile_response(installed.profile),
     )
 
 

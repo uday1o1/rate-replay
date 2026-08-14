@@ -12,9 +12,15 @@ from ratereplay_api.config import AppSettings
 from ratereplay_api.main import create_app
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
-from ratereplay_persistence.models import ImportRecord
+from ratereplay_persistence.models import (
+    ImportReadingRecord,
+    ImportRecord,
+    JobRecord,
+    ProfileVersionRecord,
+    RawObjectRecord,
+)
 from ratereplay_worker.import_worker import ImportWorker
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "data/fixtures/espi/independent-pacific-hourly.xml"
@@ -142,6 +148,95 @@ async def test_real_upload_quality_confirmation_and_profile_path(
         assert "private-household.xml" not in repr(imported.__dict__)
     assert "private-household.xml" not in caplog.text
     assert "610314" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_built_in_simulated_profile_is_locked_idempotent_and_owner_scoped(
+    client: httpx.AsyncClient,
+    test_app: FastAPI,
+) -> None:
+    route = "/v1/imports/built-in-simulated-profile"
+    unauthenticated = await client.post(
+        route,
+        headers={"Origin": ORIGIN, "Idempotency-Key": "demo-profile-one"},
+    )
+    assert unauthenticated.status_code == 401
+    csrf = await register(client, "simulated_owner")
+    missing_csrf = await client.post(
+        route,
+        headers={"Origin": ORIGIN, "Idempotency-Key": "demo-profile-one"},
+    )
+    assert missing_csrf.status_code == 403
+    created = await client.post(
+        route,
+        headers={
+            "Origin": ORIGIN,
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": "demo-profile-one",
+        },
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["simulated"] is True
+    assert body["label"].startswith("SIMULATED ")
+    assert body["source_artifact_sha256"] == (
+        "47b449f47039960cde24666a5ed2723781b7773d624dbdd2b74de78e02da19ce"
+    )
+    assert body["repeated"] is False
+    assert body["profile"]["interval_resolution_seconds"] == 900
+
+    repeated = await client.post(
+        route,
+        headers={
+            "Origin": ORIGIN,
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": "demo-profile-one",
+        },
+    )
+    semantic_reuse = await client.post(
+        route,
+        headers={
+            "Origin": ORIGIN,
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": "demo-profile-two",
+        },
+    )
+    assert repeated.status_code == semantic_reuse.status_code == 201
+    assert repeated.json()["repeated"] is True
+    assert semantic_reuse.json()["repeated"] is True
+    assert repeated.json()["profile"] == body["profile"]
+    assert semantic_reuse.json()["profile"] == body["profile"]
+
+    second_transport = httpx.ASGITransport(app=test_app)
+    async with httpx.AsyncClient(transport=second_transport, base_url=ORIGIN) as other:
+        other_csrf = await register(other, "simulated_owner_two")
+        other_created = await other.post(
+            route,
+            headers={
+                "Origin": ORIGIN,
+                "X-CSRF-Token": other_csrf,
+                "Idempotency-Key": "demo-profile-one",
+            },
+        )
+        assert other_created.status_code == 201
+        assert (
+            other_created.json()["profile"]["profile_version_id"]
+            != (body["profile"]["profile_version_id"])
+        )
+        assert other_created.json()["profile"]["content_hash"] == (body["profile"]["content_hash"])
+
+    app_state = cast(Any, test_app.state)
+    with app_state.session_factory() as database:
+        profile = database.get(
+            ProfileVersionRecord,
+            body["profile"]["profile_version_id"],
+        )
+        assert profile is not None
+        assert len(profile.canonical_content) > 0
+        assert database.scalar(select(func.count(ImportRecord.id))) == 2
+        assert database.scalar(select(func.count(ImportReadingRecord.id))) == 5_952
+        assert database.scalar(select(func.count(RawObjectRecord.id))) == 0
+        assert database.scalar(select(func.count(JobRecord.id))) == 0
 
 
 @pytest.mark.anyio

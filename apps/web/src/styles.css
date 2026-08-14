@@ -262,6 +262,18 @@ button:disabled {
   background: #f8faf5;
 }
 
+.built-in-import {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #c5cbc3;
+}
+
+.built-in-import h3 {
+  margin: 0.3rem 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.5rem;
+}
+
 .quality-report dl {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

@@ -18,10 +18,20 @@ function response(status: number, body: unknown): Response {
 }
 
 const profile = {
+  import_id: "import-one",
   profile_version_id: "profile-one",
   content_hash: "d".repeat(64),
   billing_period_start_utc_ns: 1,
   billing_period_end_utc_ns: 2,
+};
+
+const builtInProfile = {
+  schema_version: "built-in-simulated-import-v1",
+  simulated: true,
+  label: "SIMULATED NREL-derived California household",
+  source_artifact_sha256: "4".repeat(64),
+  repeated: false,
+  profile,
 };
 
 const tariffDetail = {
@@ -559,9 +569,10 @@ describe("App", () => {
           csrf_token: "csrf-token",
         }),
       )
-      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, { items: [] }))
       .mockResolvedValueOnce(response(200, tariffList))
       .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(response(201, builtInProfile))
       .mockResolvedValueOnce(response(201, replayResource))
       .mockResolvedValueOnce(response(201, rankableComparison));
     vi.stubGlobal("fetch", fetchMock);
@@ -577,6 +588,14 @@ describe("App", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Create private account" }),
     );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Use built-in simulated July profile",
+      }),
+    );
+    expect(
+      await screen.findByText(/imported as immutable account data/i),
+    ).toBeVisible();
     fireEvent.click(
       await screen.findByLabelText(/I attest that every locked account fact/i),
     );
@@ -599,8 +618,11 @@ describe("App", () => {
       screen.getAllByRole("link", { name: "pge-advice-7921-e" }).length,
     ).toBeGreaterThan(0);
 
-    const replayCall = fetchMock.mock.calls[5] as [string, RequestInit];
-    const comparisonCall = fetchMock.mock.calls[6] as [string, RequestInit];
+    const builtInCall = fetchMock.mock.calls[5] as [string, RequestInit];
+    const replayCall = fetchMock.mock.calls[6] as [string, RequestInit];
+    const comparisonCall = fetchMock.mock.calls[7] as [string, RequestInit];
+    expect(builtInCall[0]).toBe("/v1/imports/built-in-simulated-profile");
+    expect(builtInCall[1].method).toBe("POST");
     expect(comparisonCall[0]).toBe("/v1/comparisons");
     const replayBody = JSON.parse(replayCall[1].body as string) as {
       account_facts: unknown;
