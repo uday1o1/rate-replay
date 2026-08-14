@@ -6,8 +6,16 @@ from pathlib import Path
 
 import pytest
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
-from ratereplay_persistence.deletion_ledger import DeletionLedgerError, FilesystemDeletionLedger
-from ratereplay_persistence.deletions import DeletionCoordinator, DeletionServiceError
+from ratereplay_persistence.deletion_ledger import (
+    DeletionLedgerError,
+    FilesystemDeletionLedger,
+    LedgerEvent,
+)
+from ratereplay_persistence.deletions import (
+    DeletionCheckpoint,
+    DeletionCoordinator,
+    DeletionServiceError,
+)
 from ratereplay_persistence.keyrings import VersionedKeyring
 from ratereplay_persistence.models import (
     DeletionControlOperationRecord,
@@ -16,6 +24,10 @@ from ratereplay_persistence.models import (
     JobRecord,
     SessionRecord,
     UserRecord,
+)
+from ratereplay_persistence.restore import (
+    LOCAL_POSTGRES_OUTCOME_AUTHORITY,
+    derive_local_postgres_outcome,
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -190,6 +202,148 @@ def test_account_deletion_fences_then_requests_before_acceptance(harness: Harnes
         )
         assert intent is not None and intent.state == "CONSUMED"
         assert receipt is not None and SECRET.hex() not in receipt.receipt_verifier
+
+
+@pytest.mark.parametrize(
+    ("checkpoint", "phases", "lifecycle_state", "intent_state", "control_phase"),
+    (
+        ("AFTER_PREPARED_COMMIT", ("PREPARED",), "ACTIVE", "PREPARED", None),
+        (
+            "AFTER_FENCE_COMMIT",
+            ("PREPARED",),
+            "DELETION_PENDING_LEDGER",
+            "CONSUMED",
+            "FENCE",
+        ),
+        (
+            "AFTER_REQUESTED_APPEND_BEFORE_ACK",
+            ("PREPARED", "REQUESTED"),
+            "DELETION_PENDING_LEDGER",
+            "CONSUMED",
+            "FENCE",
+        ),
+    ),
+)
+def test_durable_deletion_checkpoints_preserve_exact_resumable_boundary(
+    harness: Harness,
+    checkpoint: DeletionCheckpoint,
+    phases: tuple[str, ...],
+    lifecycle_state: str,
+    intent_state: str,
+    control_phase: str | None,
+) -> None:
+    deletion_id = _intent(harness)
+    observed: list[tuple[str, str]] = []
+
+    class InjectedPrimaryLoss(RuntimeError):
+        pass
+
+    def inject(current: DeletionCheckpoint, event: LedgerEvent) -> None:
+        observed.append((current, event.deletion_id))
+        if current == checkpoint:
+            raise InjectedPrimaryLoss
+
+    coordinator = DeletionCoordinator(
+        harness.sessions,
+        harness.ledger,
+        restore_key=b"r" * 32,
+        checkpoint_observer=inject,
+    )
+
+    with pytest.raises(InjectedPrimaryLoss):
+        coordinator.authorize_and_start(
+            owner_user_id=OWNER_ID,
+            deletion_id=deletion_id,
+            receipt_secret=SECRET,
+            now=NOW,
+        )
+
+    assert observed[-1] == (checkpoint, deletion_id)
+    assert tuple(event.phase for event in harness.ledger.chain(deletion_id)) == phases
+    with harness.sessions() as database:
+        user = database.get(UserRecord, OWNER_ID)
+        intent = database.get(DeletionIntentRecord, deletion_id)
+        control = database.get(DeletionControlOperationRecord, deletion_id)
+        assert user is not None and user.lifecycle_state == lifecycle_state
+        assert intent is not None and intent.state == intent_state
+        assert (control.phase if control is not None else None) == control_phase
+
+    resumed = harness.deletions.authorize_and_start(
+        owner_user_id=OWNER_ID,
+        deletion_id=deletion_id,
+        receipt_secret=SECRET,
+        now=NOW + timedelta(seconds=1),
+    )
+    assert resumed.status == "DELETING"
+    assert tuple(event.phase for event in harness.ledger.chain(deletion_id)) == (
+        "PREPARED",
+        "REQUESTED",
+    )
+
+
+@pytest.mark.parametrize(
+    ("checkpoint", "expected_outcome"),
+    (
+        ("AFTER_PREPARED_COMMIT", "NOT_COMMITTED"),
+        ("AFTER_FENCE_COMMIT", "COMMITTED"),
+    ),
+)
+def test_local_outcome_authority_derives_only_durable_serializable_state(
+    harness: Harness,
+    checkpoint: DeletionCheckpoint,
+    expected_outcome: str,
+) -> None:
+    deletion_id = _intent(harness)
+
+    class InjectedPrimaryLoss(RuntimeError):
+        pass
+
+    def inject(current: DeletionCheckpoint, event: LedgerEvent) -> None:
+        del event
+        if current == checkpoint:
+            raise InjectedPrimaryLoss
+
+    coordinator = DeletionCoordinator(
+        harness.sessions,
+        harness.ledger,
+        restore_key=b"r" * 32,
+        checkpoint_observer=inject,
+    )
+    with pytest.raises(InjectedPrimaryLoss):
+        coordinator.authorize_and_start(
+            owner_user_id=OWNER_ID,
+            deletion_id=deletion_id,
+            receipt_secret=SECRET,
+            now=NOW,
+        )
+    prepared = harness.ledger.chain(deletion_id)[0]
+    if checkpoint == "AFTER_PREPARED_COMMIT":
+        assert (
+            derive_local_postgres_outcome(
+                harness.sessions,
+                prepared,
+                observed_at=NOW + timedelta(seconds=1),
+                key=b"o" * 32,
+            )
+            is None
+        )
+        with harness.sessions.begin() as database:
+            intent = database.get(DeletionIntentRecord, deletion_id)
+            assert intent is not None
+            intent.state = "INVALIDATED"
+            intent.invalidated_at = NOW + timedelta(seconds=1)
+
+    evidence = derive_local_postgres_outcome(
+        harness.sessions,
+        prepared,
+        observed_at=NOW + timedelta(seconds=2),
+        key=b"o" * 32,
+    )
+
+    assert evidence is not None
+    assert evidence.outcome == expected_outcome
+    assert evidence.authority == LOCAL_POSTGRES_OUTCOME_AUTHORITY
+    assert evidence.prepared_receipt == prepared.receipt
 
 
 def test_wrong_receipt_cannot_prepare_or_poll(harness: Harness) -> None:

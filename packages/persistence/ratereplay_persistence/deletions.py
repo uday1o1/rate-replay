@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final, Literal, TypedDict
@@ -43,6 +44,12 @@ RESTORE_KEY_VERSION: Final = "restore-v1"
 _RECEIPT_HASHER = PasswordHasher(time_cost=3, memory_cost=65_536, parallelism=4)
 TargetKind = Literal["ACCOUNT", "IMPORT", "PROFILE"]
 DeletionTarget = UserRecord | ImportRecord | ProfileVersionRecord
+DeletionCheckpoint = Literal[
+    "AFTER_PREPARED_COMMIT",
+    "AFTER_FENCE_COMMIT",
+    "AFTER_REQUESTED_APPEND_BEFORE_ACK",
+]
+DeletionCheckpointObserver = Callable[[DeletionCheckpoint, LedgerEvent], None]
 
 
 class DeletionServiceError(RuntimeError):
@@ -87,6 +94,10 @@ class LedgerAppendArguments(TypedDict):
     occurred_at: datetime
 
 
+def _ignore_checkpoint(checkpoint: DeletionCheckpoint, event: LedgerEvent) -> None:
+    del checkpoint, event
+
+
 class DeletionCoordinator:
     """Coordinate the external ledger and exact database lifecycle fences."""
 
@@ -98,6 +109,7 @@ class DeletionCoordinator:
         restore_key: bytes | None = None,
         restore_key_version: str = RESTORE_KEY_VERSION,
         restore_keyring: VersionedKeyring | None = None,
+        checkpoint_observer: DeletionCheckpointObserver | None = None,
     ) -> None:
         if (restore_key is None) == (restore_keyring is None):
             raise ValueError("Configure exactly one restore key source")
@@ -111,6 +123,7 @@ class DeletionCoordinator:
         self._session_factory = session_factory
         self._ledger = ledger
         self._restore_keyring = restore_keyring
+        self._checkpoint_observer = checkpoint_observer or _ignore_checkpoint
 
     def create_intent(
         self,
@@ -299,7 +312,9 @@ class DeletionCoordinator:
             now=now,
         )
         prepared = self._ensure_prepared(intent, now=now)
+        self._checkpoint_observer("AFTER_PREPARED_COMMIT", prepared)
         self._fence_prepared(prepared, now=now)
+        self._checkpoint_observer("AFTER_FENCE_COMMIT", prepared)
         self._ensure_requested(deletion_id, now=now)
         return self.status(
             deletion_id=deletion_id,
@@ -416,7 +431,8 @@ class DeletionCoordinator:
                 "The deletion ledger is not an unresolved preparation",
             )
         prepared = chain[0]
-        with self._session_factory.begin() as database:
+        with self._session_factory() as database:
+            database.connection(execution_options={"isolation_level": "SERIALIZABLE"})
             intent = database.scalar(
                 select(DeletionIntentRecord)
                 .where(DeletionIntentRecord.deletion_id == deletion_id)
@@ -449,6 +465,7 @@ class DeletionCoordinator:
                 )
             intent.state = "INVALIDATED"
             intent.invalidated_at = now
+            database.commit()
         self._ensure_aborted(prepared, now=now)
 
     def _ensure_aborted(self, prepared: LedgerEvent, *, now: datetime) -> None:
@@ -714,6 +731,7 @@ class DeletionCoordinator:
         requested = next((event for event in chain if event.phase == "REQUESTED"), None)
         if requested is None:
             requested = self._ledger.append(**arguments)
+            self._checkpoint_observer("AFTER_REQUESTED_APPEND_BEFORE_ACK", requested)
         with self._session_factory.begin() as database:
             control = database.scalar(
                 select(DeletionControlOperationRecord)

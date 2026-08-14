@@ -29,6 +29,7 @@ from ratereplay_persistence.deletion_sweep import (
 from ratereplay_persistence.deletions import (
     DeletionCoordinator,
     DeletionServiceError,
+    DeletionTarget,
     _event_arguments,
     _scope_token,
     _target_by_scope,
@@ -53,6 +54,9 @@ class RestoreQualificationError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+LOCAL_POSTGRES_OUTCOME_AUTHORITY = "local-postgres-durable-state-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -576,6 +580,113 @@ def sign_transaction_outcome(
         hashlib.sha256,
     ).hexdigest()
     return TransactionOutcomeEvidence(**{**asdict(unsigned), "receipt": receipt})
+
+
+def derive_local_postgres_outcome(
+    session_factory: sessionmaker[Session],
+    prepared: LedgerEvent,
+    *,
+    observed_at: datetime,
+    key: bytes,
+) -> TransactionOutcomeEvidence | None:
+    """Derive a signed outcome from one serializable PostgreSQL state observation."""
+
+    if prepared.phase != "PREPARED" or observed_at.tzinfo is None or len(key) != 32:
+        raise ValueError("Local PostgreSQL outcome inputs are invalid")
+    with session_factory() as database:
+        database.connection(execution_options={"isolation_level": "SERIALIZABLE"})
+        intent = database.scalar(
+            select(DeletionIntentRecord)
+            .where(DeletionIntentRecord.deletion_id == prepared.deletion_id)
+            .with_for_update()
+        )
+        if intent is None or not _prepared_matches_intent(prepared, intent):
+            return None
+        target = _target_by_scope(
+            database,
+            target_kind=intent.target_kind,
+            target_scope_id=intent.target_scope_id,
+            lock=True,
+        )
+        control = database.get(DeletionControlOperationRecord, prepared.deletion_id)
+        outcome: Literal["COMMITTED", "NOT_COMMITTED"] | None = None
+        if _committed_fence_matches(prepared, intent, target, control):
+            outcome = "COMMITTED"
+        elif _proved_noncommit_matches(intent, target, control):
+            outcome = "NOT_COMMITTED"
+    if outcome is None:
+        return None
+    return sign_transaction_outcome(
+        deletion_id=prepared.deletion_id,
+        prepared_receipt=prepared.receipt,
+        outcome=outcome,
+        observed_at=observed_at,
+        authority=LOCAL_POSTGRES_OUTCOME_AUTHORITY,
+        key=key,
+    )
+
+
+def _prepared_matches_intent(
+    prepared: LedgerEvent,
+    intent: DeletionIntentRecord,
+) -> bool:
+    return bool(
+        prepared.deletion_id == intent.deletion_id
+        and prepared.original_generation == intent.original_generation
+        and prepared.proposed_generation == intent.proposed_generation
+        and intent.preparation_digest is not None
+        and hmac.compare_digest(prepared.preparation_digest, intent.preparation_digest)
+        and intent.preparation_receipt is not None
+        and hmac.compare_digest(prepared.receipt, intent.preparation_receipt)
+    )
+
+
+def _committed_fence_matches(
+    prepared: LedgerEvent,
+    intent: DeletionIntentRecord,
+    target: DeletionTarget | None,
+    control: DeletionControlOperationRecord | None,
+) -> bool:
+    return bool(
+        intent.state == "CONSUMED"
+        and intent.consumed_at is not None
+        and target is not None
+        and _target_owner(target) == intent.owner_user_id
+        and target.lifecycle_state == "DELETION_PENDING_LEDGER"
+        and target.lifecycle_generation == prepared.proposed_generation
+        and control is not None
+        and control.phase == "FENCE"
+        and control.target_kind == intent.target_kind
+        and control.target_scope_id == intent.target_scope_id
+        and hmac.compare_digest(control.scope_token, prepared.scope_token)
+        and control.restore_key_version == prepared.restore_key_version
+        and control.original_generation == prepared.original_generation
+        and control.deletion_generation == prepared.proposed_generation
+        and hmac.compare_digest(control.preparation_digest, prepared.preparation_digest)
+        and hmac.compare_digest(control.intent_proof_digest, prepared.intent_proof_digest)
+    )
+
+
+def _proved_noncommit_matches(
+    intent: DeletionIntentRecord,
+    target: DeletionTarget | None,
+    control: DeletionControlOperationRecord | None,
+) -> bool:
+    return bool(
+        intent.state == "INVALIDATED"
+        and intent.invalidated_at is not None
+        and control is None
+        and target is not None
+        and _target_owner(target) == intent.owner_user_id
+        and target.lifecycle_state == "ACTIVE"
+        and target.lifecycle_generation == intent.original_generation
+    )
+
+
+def _target_owner(target: DeletionTarget) -> str:
+    if isinstance(target, UserRecord):
+        return target.id
+    return target.owner_user_id
 
 
 def verify_restore_qualification_artifact(
