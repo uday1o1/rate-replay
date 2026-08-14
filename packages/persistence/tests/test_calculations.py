@@ -141,6 +141,21 @@ def test_operation_retry_returns_original_job_and_payload_conflict_fails(
     assert raised.value.code == "IDEMPOTENCY_KEY_REUSED"
 
 
+def test_operation_retry_keeps_original_semantics_after_contract_change(
+    harness: CalculationHarness,
+) -> None:
+    first_identity = _identity()
+    first = _submit(harness, key="stable-operation", identity=first_identity)
+    changed = replace(first_identity, calculation_contract_version="replay-contract-v2")
+
+    retried = _submit(harness, key="stable-operation", identity=changed)
+
+    assert retried.repeated_operation
+    assert retried.job_id == first.job_id
+    assert retried.semantic_hash == first.semantic_hash
+    assert retried.semantic_hash != changed.sha256()
+
+
 def test_completed_semantic_result_is_reused_but_contract_change_is_new(
     harness: CalculationHarness,
 ) -> None:

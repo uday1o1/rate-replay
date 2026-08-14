@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import BinaryIO, Final
@@ -149,6 +150,7 @@ class ArtifactService:
         result_id: str,
         artifact_registration_ids: tuple[str, ...],
         now: datetime,
+        publish_result: Callable[[Session], None] | None = None,
     ) -> FinalizedResult:
         if len(semantic_hash) != 64:
             raise ArtifactServiceError(
@@ -181,6 +183,7 @@ class ArtifactService:
                 result_id=result_id,
                 artifact_registration_ids=artifact_registration_ids,
                 now=now,
+                publish_result=publish_result,
             )
         except IntegrityError as error:
             repeated = self._resolve_semantic_race(
@@ -292,6 +295,7 @@ class ArtifactService:
         result_id: str,
         artifact_registration_ids: tuple[str, ...],
         now: datetime,
+        publish_result: Callable[[Session], None] | None,
     ) -> FinalizedResult:
         with self._session_factory.begin() as database:
             job = database.get(JobRecord, lease.job_id)
@@ -358,6 +362,9 @@ class ArtifactService:
                     "ARTIFACT_SET_INVALID",
                     "Result artifact set is incomplete or outside the current attempt",
                 )
+            if publish_result is not None:
+                publish_result(database)
+                database.flush()
             claim = JobResultClaimRecord(
                 id=secrets.token_hex(16),
                 owner_user_id=owner_user_id,

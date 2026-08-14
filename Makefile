@@ -83,7 +83,7 @@ integration-m5:
 	@test -n "$(RATEREPLAY_TEST_DATABASE_URL)"
 	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic upgrade head
 	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic check
-	@RATEREPLAY_TEST_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov -m postgres tests/integration/test_auth_postgres.py tests/integration/test_import_postgres.py tests/integration/test_replay_postgres.py tests/integration/test_comparison_postgres.py tests/integration/test_scenario_postgres.py tests/integration/test_jobs_postgres.py tests/integration/test_deletion_postgres.py tests/integration/test_restore_postgres.py
+	@RATEREPLAY_TEST_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov -m postgres tests/integration/test_auth_postgres.py tests/integration/test_import_postgres.py tests/integration/test_replay_postgres.py tests/integration/test_comparison_postgres.py tests/integration/test_scenario_postgres.py tests/integration/test_report_postgres.py tests/integration/test_jobs_postgres.py tests/integration/test_deletion_postgres.py tests/integration/test_restore_postgres.py
 
 benchmark-m1-recovery:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python benchmarks/scripts/m1_recovery.py

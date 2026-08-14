@@ -373,3 +373,40 @@ def test_storage_failure_leaves_registered_artifact_for_cleanup(
         )
         == 1
     )
+
+
+def test_domain_result_callback_rolls_back_with_terminal_publication(
+    harness: ArtifactHarness,
+) -> None:
+    _add_report_job(harness, owner_prefix="1", job_id="a" * 32)
+    lease = _lease_report(harness, "worker-a")
+    staged = harness.artifacts.stage(
+        owner_user_id="1" * 32,
+        lease=lease,
+        artifact_class="REPORT",
+        source=BytesIO(b"redacted report"),
+        now=NOW,
+    )
+
+    def fail_publication(_database: Session) -> None:
+        raise RuntimeError("injected domain publication failure")
+
+    with pytest.raises(RuntimeError, match="injected domain publication failure"):
+        harness.artifacts.finalize(
+            owner_user_id="1" * 32,
+            lease=lease,
+            semantic_hash="d" * 64,
+            calculation_contract_version="report-contract-v1",
+            result_type="REPORT",
+            result_id="e" * 32,
+            artifact_registration_ids=(staged.registration_id,),
+            now=NOW,
+            publish_result=fail_publication,
+        )
+    with harness.sessions() as database:
+        job = database.get(JobRecord, lease.job_id)
+        registration = database.get(ObjectUploadRegistrationRecord, staged.registration_id)
+        claim_count = database.scalar(select(func.count()).select_from(JobResultClaimRecord))
+        assert job is not None and job.state == "RUNNING"
+        assert registration is not None and registration.state == "STAGED"
+        assert claim_count == 0

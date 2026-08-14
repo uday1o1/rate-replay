@@ -10,6 +10,10 @@ import pytest
 from fastapi import FastAPI
 from ratereplay_api.config import AppSettings
 from ratereplay_api.main import create_app
+from ratereplay_optimizer.results import ScenarioOptimizationResult
+from ratereplay_persistence.artifacts import ArtifactService
+from ratereplay_reports.redacted import build_redacted_report
+from ratereplay_worker.report_worker import ReportWorker
 
 ROOT = Path(__file__).resolve().parents[3]
 ORIGIN = "https://app.ratereplay.test"
@@ -66,6 +70,7 @@ def _headers(csrf: str, key: str) -> dict[str, str]:
 @pytest.mark.anyio
 async def test_private_account_completes_portfolio_core_through_public_api(
     client: httpx.AsyncClient,
+    test_app: FastAPI,
 ) -> None:
     registered = await client.post(
         "/v1/auth/register",
@@ -183,7 +188,8 @@ async def test_private_account_completes_portfolio_core_through_public_api(
         },
     )
     assert scenario_response.status_code == 201, scenario_response.text
-    scenario = scenario_response.json()["result"]
+    scenario_resource = scenario_response.json()
+    scenario = scenario_resource["result"]
     assert scenario["historical_addition_label"] == ("HISTORICAL_COUNTERFACTUAL_NOT_FORECAST")
     assert scenario["decomposition"]["exact_measured_reconstruction"] is True
     assert scenario["exact"]["search_status"] == "OPTIMAL"
@@ -191,3 +197,48 @@ async def test_private_account_completes_portfolio_core_through_public_api(
     assert scenario["heuristic"]["bill_optimality_claim"] is False
     assert scenario["manifest"]["tariff_compiler_content_sha256"]
     assert scenario["manifest"]["selected_verification_sha256"]
+    build_redacted_report(ScenarioOptimizationResult.model_validate_json(json.dumps(scenario)))
+
+    report_submission = await client.post(
+        f"/v1/reports/{scenario_resource['scenario_id']}/exports",
+        headers=_headers(csrf, "portfolio-report-export"),
+    )
+    assert report_submission.status_code == 202, report_submission.text
+    report_job = report_submission.json()
+    assert (report_job["kind"], report_job["state"]) == ("REPORT", "QUEUED")
+    state = cast(Any, test_app.state)
+    worker = ReportWorker(
+        worker_id="portfolio-report-worker",
+        session_factory=state.session_factory,
+        jobs=state.job_service,
+        artifacts=ArtifactService(state.session_factory, state.object_store),
+    )
+    assert worker.run_once(now=state.auth_service.now)
+    completed_job = await client.get(f"/v1/jobs/{report_job['job_id']}")
+    assert completed_job.status_code == 200, completed_job.text
+    assert completed_job.json()["failure_code"] is None, completed_job.text
+    assert completed_job.json()["state"] == "SUCCEEDED", completed_job.json()
+    export_id = completed_job.json()["terminal_result_id"]
+    result_resource = await client.get(f"/v1/results/{scenario_resource['result_id']}")
+    assert result_resource.status_code == 200, result_resource.text
+    report_response = await client.get(f"/v1/reports/{scenario_resource['scenario_id']}")
+    assert report_response.status_code == 200, report_response.text
+    direct_export = await client.get(f"/v1/report-exports/{export_id}")
+    assert direct_export.status_code == 200, direct_export.text
+    assert direct_export.json() == report_response.json()
+    redacted = report_response.json()["report"]
+    assert redacted["schema_version"] == "redacted-report-v1"
+    assert redacted["solver"]["verification_status"] == "VALID"
+    assert redacted["aggregate_shifted_energy_wh"] >= 0
+    serialized = json.dumps(redacted, sort_keys=True)
+    for prohibited in (
+        "slot_start_utc",
+        "occurrence_id",
+        "physical_asset_key",
+        "candidate_profile",
+        "reference_schedule",
+        "Current bill only",
+        "source_id",
+        "object_key",
+    ):
+        assert prohibited not in serialized

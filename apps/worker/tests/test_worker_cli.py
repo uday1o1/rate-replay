@@ -26,6 +26,8 @@ def test_worker_cli_exposes_one_shot_and_continuous_modes() -> None:
     assert "reconcile-deletions" in result.output
     assert "run-deletion-once" in result.output
     assert "run-deletions" in result.output
+    assert "run-report-once" in result.output
+    assert "run-reports" in result.output
     assert "qualify-restore" in result.output
     assert "verify-restore-qualification" in result.output
 

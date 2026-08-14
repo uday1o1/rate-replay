@@ -133,7 +133,6 @@ class CalculationSubmissionService:
                             database,
                             existing,
                             operation_request_hash=operation_request_hash,
-                            semantic_hash=semantic_hash,
                         )
                     user = database.get(UserRecord, owner_user_id)
                     profile = database.get(ProfileVersionRecord, profile_version_id)
@@ -274,7 +273,6 @@ def _repeat_operation(
     operation: OperationRequestRecord,
     *,
     operation_request_hash: str,
-    semantic_hash: str,
 ) -> CalculationSubmission:
     if operation.canonical_payload_hash != operation_request_hash:
         raise CalculationSubmissionError(
@@ -282,7 +280,7 @@ def _repeat_operation(
             "Idempotency key is bound to another calculation request",
         )
     job = database.get(JobRecord, operation.operation_id)
-    if job is None or job.requested_semantic_hash != semantic_hash:
+    if job is None or job.requested_semantic_hash is None:
         raise CalculationSubmissionError(
             "OPERATION_INCOMPLETE",
             "Calculation operation is unavailable",
@@ -290,7 +288,7 @@ def _repeat_operation(
     return CalculationSubmission(
         job_id=job.id,
         operation_request_hash=operation_request_hash,
-        semantic_hash=semantic_hash,
+        semantic_hash=job.requested_semantic_hash,
         repeated_operation=True,
         semantic_reuse=job.state == "SUCCEEDED",
         result_type=job.terminal_result_type,

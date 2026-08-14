@@ -41,6 +41,7 @@ from ratereplay_persistence.models import (
     ProfileVersionRecord,
     RawObjectRecord,
     ReplayResultRecord,
+    ReportExportRecord,
     ScenarioLoadRecord,
     ScenarioRecord,
     ScenarioReferenceScheduleRecord,
@@ -667,6 +668,11 @@ def _sweep_owner_rows(
             RawObjectRecord.owner_user_id == owner_user_id,
         ),
         "replays": len(replay_ids),
+        "report_exports": _count(
+            database,
+            ReportExportRecord,
+            ReportExportRecord.owner_user_id == owner_user_id,
+        ),
         "scenario_loads": len(scenario_load_ids),
         "scenario_results": len(scenario_result_ids),
         "scenarios": len(scenario_ids),
@@ -687,6 +693,9 @@ def _sweep_owner_rows(
         )
     database.execute(
         delete(ComparisonResultRecord).where(ComparisonResultRecord.owner_user_id == owner_user_id)
+    )
+    database.execute(
+        delete(ReportExportRecord).where(ReportExportRecord.owner_user_id == owner_user_id)
     )
     database.execute(
         delete(ScenarioResultRecord).where(ScenarioResultRecord.owner_user_id == owner_user_id)
@@ -752,6 +761,7 @@ def _prohibited_row_count(
             ObjectUploadRegistrationRecord.owner_user_id == owner_user_id,
         ),
         (ReplayResultRecord, ReplayResultRecord.owner_user_id == owner_user_id),
+        (ReportExportRecord, ReportExportRecord.owner_user_id == owner_user_id),
         (ComparisonResultRecord, ComparisonResultRecord.owner_user_id == owner_user_id),
         (ScenarioRecord, ScenarioRecord.owner_user_id == owner_user_id),
         (ScenarioResultRecord, ScenarioResultRecord.owner_user_id == owner_user_id),

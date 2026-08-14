@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from ratereplay_persistence.artifacts import ArtifactService
 from ratereplay_persistence.database import make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import DeletionLedgerError, FilesystemDeletionLedger
 from ratereplay_persistence.deletion_sweep import DeletionSweepService
@@ -29,6 +30,7 @@ from sqlalchemy.engine import Engine
 
 from ratereplay_worker.deletion_worker import DeletionWorker
 from ratereplay_worker.import_worker import ImportWorker
+from ratereplay_worker.report_worker import ReportWorker
 
 app = typer.Typer(no_args_is_help=True)
 WORKER_POLL_SECONDS = 1.0
@@ -137,6 +139,26 @@ def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
             restore_key=restore_key,
             restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
             outcome_evidence_key=outcome_key,
+        ),
+        engine,
+    )
+
+
+def _configured_report_worker() -> tuple[ReportWorker, Engine]:
+    database_url = os.getenv("RATEREPLAY_DATABASE_URL")
+    if database_url is None:
+        typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
+        raise typer.Exit(code=2)
+    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
+    engine = make_engine(database_url)
+    sessions = make_session_factory(engine)
+    objects = FilesystemObjectStore(object_root)
+    return (
+        ReportWorker(
+            worker_id=f"{socket.gethostname()}-{os.getpid()}",
+            session_factory=sessions,
+            jobs=JobService(sessions),
+            artifacts=ArtifactService(sessions, objects),
         ),
         engine,
     )
@@ -348,6 +370,34 @@ def verify_restore_qualification(
     )
     if not verified.exposure_allowed:
         raise typer.Exit(code=3)
+
+
+@app.command("run-report-once")
+def run_report_once() -> None:
+    """Lease and publish at most one redacted report export."""
+
+    worker, engine = _configured_report_worker()
+    try:
+        processed = worker.run_once(now=datetime.now(UTC))
+        typer.echo("processed" if processed else "idle")
+    finally:
+        engine.dispose()
+
+
+@app.command("run-reports")
+def run_reports() -> None:
+    """Poll continuously for durable redacted report jobs."""
+
+    worker, engine = _configured_report_worker()
+    try:
+        while True:
+            processed = worker.run_once(now=datetime.now(UTC))
+            if not processed:
+                time.sleep(WORKER_POLL_SECONDS)
+    except KeyboardInterrupt:
+        typer.echo("stopped")
+    finally:
+        engine.dispose()
 
 
 if __name__ == "__main__":

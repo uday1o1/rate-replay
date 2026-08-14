@@ -494,6 +494,38 @@ class ComparisonResultRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class ReportExportRecord(Base):
+    """Immutable deny-by-default redacted report accepted through a fenced job."""
+
+    __tablename__ = "report_exports"
+    __table_args__ = (
+        UniqueConstraint("owner_user_id", "semantic_hash", name="uq_owner_report_semantic"),
+        UniqueConstraint("job_id", name="uq_report_export_job"),
+        UniqueConstraint("object_key", name="uq_report_export_object"),
+        Index("ix_report_exports_owner_created", "owner_user_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    scenario_id: Mapped[str] = mapped_column(ForeignKey("scenarios.id"), nullable=False)
+    scenario_result_id: Mapped[str] = mapped_column(
+        ForeignKey("scenario_results.id"), nullable=False
+    )
+    profile_version_id: Mapped[str] = mapped_column(
+        ForeignKey("profile_versions.id"), nullable=False
+    )
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False)
+    semantic_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    report_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    redaction_policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    report_template_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_json: Mapped[str] = mapped_column(Text, nullable=False)
+    object_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
+    lifecycle_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class DeletionIntentRecord(Base):
     """Owner-bound authorization that can be consumed exactly once."""
 

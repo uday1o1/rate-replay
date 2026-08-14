@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +19,7 @@ from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_persistence.replays import ReplayService
+from ratereplay_persistence.reports import ReportService
 from ratereplay_persistence.scenarios import ScenarioService
 from ratereplay_tariffs.admission import load_all_admitted_tariffs
 
@@ -28,6 +31,7 @@ from ratereplay_api.deletion_routes import router as deletion_router
 from ratereplay_api.import_routes import router as import_router
 from ratereplay_api.problems import install_problem_handler
 from ratereplay_api.replay_routes import router as replay_router
+from ratereplay_api.resource_routes import router as resource_router
 from ratereplay_api.scenario_routes import router as scenario_router
 
 
@@ -62,6 +66,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     application.state.replay_service = ReplayService(application.state.session_factory)
     application.state.comparison_service = ComparisonService(application.state.session_factory)
     application.state.scenario_service = ScenarioService(application.state.session_factory)
+    application.state.report_service = ReportService(
+        application.state.session_factory,
+        environment_lock_hash=_environment_lock_hash(resolved.repository_root),
+    )
     admitted_tariffs = load_all_admitted_tariffs(resolved.repository_root)
     application.state.admitted_tariffs = {
         admitted.lock.tariff_version_id: admitted for admitted in admitted_tariffs
@@ -117,8 +125,20 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     application.include_router(replay_router)
     application.include_router(comparison_router)
     application.include_router(scenario_router)
+    application.include_router(resource_router)
     application.include_router(deletion_router)
     return application
+
+
+def _environment_lock_hash(repository_root: Path) -> str:
+    digest = hashlib.sha256(b"RateReplay.EnvironmentLocks.v1\x00")
+    for name in ("uv.lock", "pnpm-lock.yaml"):
+        content = (repository_root / name).read_bytes()
+        digest.update(len(name).to_bytes(4, "big"))
+        digest.update(name.encode("ascii"))
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()
 
 
 app = create_app()
