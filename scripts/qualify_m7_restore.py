@@ -809,8 +809,34 @@ def _run(
     combined = completed.stdout + completed.stderr
     completed = subprocess.CompletedProcess(command, completed.returncode, combined, "")
     if completed.returncode not in expected:
-        raise QualificationError(f"COMMAND_FAILED:{Path(command[0]).name}:{completed.returncode}")
+        raise QualificationError(f"COMMAND_FAILED:{_command_label(command)}:{completed.returncode}")
     return completed
+
+
+def _command_label(command: tuple[str, ...]) -> str:
+    executable = Path(command[0]).name
+    if executable == "uv" and len(command) >= 4 and command[1] == "run":
+        tool = Path(command[2]).name
+        operation = command[3]
+        allowed = {
+            ("alembic", "check"),
+            ("alembic", "downgrade"),
+            ("alembic", "upgrade"),
+            ("ratereplay-worker", "create-backup"),
+            ("ratereplay-worker", "reconcile-deletions-once"),
+            ("ratereplay-worker", "restore-backup-to-quarantine"),
+        }
+        if (tool, operation) in allowed:
+            return f"uv:{tool}:{operation}"
+    if executable == "docker" and len(command) >= 2:
+        operation = command[1]
+        if operation in {"exec", "kill", "start", "version"}:
+            return f"docker:{operation}"
+    if executable == "docker-compose" and len(command) >= 2:
+        return "docker-compose:version"
+    if executable == "git" and command[1:3] == ("rev-parse", "HEAD"):
+        return "git:rev-parse"
+    return executable
 
 
 def _canary_hash(engine: Engine, canary_id: str) -> str:

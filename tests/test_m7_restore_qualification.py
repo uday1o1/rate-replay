@@ -10,6 +10,7 @@ from scripts.qualify_m7_restore import (
     LOCAL_EVIDENCE_LEVEL,
     QualificationError,
     _artifact_hash,
+    _command_label,
     verify_evidence,
     write_evidence,
 )
@@ -66,3 +67,8 @@ def test_m7_evidence_rejects_failed_controls_and_digest_tampering() -> None:
     tampered["gate_result"] = "FAILED"
     with pytest.raises(QualificationError):
         verify_evidence(tampered)
+
+
+def test_m7_command_labels_disclose_only_allowlisted_operations() -> None:
+    assert _command_label(("uv", "run", "alembic", "upgrade", "head")) == ("uv:alembic:upgrade")
+    assert _command_label(("uv", "run", "unknown", "secret-value")) == "uv"
