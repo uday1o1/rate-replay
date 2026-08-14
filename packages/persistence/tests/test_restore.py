@@ -10,7 +10,13 @@ import pytest
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger, LedgerEvent
 from ratereplay_persistence.deletions import DeletionCoordinator, _event_arguments, _scope_token
-from ratereplay_persistence.models import ImportRecord, RawObjectRecord, UserRecord
+from ratereplay_persistence.models import (
+    DeletionControlOperationRecord,
+    DeletionIntentRecord,
+    ImportRecord,
+    RawObjectRecord,
+    UserRecord,
+)
 from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_persistence.restore import (
     RestoreQualificationError,
@@ -130,6 +136,74 @@ def test_requested_event_suppresses_predeletion_backup_before_exposure(
     assert not harness.objects.exists(f"owners/{OWNER_ID}/exports/report.json")
     with harness.sessions() as database:
         assert database.get(UserRecord, OWNER_ID) is None
+
+
+def test_account_restore_suppression_removes_child_deletion_controls(
+    harness: Harness,
+) -> None:
+    child_deletion_id = "a" * 32
+    child_scope_id = "b" * 32
+    with harness.sessions.begin() as database:
+        database.add(
+            ImportRecord(
+                id="c" * 32,
+                owner_user_id=OWNER_ID,
+                state="READY",
+                lifecycle_state="DELETING",
+                lifecycle_generation=1,
+                deletion_scope_id=child_scope_id,
+                adapter="ESPI_XML",
+                raw_content_hash="d" * 64,
+                created_at=NOW,
+            )
+        )
+        database.add(
+            DeletionIntentRecord(
+                deletion_id=child_deletion_id,
+                owner_user_id=OWNER_ID,
+                idempotency_key="child-delete",
+                request_schema_version="deletion-intent-v1",
+                canonical_payload_hash="e" * 64,
+                receipt_digest="f" * 64,
+                target_kind="IMPORT",
+                target_scope_id=child_scope_id,
+                original_generation=0,
+                proposed_generation=1,
+                state="CONSUMED",
+                preparation_digest="0" * 64,
+                preparation_receipt="1" * 64,
+                created_at=NOW,
+                expires_at=NOW + timedelta(minutes=15),
+                prepared_at=NOW + timedelta(seconds=1),
+                consumed_at=NOW + timedelta(seconds=2),
+            )
+        )
+        database.add(
+            DeletionControlOperationRecord(
+                deletion_id=child_deletion_id,
+                target_kind="IMPORT",
+                target_scope_id=child_scope_id,
+                scope_token=_scope_token(RESTORE_KEY, child_scope_id),
+                restore_key_version="restore-v1",
+                original_generation=0,
+                deletion_generation=1,
+                preparation_digest="0" * 64,
+                intent_proof_digest="2" * 64,
+                phase="REQUESTED",
+                artifact_counts_json="{}",
+                created_at=NOW + timedelta(seconds=1),
+                updated_at=NOW + timedelta(seconds=2),
+            )
+        )
+    prepared = _prepare(harness)
+    _request(harness, prepared)
+
+    qualification = harness.restore.qualify(now=NOW + timedelta(seconds=3))
+
+    assert qualification.exposure_allowed
+    with harness.sessions() as database:
+        assert database.get(UserRecord, OWNER_ID) is None
+        assert database.get(DeletionControlOperationRecord, child_deletion_id) is None
 
 
 def test_requested_import_deletion_suppresses_only_restored_child_scope(

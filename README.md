@@ -56,7 +56,8 @@ The built-in public demo remains unavailable until its production artifacts pass
 ## Data retention and deletion
 
 Confirmed raw uploads enter immediate deletion when normalization no longer needs them, and every raw upload has a fixed 24-hour maximum lifetime.
-Account deletion removes live database rows, object-store data, sessions, queued work, and generated artifacts through a generation-fenced workflow.
+Account, import, and profile deletion remove their scoped live database rows, object-store data, queued work, and generated artifacts through generation-fenced workflows.
+Account deletion also revokes sessions and safely subsumes any child deletion already in progress while preserving its receipt status.
 Deleted data may remain only in separately encrypted backups until the backup reaches its fixed maximum age of 30 days.
 Individual backups are not rewritten after a deletion.
 Every restore remains quarantined until the separately protected deletion ledger is verified and suppressive deletion records have been reapplied.

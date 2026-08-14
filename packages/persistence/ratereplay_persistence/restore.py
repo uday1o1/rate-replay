@@ -38,6 +38,7 @@ from ratereplay_persistence.models import (
     DeletionAuditRecord,
     DeletionControlOperationRecord,
     DeletionFenceTargetRecord,
+    DeletionIntentRecord,
     DeletionLedgerReceiptRecord,
     DeletionReceiptRecord,
     ImportRecord,
@@ -360,12 +361,8 @@ class RestoreReconciler:
             )
             if target is None:
                 return
-            stored_control = database.scalar(
-                select(DeletionControlOperationRecord).where(
-                    DeletionControlOperationRecord.target_scope_id == restored.scope_id
-                )
-            )
-            if stored_control is not None:
+            stored_controls = _restored_controls_for_target(database, restored, target)
+            for stored_control in stored_controls:
                 database.execute(
                     delete(DeletionFenceTargetRecord).where(
                         DeletionFenceTargetRecord.deletion_id == stored_control.deletion_id
@@ -382,7 +379,7 @@ class RestoreReconciler:
                     )
                 )
                 database.delete(stored_control)
-                database.flush()
+            database.flush()
             if restored.kind == "ACCOUNT":
                 _sweep_owner_rows(
                     database,
@@ -488,6 +485,49 @@ def _restored_resource_control(
         artifact_counts_json="{}",
         created_at=occurred_at,
         updated_at=occurred_at,
+    )
+
+
+def _restored_controls_for_target(
+    database: Session,
+    restored: RestoreTarget,
+    target: UserRecord | ImportRecord | ProfileVersionRecord,
+) -> tuple[DeletionControlOperationRecord, ...]:
+    scope_ids = [restored.scope_id]
+    if restored.kind == "ACCOUNT":
+        deletion_ids = tuple(
+            database.scalars(
+                select(DeletionIntentRecord.deletion_id).where(
+                    DeletionIntentRecord.owner_user_id == restored.owner_user_id
+                )
+            )
+        )
+        return (
+            tuple(
+                database.scalars(
+                    select(DeletionControlOperationRecord).where(
+                        DeletionControlOperationRecord.deletion_id.in_(deletion_ids)
+                    )
+                )
+            )
+            if deletion_ids
+            else ()
+        )
+    if restored.kind == "IMPORT" and isinstance(target, ImportRecord):
+        scope_ids.extend(
+            database.scalars(
+                select(ProfileVersionRecord.deletion_scope_id).where(
+                    ProfileVersionRecord.import_id == target.id,
+                    ProfileVersionRecord.owner_user_id == restored.owner_user_id,
+                )
+            )
+        )
+    return tuple(
+        database.scalars(
+            select(DeletionControlOperationRecord).where(
+                DeletionControlOperationRecord.target_scope_id.in_(tuple(scope_ids))
+            )
+        )
     )
 
 
