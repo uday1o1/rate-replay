@@ -1,0 +1,35 @@
+{
+	admin off
+	auto_https disable_redirects
+}
+
+http://localhost:{$RATEREPLAY_PUBLIC_HTTP_PORT:58080} {
+	redir https://localhost:{$RATEREPLAY_PUBLIC_HTTPS_PORT:58443}{uri} 308
+}
+
+https://localhost:{$RATEREPLAY_PUBLIC_HTTPS_PORT:58443} {
+	tls internal
+	encode zstd gzip
+	header {
+		-Server
+		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+		Permissions-Policy "camera=(), geolocation=(), microphone=()"
+		Referrer-Policy no-referrer
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+	}
+
+	@api path /healthz /readyz /v1/*
+	handle @api {
+		reverse_proxy api:8000 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}

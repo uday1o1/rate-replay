@@ -1,0 +1,319 @@
+name: ratereplay-release
+
+x-application-environment: &application-environment
+  RATEREPLAY_ENV: development
+  RATEREPLAY_DATABASE_URL: postgresql+psycopg://ratereplay@postgres:5432/ratereplay
+  RATEREPLAY_DATABASE_AT_REST_ENCRYPTION: development-unencrypted
+  RATEREPLAY_ALLOWED_ORIGIN: https://localhost:${RATEREPLAY_PUBLIC_HTTPS_PORT:-58443}
+  RATEREPLAY_TRUSTED_PROXY_CIDRS: ${RATEREPLAY_PROXY_ADDRESS:-172.30.77.10}/32
+  RATEREPLAY_TRACE_EXPORTER: console
+  RATEREPLAY_OBJECT_STORE_BACKEND: s3
+  RATEREPLAY_S3_ENDPOINT: object-store:9000
+  RATEREPLAY_S3_BUCKET: ratereplay-private
+  RATEREPLAY_S3_ACCESS_KEY_FILE: /run/secrets/object_store_user
+  RATEREPLAY_S3_SECRET_KEY_FILE: /run/secrets/object_store_password
+  RATEREPLAY_S3_SECURE: "false"
+  RATEREPLAY_OBJECT_ENCRYPTION_KEYS_DIR: /run/secrets/object-encryption-keys
+  RATEREPLAY_OBJECT_ENCRYPTION_CURRENT_KEY_VERSION: object-key-v1
+  RATEREPLAY_BACKUP_OBJECT_STORE_BACKEND: s3
+  RATEREPLAY_BACKUP_S3_ENDPOINT: backup-store:9000
+  RATEREPLAY_BACKUP_S3_BUCKET: ratereplay-backups
+  RATEREPLAY_BACKUP_S3_ACCESS_KEY_FILE: /run/secrets/backup_store_user
+  RATEREPLAY_BACKUP_S3_SECRET_KEY_FILE: /run/secrets/backup_store_password
+  RATEREPLAY_BACKUP_S3_SECURE: "false"
+  RATEREPLAY_BACKUP_OBJECT_ENCRYPTION_KEYS_DIR: /run/secrets/backup-encryption-keys
+  RATEREPLAY_BACKUP_OBJECT_ENCRYPTION_CURRENT_KEY_VERSION: backup-key-v1
+  RATEREPLAY_BACKUP_PGDUMP_COMMAND_JSON: '["pg_dump"]'
+  RATEREPLAY_BACKUP_PGDUMP_VERSION_COMMAND_JSON: '["pg_dump"]'
+  RATEREPLAY_BACKUP_PGRESTORE_COMMAND_JSON: '["pg_restore"]'
+  RATEREPLAY_BACKUP_PGHOST: postgres
+  RATEREPLAY_BACKUP_PGPORT: "5432"
+  RATEREPLAY_BACKUP_PGDATABASE: ratereplay
+  RATEREPLAY_BACKUP_PGUSER: ratereplay
+  RATEREPLAY_BACKUP_PGPASSFILE: /tmp/ratereplay-postgres.pgpass
+  RATEREPLAY_POSTGRES_PGPASS_SOURCE_FILE: /run/secrets/postgres_pgpass
+  RATEREPLAY_SESSION_SECRET_FILE: /run/secrets/session_secret
+  RATEREPLAY_DELETION_LEDGER_ROOT: /var/lib/ratereplay/deletion-ledger
+  RATEREPLAY_DELETION_LEDGER_KEYS_DIR: /run/secrets/deletion-ledger-keys
+  RATEREPLAY_DELETION_LEDGER_CURRENT_KEY_VERSION: ledger-v1
+  RATEREPLAY_RESTORE_KEYS_DIR: /run/secrets/restore-keys
+  RATEREPLAY_RESTORE_CURRENT_KEY_VERSION: restore-v1
+  RATEREPLAY_TRANSACTION_OUTCOME_KEY_FILE: /run/secrets/transaction_outcome_key
+  PGPASSFILE: /tmp/ratereplay-postgres.pgpass
+
+x-application-secrets: &application-secrets
+  - object_store_user
+  - object_store_password
+  - backup_store_user
+  - backup_store_password
+  - postgres_pgpass
+  - session_secret
+  - transaction_outcome_key
+
+x-application-volumes: &application-volumes
+  - deletion-ledger:/var/lib/ratereplay/deletion-ledger
+  - ${RATEREPLAY_OBJECT_ENCRYPTION_KEYS_DIR:-./.local-secrets/object-encryption-keys}:/run/secrets/object-encryption-keys:ro
+  - ${RATEREPLAY_BACKUP_ENCRYPTION_KEYS_DIR:-./.local-secrets/backup-encryption-keys}:/run/secrets/backup-encryption-keys:ro
+  - ${RATEREPLAY_DELETION_LEDGER_KEYS_DIR:-./.local-secrets/deletion-ledger-keys}:/run/secrets/deletion-ledger-keys:ro
+  - ${RATEREPLAY_RESTORE_KEYS_DIR:-./.local-secrets/restore-keys}:/run/secrets/restore-keys:ro
+
+x-application-security: &application-security
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp:mode=0700,uid=10001,gid=10001
+  init: true
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  postgres:
+    image: ${RATEREPLAY_POSTGRES_IMAGE:?RATEREPLAY_POSTGRES_IMAGE is required}
+    environment:
+      POSTGRES_DB: ratereplay
+      POSTGRES_USER: ratereplay
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ratereplay -d ratereplay"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    restart: unless-stopped
+
+  object-store:
+    image: ${RATEREPLAY_OBJECT_STORE_IMAGE:?RATEREPLAY_OBJECT_STORE_IMAGE is required}
+    environment:
+      RATEREPLAY_S3_ACCESS_KEY_FILE: /run/secrets/object_store_user
+      RATEREPLAY_S3_SECRET_KEY_FILE: /run/secrets/object_store_password
+      RATEREPLAY_S3_BUCKET: ratereplay-private
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "9000"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    secrets:
+      - object_store_user
+      - object_store_password
+    volumes:
+      - object-data:/data
+    networks:
+      - backend
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:mode=0700,uid=1000,gid=1000
+    restart: unless-stopped
+
+  backup-store:
+    image: ${RATEREPLAY_OBJECT_STORE_IMAGE:?RATEREPLAY_OBJECT_STORE_IMAGE is required}
+    environment:
+      RATEREPLAY_S3_ACCESS_KEY_FILE: /run/secrets/backup_store_user
+      RATEREPLAY_S3_SECRET_KEY_FILE: /run/secrets/backup_store_password
+      RATEREPLAY_S3_BUCKET: ratereplay-backups
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "9000"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    secrets:
+      - backup_store_user
+      - backup_store_password
+    volumes:
+      - backup-data:/data
+    networks:
+      - backend
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:mode=0700,uid=1000,gid=1000
+    restart: unless-stopped
+
+  migrate:
+    image: ${RATEREPLAY_APP_IMAGE:?RATEREPLAY_APP_IMAGE is required}
+    command: ["alembic", "upgrade", "head"]
+    environment: *application-environment
+    secrets: *application-secrets
+    volumes: *application-volumes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:mode=0700,uid=10001,gid=10001
+    networks:
+      - backend
+    restart: "no"
+
+  api:
+    <<: *application-security
+    image: ${RATEREPLAY_APP_IMAGE:?RATEREPLAY_APP_IMAGE is required}
+    command:
+      - uvicorn
+      - ratereplay_api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --no-proxy-headers
+      - --no-access-log
+    environment: *application-environment
+    secrets: *application-secrets
+    volumes: *application-volumes
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3).read()
+      interval: 5s
+      timeout: 4s
+      retries: 12
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      object-store:
+        condition: service_healthy
+    networks:
+      edge:
+      backend:
+
+  worker:
+    <<: *application-security
+    image: ${RATEREPLAY_APP_IMAGE:?RATEREPLAY_APP_IMAGE is required}
+    command: ["ratereplay-worker", "run-all"]
+    environment:
+      <<: *application-environment
+      RATEREPLAY_WORKER_METRICS_ADDRESS: 0.0.0.0
+      RATEREPLAY_WORKER_METRICS_PORT: "9100"
+    secrets: *application-secrets
+    volumes: *application-volumes
+    expose:
+      - "9100"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/metrics', timeout=3).read()
+      interval: 5s
+      timeout: 4s
+      retries: 12
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      object-store:
+        condition: service_healthy
+      backup-store:
+        condition: service_healthy
+    networks:
+      - backend
+
+  web:
+    image: ${RATEREPLAY_WEB_IMAGE:?RATEREPLAY_WEB_IMAGE is required}
+    environment:
+      XDG_CONFIG_HOME: /tmp/config
+      XDG_DATA_HOME: /tmp/data
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:mode=0700,uid=10001,gid=10001
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+    networks:
+      - edge
+    restart: unless-stopped
+
+  proxy:
+    image: ${RATEREPLAY_PROXY_IMAGE:?RATEREPLAY_PROXY_IMAGE is required}
+    environment:
+      RATEREPLAY_PUBLIC_HTTP_PORT: ${RATEREPLAY_PUBLIC_HTTP_PORT:-58080}
+      RATEREPLAY_PUBLIC_HTTPS_PORT: ${RATEREPLAY_PUBLIC_HTTPS_PORT:-58443}
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:mode=0700,uid=10001,gid=10001
+    ports:
+      - 127.0.0.1:${RATEREPLAY_PUBLIC_HTTP_PORT:-58080}:${RATEREPLAY_PUBLIC_HTTP_PORT:-58080}
+      - 127.0.0.1:${RATEREPLAY_PUBLIC_HTTPS_PORT:-58443}:${RATEREPLAY_PUBLIC_HTTPS_PORT:-58443}
+    volumes:
+      - proxy-data:/data
+      - proxy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    networks:
+      edge:
+        ipv4_address: ${RATEREPLAY_PROXY_ADDRESS:-172.30.77.10}
+    restart: unless-stopped
+
+secrets:
+  postgres_password:
+    file: ${RATEREPLAY_POSTGRES_PASSWORD_FILE:-./.local-secrets/postgres_password}
+  postgres_pgpass:
+    file: ${RATEREPLAY_POSTGRES_PGPASS_FILE:-./.local-secrets/postgres_pgpass}
+  object_store_user:
+    file: ${RATEREPLAY_OBJECT_STORE_USER_FILE:-./.local-secrets/object_store_user}
+  object_store_password:
+    file: ${RATEREPLAY_OBJECT_STORE_PASSWORD_FILE:-./.local-secrets/object_store_password}
+  backup_store_user:
+    file: ${RATEREPLAY_BACKUP_STORE_USER_FILE:-./.local-secrets/backup_store_user}
+  backup_store_password:
+    file: ${RATEREPLAY_BACKUP_STORE_PASSWORD_FILE:-./.local-secrets/backup_store_password}
+  session_secret:
+    file: ${RATEREPLAY_SESSION_SECRET_FILE:-./.local-secrets/session_secret}
+  transaction_outcome_key:
+    file: ${RATEREPLAY_TRANSACTION_OUTCOME_KEY_FILE:-./.local-secrets/transaction_outcome_key}
+
+volumes:
+  postgres-data:
+  object-data:
+  backup-data:
+  deletion-ledger:
+  proxy-data:
+  proxy-config:
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${RATEREPLAY_EDGE_SUBNET:-172.30.77.0/24}
+  backend:
+    internal: true
