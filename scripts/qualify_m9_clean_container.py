@@ -129,8 +129,8 @@ def _container_script() -> str:
     commands = "\n".join(QUALIFICATION_COMMANDS)
     return f"""
 set -eu
-cd /workspace
-tools=/workspace/.qualification-tools
+cd /qualification/source
+tools=/qualification/tools
 package_root="$tools/packages/root"
 mkdir -p "$tools" "$package_root" "$tools/node" "$tools/python" "$tools/uv-cache" \
   "$tools/pnpm-store" "$tools/playwright"
@@ -200,7 +200,9 @@ rg --version | head -n 1
 def qualify() -> dict[str, Any]:
     commit = _validate_source_state()
     with tempfile.TemporaryDirectory(prefix=".qualification-work-", dir=ROOT) as directory:
-        checkout = Path(directory)
+        qualification_root = Path(directory)
+        checkout = qualification_root / "source"
+        checkout.mkdir()
         _export_checkout(checkout)
         verification = _run(
             (
@@ -210,9 +212,9 @@ def qualify() -> dict[str, Any]:
                 "--platform",
                 CONTAINER_PLATFORM,
                 "--volume",
-                f"{checkout}:/workspace",
+                f"{qualification_root}:/qualification",
                 "--workdir",
-                "/workspace",
+                "/qualification/source",
                 CONTAINER_IMAGE,
                 "bash",
                 "-lc",
