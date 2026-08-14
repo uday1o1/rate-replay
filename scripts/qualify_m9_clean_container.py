@@ -87,9 +87,22 @@ def _export_checkout(destination: Path) -> None:
     _require(archive.wait() == 0, "GIT_ARCHIVE_FAILED")
 
 
+def _docker_target_architecture() -> str:
+    observed = _run(("docker", "info", "--format", "{{.Architecture}}")).stdout.strip()
+    mapping = {
+        "aarch64": "arm64",
+        "arm64": "arm64",
+        "amd64": "amd64",
+        "x86_64": "amd64",
+    }
+    _require(observed in mapping, f"UNSUPPORTED_DOCKER_ARCHITECTURE:{observed}")
+    return mapping[observed]
+
+
 def qualify() -> dict[str, Any]:
     commit = _validate_source_state()
     tag = f"ratereplay-m9-clean:{commit[:12]}"
+    target_architecture = _docker_target_architecture()
     image_id: str | None = None
     with tempfile.TemporaryDirectory(prefix="rate-replay-m9-clean-") as directory:
         checkout = Path(directory)
@@ -100,6 +113,8 @@ def qualify() -> dict[str, Any]:
                 "build",
                 "--file",
                 str(checkout / "containers/qualification.Dockerfile"),
+                "--build-arg",
+                f"TARGETARCH={target_architecture}",
                 "--tag",
                 tag,
                 str(checkout),

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.qualify_m9_clean_container import DOCKERFILE, QUALIFICATION_COMMANDS
+from scripts.qualify_m9_clean_container import (
+    DOCKERFILE,
+    QUALIFICATION_COMMANDS,
+    _docker_target_architecture,
+)
 
 
 def test_qualification_image_pins_toolchain_and_compose_checksums() -> None:
@@ -29,3 +33,11 @@ def test_qualification_commands_cover_public_and_private_verification() -> None:
 def test_qualification_dockerfile_is_repository_relative() -> None:
     expected = Path(__file__).resolve().parents[1] / "containers/qualification.Dockerfile"
     assert expected == DOCKERFILE
+
+
+def test_docker_architecture_is_normalized_for_legacy_builder(monkeypatch) -> None:
+    class Result:
+        stdout = "aarch64\n"
+
+    monkeypatch.setattr("scripts.qualify_m9_clean_container._run", lambda command: Result())
+    assert _docker_target_architecture() == "arm64"
