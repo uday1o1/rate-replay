@@ -3,10 +3,15 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
+import scripts.qualify_m8_release as release_qualification
 from scripts.qualify_m8_release import (
+    ReleaseQualificationError,
     _import_reading_count,
     _job_database_result,
     _major_minor_version,
+    _wait_job,
     latency_statistics,
 )
 
@@ -61,6 +66,29 @@ def test_import_evidence_counts_the_persisted_interval_readings() -> None:
     assert deployment.statements == [
         "SELECT COUNT(*) FROM interval_readings WHERE import_id='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'"
     ]
+
+
+def test_job_wait_reports_terminal_failure_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        release_qualification,
+        "_request_json",
+        lambda *_args, **_kwargs: {
+            "state": "FAILED",
+            "failure_code": "SCENARIO_SCOPE_UNAVAILABLE",
+        },
+    )
+
+    with pytest.raises(
+        ReleaseQualificationError,
+        match=("JOB_TERMINAL_UNEXPECTED:FAILED:" + "a" * 32 + ":SCENARIO_SCOPE_UNAVAILABLE"),
+    ):
+        _wait_job(
+            object(),  # type: ignore[arg-type]
+            "a" * 32,
+            target_states=frozenset({"RUNNING"}),
+            timeout_seconds=1,
+            poll_seconds=0,
+        )
 
 
 def test_latency_statistics_uses_nearest_rank_and_retains_every_sample() -> None:

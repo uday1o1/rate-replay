@@ -344,7 +344,9 @@ def _wait_job(
         if state in target_states:
             return last
         if state in {"FAILED", "CANCELLED", "SUCCEEDED"}:
-            raise ReleaseQualificationError(f"JOB_TERMINAL_UNEXPECTED:{state}:{job_id}")
+            raise ReleaseQualificationError(
+                f"JOB_TERMINAL_UNEXPECTED:{state}:{job_id}:{last.get('failure_code')}"
+            )
         time.sleep(poll_seconds)
     raise ReleaseQualificationError(f"JOB_WAIT_TIMEOUT:{job_id}:{last.get('state')}")
 
