@@ -859,12 +859,23 @@ def _duplicates(deployment: ComposeDeployment) -> int:
     )
 
 
+def _major_minor_version(value: str) -> str:
+    parts = value.split(".")
+    _require(
+        len(parts) >= 2 and all(part.isdigit() for part in parts),
+        "OPERATING_SYSTEM_VERSION_INVALID",
+    )
+    return ".".join(parts[:2])
+
+
 def _host_observation(manifest: dict[str, Any]) -> dict[str, Any]:
     frozen = cast(dict[str, Any], manifest["hardware"])
+    exact_macos_version = platform.mac_ver()[0]
     observed = {
         "architecture": platform.machine(),
         "logical_cpu_count": os.cpu_count(),
-        "operating_system": f"macOS {platform.mac_ver()[0]}",
+        "operating_system": f"macOS {_major_minor_version(exact_macos_version)}",
+        "operating_system_exact": f"macOS {exact_macos_version}",
         "platform": platform.platform(),
         "python": platform.python_version(),
     }

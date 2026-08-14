@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from scripts.qualify_m8_release import latency_statistics
+from scripts.qualify_m8_release import _major_minor_version, latency_statistics
+
+
+def test_hardware_manifest_os_version_uses_frozen_major_minor() -> None:
+    assert _major_minor_version("26.5.2") == "26.5"
 
 
 def test_latency_statistics_uses_nearest_rank_and_retains_every_sample() -> None:
