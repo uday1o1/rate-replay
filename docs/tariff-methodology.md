@@ -1,8 +1,9 @@
 # Tariff compilation and replay methodology
 
 RateReplay admits tariff behavior only for a bounded service window, a fully specified account predicate, and a source-complete component vector.
-The current admitted boundary is PG&E E-1 historical replay for the half-open July 2026 service window `[2026-07-01, 2026-08-01)` and the account facts locked in `tariffs/admission/target-account-v1.json`.
-This boundary does not admit alternative-plan comparison, optimization, forecasting, or a savings claim.
+The current admitted boundary covers PG&E E-1, E-TOU-C, E-TOU-D, E-ELEC, and EV2-A historical replay for the half-open July 2026 service window `[2026-07-01, 2026-08-01)` and the account facts locked in `tariffs/admission/target-account-v1.json`.
+Unchanged-usage comparison is admitted only for candidates that pass the common account, dated eligibility, source-vector, and comparable-component gates.
+Optimization and forecasting remain outside this admitted boundary.
 
 ## Source and admission chain
 
@@ -12,7 +13,7 @@ The compiler rejects a missing source, a hash mismatch, a rule that is not assig
 Mutable tariffbook PDFs may support discovery, but only the stable source records in the lock can support compilation and admission.
 
 Independent complete-bill and boundary goldens are frozen before production evaluator work.
-The E-1 admission lock hashes the declarative definition and both golden suites, then records the exact compiler content hash that must be reproduced.
+Each tariff admission lock hashes its declarative definition and independent golden suites, then records the exact compiler content hash that must be reproduced.
 A changed definition, golden, source vector, or compiler result invalidates the admission lock instead of silently creating a new tariff version.
 
 ## Declarative schema and canonical IR
@@ -29,13 +30,22 @@ Compilation emits normalized-AST, IR, eligibility, component-vector, source-cove
 ## Reference evaluation
 
 The reference evaluator uses exact rational arithmetic until a named tariff rounding boundary.
-The admitted E-1 operators allocate energy at the baseline boundary, multiply watt-hours by integer microdollar rates, multiply service days by an integer daily charge, and apply a bill-cycle-gated integer credit.
+The admitted operators allocate energy at baseline and tier boundaries, classify exact source intervals into source-locked time-of-use periods, apply the E-TOU-C baseline credit, multiply service days by integer daily charges, evaluate minimum-bill adjustments, and apply bill-cycle-gated integer credits.
 Each supported line carries its rule identifier, tariff version, source and sheet identifiers, exact quantity, exact rate, pre-round rational amount, half-up cent rounding operator, service window, and explanation key.
 The supported total must equal the sum of emitted rounded line items for every accepted request.
 
 Eligibility is tri-state.
 Facts that contradict the locked predicate produce `INELIGIBLE`, facts outside the admitted knowledge boundary produce `UNKNOWN`, and only `ELIGIBLE` requests can be replayed.
 Unknown or ineligible accounts never inherit a supported rate by default.
+
+## Comparable-plan evaluation
+
+The comparison compiler loads the locked difference-making component universe and records each candidate's declared and active component coverage.
+An active unsupported or unclassified component blocks the complete comparison.
+Missing dated facts yield `UNKNOWN`, contradictory facts yield `INELIGIBLE`, and neither status can enter a ranking.
+Only a candidate set with complete source vectors, `ELIGIBLE` results, and no blocked difference-making components receives a stable rank, winner, or supported-charge savings value.
+Alternative-plan results use the same immutable profile timestamps but never accept the current bill total, user-entered unsupported lines, or unexplained residual.
+The displayed difference is therefore between supported calculated subtotals under the locked comparable-cost contract, not between complete utility bills.
 
 ## Reconciliation and semantic identity
 
@@ -51,11 +61,12 @@ Changing a bill total, unsupported-line tuple, or policy therefore creates a dif
 1. Lock stable source records and the ordered component vector for the proposed service window.
 2. Freeze an independent complete-bill golden and boundary cases for every rule, applicability predicate, and rounding boundary.
 3. Add a strict declarative tariff definition without changing the frozen expected values.
-4. Compile through `uv run ratereplay-tariff compile-e1` and inspect every emitted report.
-5. Replay the frozen request through `uv run ratereplay-tariff replay-e1 tariffs/examples/e1-replay-input.json`.
+4. Compile through `uv run ratereplay-tariff compile <definition.json>` and inspect every emitted report.
+5. Replay the frozen request through the public `ratereplay-tariff replay` command.
 6. Add deliberate-invalid and mutation cases that prove gaps, overlaps, invalid tiers, unknown units, source mismatches, rates, dates, applicability predicates, and tier boundaries fail the intended evidence.
 7. Create or update an admission lock only after every gate passes.
-8. Run `make qualification-m2` and `make check` before committing the admitted slice.
+8. Run `make qualification-m3` and `make check` before committing the admitted slice.
 
-The reproducible Milestone 2 result is stored in `evidence/correctness/m2-e1-qualification.json`.
-Its claims apply only to the locked July E-1 account class and service window.
+The reproducible E-1 result is stored in `evidence/correctness/m2-e1-qualification.json`.
+The reproducible five-tariff comparison result is stored in `evidence/correctness/m3-comparison-qualification.json`.
+These claims apply only to the locked July account class and service window.

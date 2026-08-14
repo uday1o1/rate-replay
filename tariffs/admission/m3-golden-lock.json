@@ -1,6 +1,6 @@
 {
   "lock_version": "m3-prefrozen-golden-lock-v1",
-  "state": "GOLDENS_FROZEN_NOT_ADMITTED",
+  "state": "GOLDENS_FROZEN_AND_ADMITTED",
   "frozen_at": "2026-08-14T02:50:00Z",
   "review_method": "Official filed PDF text extraction, page-image cross-check, hand arithmetic, and an independent standard-library validator that imports no production tariff code.",
   "sources": [
@@ -24,7 +24,7 @@
   "tariffs": [
     {
       "plan_code": "E-TOU-C",
-      "admission_status": "NOT_ADMITTED",
+      "admission_status": "ADMITTED",
       "golden_path": "tariffs/golden/etouc-july-2026.json",
       "golden_sha256": "27b72a88367ea181c796c05cfc6ce606ec143bea9d92f81b51d10629e9fa651b",
       "source_sheets": ["61124-E", "61128-E", "61130-E", "61364-E"],
@@ -40,7 +40,7 @@
     },
     {
       "plan_code": "E-TOU-D",
-      "admission_status": "NOT_ADMITTED",
+      "admission_status": "ADMITTED",
       "golden_path": "tariffs/golden/etoud-july-2026.json",
       "golden_sha256": "231d94104ac18d1257faec588fbed1e68fae2b72d2557a5d093cae425b7579c2",
       "source_sheets": ["61134-E", "61137-E", "61365-E"],
@@ -59,7 +59,7 @@
     },
     {
       "plan_code": "E-ELEC",
-      "admission_status": "NOT_ADMITTED",
+      "admission_status": "ADMITTED",
       "golden_path": "tariffs/golden/eelec-july-2026.json",
       "golden_sha256": "4b249506c240282c51613527da9f9f88ea4e41e7f2b42f4f60f0f8547847ed1d",
       "source_sheets": ["61116-E", "61119-E", "61363-E"],
@@ -73,7 +73,7 @@
     },
     {
       "plan_code": "EV2-A",
-      "admission_status": "NOT_ADMITTED",
+      "admission_status": "ADMITTED",
       "golden_path": "tariffs/golden/ev2a-july-2026.json",
       "golden_sha256": "2c87ffd0ccef9773bd93e9a763d08463e20dc617c952f623c3235776e39afe7e",
       "source_sheets": ["61169-E", "61172-E", "61374-E"],

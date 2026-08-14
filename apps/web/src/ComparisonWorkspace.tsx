@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 
 import { api } from "./api";
 
@@ -94,14 +94,11 @@ export function ComparisonWorkspace({
   tariffs,
   onMessage,
 }: ComparisonWorkspaceProps) {
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>(() =>
+    tariffs.map((tariff) => tariff.tariff_version_id),
+  );
   const [comparison, setComparison] = useState<ComparisonResource | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    setSelectedIds(tariffs.map((tariff) => tariff.tariff_version_id));
-    setComparison(null);
-  }, [replayId, tariffs]);
 
   const displayedCandidates = useMemo(() => {
     if (comparison === null || !comparison.result.rankable) {

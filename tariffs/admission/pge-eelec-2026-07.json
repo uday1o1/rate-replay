@@ -29,7 +29,7 @@
     "baseline_territory": "T",
     "baseline_quantity_code": "BASIC",
     "calculation_time_mode": "HISTORICAL_REPLAY",
-    "comparison_admitted": false,
+    "comparison_admitted": true,
     "optimization_admitted": false
   },
   "gate_evidence": {

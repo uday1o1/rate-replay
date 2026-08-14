@@ -187,7 +187,7 @@ async def test_authenticated_tariff_provenance_and_replay_path(
         and item["admitted_service_windows"] == [["2026-07-01", "2026-08-01"]]
         and item["target_account_predicate_id"].startswith("pge-")
         and item["calculation_time_mode"] == "HISTORICAL_REPLAY"
-        and item["comparison_admitted"] is False
+        and item["comparison_admitted"] is True
         and item["optimization_admitted"] is False
         for item in listed_items
     )

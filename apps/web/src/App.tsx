@@ -828,6 +828,7 @@ export function App() {
             comparisonAccountFacts !== null &&
             csrf !== null && (
               <ComparisonWorkspace
+                key={replay.replay_id}
                 replayId={replay.replay_id}
                 csrf={csrf}
                 accountFacts={comparisonAccountFacts}

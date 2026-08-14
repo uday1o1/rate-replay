@@ -8,15 +8,18 @@ Accepted milestone evidence is indexed under [docs/evidence](docs/evidence).
 
 ## Current supported workflow
 
-The currently admitted calculation is historical PG&E E-1 replay for the locked July 2026 account class and service window.
-It emits auditable supported charge lines, exact provenance, optional user-entered unsupported lines, and a signed unexplained residual.
-It does not compare plans, optimize flexible loads, forecast a future bill, or claim savings.
+The currently admitted calculations are historical replay and unchanged-usage comparison across July 2026 PG&E E-1, E-TOU-C, E-TOU-D, E-ELEC, and EV2-A for the locked bundled Tier 3 EV account class.
+Current-plan replay emits auditable supported charge lines, exact provenance, optional user-entered unsupported lines, and a signed unexplained residual.
+Alternative-plan results contain eligibility, comparable-component coverage, supported subtotals, and filed-source provenance without propagating the current bill's unsupported lines or residual.
+RateReplay ranks plans and displays a supported-charge savings value only when every candidate is eligible and every difference-making component is covered.
+It does not yet optimize flexible loads, forecast a future bill, claim utility-bill equivalence, or generalize these results beyond the locked account and service window.
 
 Compile the source-locked tariff and reproduce the frozen complete-bill request with:
 
 ```sh
 uv run ratereplay-tariff compile-e1
 uv run ratereplay-tariff replay-e1 tariffs/examples/e1-replay-input.json
+make qualification-m3
 ```
 
 The authoring, numeric, eligibility, reconciliation, and admission rules are documented in [docs/tariff-methodology.md](docs/tariff-methodology.md).
@@ -29,7 +32,10 @@ Then run:
 ```sh
 make bootstrap
 make check
-make qualification-m2
+make qualification-m3
 ```
+
+The frozen 750 kWh profile produces supported subtotals of $277.28 for E-1, $302.53 for E-TOU-C, $260.21 for E-TOU-D, $302.78 for E-ELEC, and $268.90 for EV2-A.
+Under only that locked comparable-cost contract, E-TOU-D is the lowest supported subtotal and is $17.07 below E-1.
 
 The built-in public demo remains unavailable until its production artifacts pass the Milestone 6 release build.

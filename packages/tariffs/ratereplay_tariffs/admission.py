@@ -25,7 +25,7 @@ class AdmissionScope(FrozenModel):
     baseline_territory: Literal["T"]
     baseline_quantity_code: Literal["BASIC"]
     calculation_time_mode: Literal["HISTORICAL_REPLAY"]
-    comparison_admitted: Literal[False]
+    comparison_admitted: Literal[True]
     optimization_admitted: Literal[False]
 
 

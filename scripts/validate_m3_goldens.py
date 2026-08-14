@@ -171,7 +171,7 @@ def _validate_eligibility_facts() -> None:
 def validate() -> None:
     golden_lock = _load(ROOT / "tariffs/admission/m3-golden-lock.json")
     source_lock = _load(ROOT / "tariffs/sources.lock.json")
-    _require(golden_lock["state"] == "GOLDENS_FROZEN_NOT_ADMITTED", "LOCK_STATE")
+    _require(golden_lock["state"] == "GOLDENS_FROZEN_AND_ADMITTED", "LOCK_STATE")
     source_records = {item["source_id"]: item for item in source_lock["sources"]}
     for locked_source in golden_lock["sources"]:
         source = source_records[locked_source["source_id"]]
@@ -181,6 +181,7 @@ def validate() -> None:
     account_lock = golden_lock["common_account_fixture"]
     _require(_sha256(ROOT / account_lock["path"]) == account_lock["sha256"], "ACCOUNT_HASH")
     for tariff_lock in golden_lock["tariffs"]:
+        _require(tariff_lock["admission_status"] == "ADMITTED", "ADMISSION_STATUS")
         path = ROOT / tariff_lock["golden_path"]
         _require(_sha256(path) == tariff_lock["golden_sha256"], "GOLDEN_HASH")
         suite = _load(path)

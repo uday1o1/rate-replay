@@ -31,7 +31,7 @@ const tariffDetail = {
     compiler_content_sha256: "a".repeat(64),
     scope: {
       calculation_time_mode: "HISTORICAL_REPLAY",
-      comparison_admitted: false,
+      comparison_admitted: true,
       optimization_admitted: false,
     },
   },

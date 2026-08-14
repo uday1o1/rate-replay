@@ -44,16 +44,16 @@ Its line-item cent results are 6,561, 4,416, 2,460, and -3,618, for a total of 9
 
 ## Candidate tariffs
 
-No candidate tariff is advertised as production-supported at Milestone 0.
+The candidate tariff evidence was first locked without a support claim at Milestone 0.
 The admission matrix records extracted July rates, implementation requirements, eligibility gaps, comparison components, and calendar dependencies for E-TOU-C, E-TOU-D, E-ELEC, and EV2-A.
 E-TOU-C, E-ELEC, and EV2-A apply their time periods every day and therefore have no holiday dependency.
 E-TOU-D excludes locally observed holidays from weekday peak treatment, so its July dependency is locked to the California Senate 2026 calendar and its July 3 observed Independence Day entry.
 
-E-TOU-C still requires an executable active-bill-protection exclusion.
-E-TOU-D still requires the time calendar compiler and complete eligibility predicate.
-E-ELEC still requires a dated qualifying-technology predicate.
-EV2-A still requires EV qualification and a source-complete implementation of the filed annual 800-percent baseline eligibility test.
-These gaps are admission blockers rather than zero-valued assumptions.
+E-TOU-C is admitted with an executable active-bill-protection exclusion and baseline-credit component classification.
+E-TOU-D is admitted with its source-locked observed-holiday calendar and complete eligibility predicate.
+E-ELEC is admitted with tri-state dated qualifying-technology and whole-house-metering eligibility.
+EV2-A is admitted with dated EV qualification and the filed annual 800-percent baseline eligibility test.
+All five July tariff versions are admitted for unchanged-usage comparison only when the complete comparable-component and eligibility gates pass.
 
 ## Demo profile
 

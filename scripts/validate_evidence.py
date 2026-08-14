@@ -302,6 +302,101 @@ def _validate_m2_evidence() -> None:
     _require(len(qualification["provenance"]) == 2, "M2_PROVENANCE_COUNT_DRIFT")
 
 
+def _validate_m3_evidence() -> None:
+    qualification = _json("evidence/correctness/m3-comparison-qualification.json")
+    _require(qualification["gate_result"] == "PASS", "M3_QUALIFICATION_FAILED")
+    inputs = qualification["inputs"]
+    _require(
+        inputs["profile_sha256"] == _sha256(ROOT / "data/demo/july-2026-simulated-profile.json"),
+        "M3_PROFILE_HASH_MISMATCH",
+    )
+    _require(
+        inputs["account_sha256"] == _sha256(ROOT / "tariffs/examples/m3-comparison-account.json"),
+        "M3_ACCOUNT_HASH_MISMATCH",
+    )
+    _require(inputs["profile_energy_wh"] == 750_000, "M3_PROFILE_ENERGY_DRIFT")
+    _require(inputs["interval_count"] == 2_976, "M3_INTERVAL_COUNT_DRIFT")
+    admission = qualification["tariff_admission"]
+    _require(admission["count"] == 5, "M3_ADMITTED_TARIFF_COUNT_DRIFT")
+    expected_plans = {"E-1", "E-TOU-C", "E-TOU-D", "E-ELEC", "EV2-A"}
+    _require(set(admission["plan_codes"]) == expected_plans, "M3_ADMITTED_PLAN_DRIFT")
+    for plan_code in expected_plans:
+        admitted = load_admitted_tariff(ROOT, plan_code)
+        _require(admitted.lock.scope.comparison_admitted is True, "M3_SCOPE_NOT_ADMITTED")
+        _require(
+            admission["compiler_content_sha256"][plan_code]
+            == admitted.compilation.compiler_content_sha256,
+            f"M3_COMPILER_HASH_DRIFT:{plan_code}",
+        )
+    for suite in admission["independent_golden_suites"].values():
+        _require(
+            suite["sha256"] == _sha256(ROOT / suite["path"]),
+            "M3_GOLDEN_HASH_DRIFT",
+        )
+        _require(suite["complete_bill_rule_count"] > 0, "M3_GOLDEN_RULES_MISSING")
+        _require(suite["boundary_case_count"] > 0, "M3_GOLDEN_BOUNDARIES_MISSING")
+    comparison = qualification["comparison"]
+    _require(comparison["deterministic"] is True, "M3_COMPARISON_NONDETERMINISTIC")
+    _require(comparison["rankable"] is True, "M3_FROZEN_COMPARISON_BLOCKED")
+    _require(
+        set(comparison["candidate_eligibility"].values()) == {"ELIGIBLE"},
+        "M3_FROZEN_ELIGIBILITY_DRIFT",
+    )
+    _require(
+        comparison["candidate_cost_cents"]
+        == {
+            "E-1": 27_728,
+            "E-ELEC": 30_278,
+            "E-TOU-C": 30_253,
+            "E-TOU-D": 26_021,
+            "EV2-A": 26_890,
+        },
+        "M3_CANDIDATE_COST_DRIFT",
+    )
+    _require(
+        comparison["ranked_tariff_version_ids"]
+        == [
+            "pge-etoud-2026-07",
+            "pge-ev2a-2026-07",
+            "pge-e1-2026-07",
+            "pge-etouc-2026-07",
+            "pge-eelec-2026-07",
+        ],
+        "M3_RANKING_DRIFT",
+    )
+    _require(
+        comparison["winner_tariff_version_ids"] == ["pge-etoud-2026-07"],
+        "M3_WINNER_DRIFT",
+    )
+    _require(
+        comparison["savings_against_current_supported_cents"] == 1_707,
+        "M3_SUPPORTED_SAVINGS_DRIFT",
+    )
+    _require(comparison["exclusions"] == [], "M3_UNEXPECTED_EXCLUSION")
+    blocked = qualification["blocked_cases"]
+    _require(
+        blocked["missing_account_fact"]["observed_status"] == "UNKNOWN",
+        "M3_MISSING_FACT_DID_NOT_YIELD_UNKNOWN",
+    )
+    for case in blocked.values():
+        _require(case["passed"] is True, "M3_BLOCKED_CASE_FAILED")
+        _require(case["savings_output"] is None, "M3_BLOCKED_SAVINGS_EMITTED")
+    _require(
+        blocked["coverage_mutation"]["observed_exclusion"] == "UNCLASSIFIED_ACTIVE_COMPONENT",
+        "M3_COVERAGE_MUTATION_DRIFT",
+    )
+    _require(
+        blocked["eligibility_mutation"]["observed_status"] == "INELIGIBLE",
+        "M3_ELIGIBILITY_MUTATION_DRIFT",
+    )
+    separation = qualification["reconciliation_separation"]
+    _require(separation["passed"] is True, "M3_RECONCILIATION_SEPARATION_FAILED")
+    _require(
+        separation["alternative_results_contain_forbidden_fields"] is False,
+        "M3_ALTERNATIVE_RECONCILIATION_LEAK",
+    )
+
+
 def main() -> None:
     _validate_external_sources()
     _validate_csv()
@@ -309,6 +404,7 @@ def main() -> None:
     _validate_generated_evidence()
     _validate_m1_evidence()
     _validate_m2_evidence()
+    _validate_m3_evidence()
     print("Repository evidence locks are internally consistent.")
 
 

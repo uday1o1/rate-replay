@@ -1,0 +1,139 @@
+{
+  "schema_version": "m3-comparison-qualification-v1",
+  "milestone": 3,
+  "gate_result": "PASS",
+  "scope": "Five admitted July 2026 PG&E tariffs for the locked bundled Tier 3 EV account",
+  "commands": {
+    "qualification": "make qualification-m3",
+    "comparison_cli": "uv run ratereplay-tariff compare <strict-interval-request.json>",
+    "postgres_integration": "make integration-m3"
+  },
+  "inputs": {
+    "profile_path": "data/demo/july-2026-simulated-profile.json",
+    "profile_sha256": "47b449f47039960cde24666a5ed2723781b7773d624dbdd2b74de78e02da19ce",
+    "profile_energy_wh": 750000,
+    "interval_count": 2976,
+    "account_path": "tariffs/examples/m3-comparison-account.json",
+    "account_sha256": "197eace0b9ca489a24316d99d52327daf5e9e48b4a85febda74217b6ca8310cb",
+    "service_window": {
+      "start": "2026-07-01",
+      "end": "2026-08-01"
+    }
+  },
+  "tariff_admission": {
+    "count": 5,
+    "plan_codes": ["E-1", "E-TOU-C", "E-TOU-D", "E-ELEC", "EV2-A"],
+    "compiler_content_sha256": {
+      "E-1": "ae003e7717fbb8fa964aac75ba21efa737f4db54bdba2abcb90b1a22d81a0016",
+      "E-TOU-C": "4514eb416fbc697835c29cc393767c932b5e184bbcd0cdfc52e0c058fed56a04",
+      "E-TOU-D": "5eb62747fb1f31e4d9d3d799619743a8e387373cf3b601b1e2c6656963b5edc2",
+      "E-ELEC": "15d9ecca0b2ca03b475b9c493412423509529c089b13c473873ec59f9bc073b7",
+      "EV2-A": "f81fb5d51b47e7cd64b07c0a104cfde00434e5e91b85fa65dbea3e96b740194c"
+    },
+    "independent_golden_suites": {
+      "E-TOU-C": {
+        "path": "tariffs/golden/etouc-july-2026.json",
+        "sha256": "27b72a88367ea181c796c05cfc6ce606ec143bea9d92f81b51d10629e9fa651b",
+        "complete_bill_rule_count": 7,
+        "boundary_case_count": 7
+      },
+      "E-TOU-D": {
+        "path": "tariffs/golden/etoud-july-2026.json",
+        "sha256": "231d94104ac18d1257faec588fbed1e68fae2b72d2557a5d093cae425b7579c2",
+        "complete_bill_rule_count": 5,
+        "boundary_case_count": 6
+      },
+      "E-ELEC": {
+        "path": "tariffs/golden/eelec-july-2026.json",
+        "sha256": "4b249506c240282c51613527da9f9f88ea4e41e7f2b42f4f60f0f8547847ed1d",
+        "complete_bill_rule_count": 5,
+        "boundary_case_count": 7
+      },
+      "EV2-A": {
+        "path": "tariffs/golden/ev2a-july-2026.json",
+        "sha256": "2c87ffd0ccef9773bd93e9a763d08463e20dc617c952f623c3235776e39afe7e",
+        "complete_bill_rule_count": 6,
+        "boundary_case_count": 8
+      }
+    }
+  },
+  "comparison": {
+    "deterministic": true,
+    "comparison_sha256": "001ae25075ed7107b5a2951754fc9c6374a0756006c03e6682ffe64ea89ebb9d",
+    "rankable": true,
+    "required_component_keys": [
+      "base_services_charge",
+      "baseline_adjustment",
+      "bundled_energy",
+      "california_climate_credit",
+      "minimum_bill_adjustment"
+    ],
+    "common_supported_component_keys": [
+      "base_services_charge",
+      "bundled_energy",
+      "california_climate_credit"
+    ],
+    "candidate_eligibility": {
+      "E-1": "ELIGIBLE",
+      "E-ELEC": "ELIGIBLE",
+      "E-TOU-C": "ELIGIBLE",
+      "E-TOU-D": "ELIGIBLE",
+      "EV2-A": "ELIGIBLE"
+    },
+    "candidate_cost_cents": {
+      "E-1": 27728,
+      "E-ELEC": 30278,
+      "E-TOU-C": 30253,
+      "E-TOU-D": 26021,
+      "EV2-A": 26890
+    },
+    "ranked_tariff_version_ids": [
+      "pge-etoud-2026-07",
+      "pge-ev2a-2026-07",
+      "pge-e1-2026-07",
+      "pge-etouc-2026-07",
+      "pge-eelec-2026-07"
+    ],
+    "winner_tariff_version_ids": ["pge-etoud-2026-07"],
+    "savings_against_current_supported_cents": 1707,
+    "exclusions": []
+  },
+  "blocked_cases": {
+    "missing_account_fact": {
+      "omitted_fact": "annual_usage_wh",
+      "observed_status": "UNKNOWN",
+      "reason_codes": ["ANNUAL_BASELINE_FACT_MISSING"],
+      "ranked_tariff_version_ids": [],
+      "winner_tariff_version_ids": [],
+      "savings_output": null,
+      "passed": true
+    },
+    "coverage_mutation": {
+      "mutation": "remove_etouc_baseline_adjustment_declaration",
+      "observed_exclusion": "UNCLASSIFIED_ACTIVE_COMPONENT",
+      "component_key": "baseline_adjustment",
+      "rankable": false,
+      "savings_output": null,
+      "passed": true
+    },
+    "eligibility_mutation": {
+      "mutation": "tighten_ev2a_annual_baseline_ratio",
+      "observed_status": "INELIGIBLE",
+      "observed_exclusions": ["CANDIDATE_INELIGIBLE"],
+      "rankable": false,
+      "savings_output": null,
+      "passed": true
+    }
+  },
+  "reconciliation_separation": {
+    "current_user_unsupported_cents": 300,
+    "current_unexplained_residual_cents": 1972,
+    "alternative_result_forbidden_fields": [
+      "current_bill_total_cents",
+      "reconciliation",
+      "user_unsupported_lines"
+    ],
+    "alternative_results_contain_forbidden_fields": false,
+    "passed": true
+  }
+}
