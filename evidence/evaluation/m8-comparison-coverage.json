@@ -1,0 +1,467 @@
+{
+  "artifact_sha256": "03ff3771b86562adf76d1aab95e02ba7ad8171c041654e6b7f0daf7686bfbf3a",
+  "candidate_count": 5,
+  "candidates": [
+    {
+      "complete": true,
+      "component_coverage": [
+        {
+          "component_key": "base_services_charge",
+          "contributing_rule_ids": [
+            "BSC_TIER3_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "baseline_adjustment",
+          "contributing_rule_ids": [],
+          "reason_code": null,
+          "status": "NOT_APPLICABLE"
+        },
+        {
+          "component_key": "bundled_energy",
+          "contributing_rule_ids": [
+            "E1_TOTAL_ENERGY_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "california_climate_credit",
+          "contributing_rule_ids": [
+            "CALIFORNIA_CLIMATE_CREDIT_2026"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "minimum_bill_adjustment",
+          "contributing_rule_ids": [],
+          "reason_code": null,
+          "status": "NOT_APPLICABLE"
+        }
+      ],
+      "eligibility_status": "ELIGIBLE",
+      "plan_code": "E-1",
+      "required_component_count": 5,
+      "tariff_version_id": "pge-e1-2026-07"
+    },
+    {
+      "complete": true,
+      "component_coverage": [
+        {
+          "component_key": "base_services_charge",
+          "contributing_rule_ids": [
+            "BSC_TIER3_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "baseline_adjustment",
+          "contributing_rule_ids": [],
+          "reason_code": null,
+          "status": "NOT_APPLICABLE"
+        },
+        {
+          "component_key": "bundled_energy",
+          "contributing_rule_ids": [
+            "EELEC_SUMMER_TOTAL_RATES_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "california_climate_credit",
+          "contributing_rule_ids": [
+            "CALIFORNIA_CLIMATE_CREDIT_2026"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "minimum_bill_adjustment",
+          "contributing_rule_ids": [],
+          "reason_code": null,
+          "status": "NOT_APPLICABLE"
+        }
+      ],
+      "eligibility_status": "ELIGIBLE",
+      "plan_code": "E-ELEC",
+      "required_component_count": 5,
+      "tariff_version_id": "pge-eelec-2026-07"
+    },
+    {
+      "complete": true,
+      "component_coverage": [
+        {
+          "component_key": "base_services_charge",
+          "contributing_rule_ids": [
+            "BSC_TIER3_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "baseline_adjustment",
+          "contributing_rule_ids": [
+            "ETOUC_SUMMER_TOTAL_RATES_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "bundled_energy",
+          "contributing_rule_ids": [
+            "ETOUC_SUMMER_TOTAL_RATES_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "california_climate_credit",
+          "contributing_rule_ids": [
+            "CALIFORNIA_CLIMATE_CREDIT_2026"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "minimum_bill_adjustment",
+          "contributing_rule_ids": [],
+          "reason_code": null,
+          "status": "NOT_APPLICABLE"
+        }
+      ],
+      "eligibility_status": "ELIGIBLE",
+      "plan_code": "E-TOU-C",
+      "required_component_count": 5,
+      "tariff_version_id": "pge-etouc-2026-07"
+    },
+    {
+      "complete": true,
+      "component_coverage": [
+        {
+          "component_key": "base_services_charge",
+          "contributing_rule_ids": [
+            "BSC_TIER3_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "baseline_adjustment",
+          "contributing_rule_ids": [],
+          "reason_code": null,
+          "status": "NOT_APPLICABLE"
+        },
+        {
+          "component_key": "bundled_energy",
+          "contributing_rule_ids": [
+            "ETOUD_SUMMER_TOTAL_RATES_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "california_climate_credit",
+          "contributing_rule_ids": [
+            "CALIFORNIA_CLIMATE_CREDIT_2026"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "minimum_bill_adjustment",
+          "contributing_rule_ids": [],
+          "reason_code": null,
+          "status": "NOT_APPLICABLE"
+        }
+      ],
+      "eligibility_status": "ELIGIBLE",
+      "plan_code": "E-TOU-D",
+      "required_component_count": 5,
+      "tariff_version_id": "pge-etoud-2026-07"
+    },
+    {
+      "complete": true,
+      "component_coverage": [
+        {
+          "component_key": "base_services_charge",
+          "contributing_rule_ids": [
+            "BSC_TIER3_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "baseline_adjustment",
+          "contributing_rule_ids": [],
+          "reason_code": null,
+          "status": "NOT_APPLICABLE"
+        },
+        {
+          "component_key": "bundled_energy",
+          "contributing_rule_ids": [
+            "EV2A_SUMMER_TOTAL_RATES_2026_06_01"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "california_climate_credit",
+          "contributing_rule_ids": [
+            "CALIFORNIA_CLIMATE_CREDIT_2026"
+          ],
+          "reason_code": null,
+          "status": "SUPPORTED"
+        },
+        {
+          "component_key": "minimum_bill_adjustment",
+          "contributing_rule_ids": [],
+          "reason_code": null,
+          "status": "NOT_APPLICABLE"
+        }
+      ],
+      "eligibility_status": "ELIGIBLE",
+      "plan_code": "EV2-A",
+      "required_component_count": 5,
+      "tariff_version_id": "pge-ev2a-2026-07"
+    }
+  ],
+  "committed_demo_artifact_sha256": "ce1f3e6ae3a48a99be4205f126bdefb506a2f25d74ab80fd9b71041c0f7cdf97",
+  "committed_demo_comparison_sha256": "26e9a961f2b4e3f899ceac5f55dafb9b277d9ea26b13973356d2e4c752892db1",
+  "fresh_comparison_sha256": "26e9a961f2b4e3f899ceac5f55dafb9b277d9ea26b13973356d2e4c752892db1",
+  "gate_result": "PASS",
+  "limitations": [
+    "Ranking applies only to the frozen simulated July profile and locked account facts.",
+    "Only supported charge components participate in ranking.",
+    "A blocked component or unknown eligibility suppresses winners and savings."
+  ],
+  "manifest_sha256": "06186b97f28994d05144175d9b7b574ac441bbc2949524c2898d2c27984d0cf9",
+  "negative_cases": {
+    "UNCLASSIFIED_ACTIVE_COMPONENT": {
+      "component_key": "baseline_adjustment",
+      "mutation": "remove_etouc_baseline_adjustment_declaration",
+      "observed_exclusion": "UNCLASSIFIED_ACTIVE_COMPONENT",
+      "passed": true,
+      "rankable": false,
+      "savings_output": null
+    },
+    "UNKNOWN_ELIGIBILITY": {
+      "observed_status": "UNKNOWN",
+      "omitted_fact": "annual_usage_wh",
+      "passed": true,
+      "ranked_tariff_version_ids": [],
+      "reason_codes": [
+        "ANNUAL_BASELINE_FACT_MISSING"
+      ],
+      "savings_output": null,
+      "winner_tariff_version_ids": []
+    }
+  },
+  "production_golden_cross_check": {
+    "case_count": 5,
+    "cases": [
+      {
+        "case_id": "pge-e1-july-2026-territory-t-basic-310kwh",
+        "independent_line_cents": [
+          6561,
+          4416,
+          2460,
+          -3618
+        ],
+        "independent_total_cents": 9819,
+        "observed_rule_ids": [
+          "BSC_TIER3_2026_06_01",
+          "CALIFORNIA_CLIMATE_CREDIT_2026",
+          "E1_TOTAL_ENERGY_2026_06_01"
+        ],
+        "passed": true,
+        "plan_code": "E-1",
+        "production_line_cents": [
+          6561,
+          4416,
+          2460,
+          -3618
+        ],
+        "production_total_cents": 9819,
+        "source_ids": [
+          "pge-advice-7921-e",
+          "pge-advice-7846-e"
+        ],
+        "source_sheets": [
+          "61362-E",
+          "61097-E",
+          "61099-E"
+        ],
+        "tariff_version_id": "pge-e1-2026-07"
+      },
+      {
+        "case_id": "pge-etouc-july-2026-hourly-flat-load",
+        "independent_line_cents": [
+          8097,
+          23525,
+          -1640,
+          2460,
+          -3618
+        ],
+        "independent_total_cents": 28824,
+        "observed_rule_ids": [
+          "BSC_TIER3_2026_06_01",
+          "CALIFORNIA_CLIMATE_CREDIT_2026",
+          "ETOUC_SUMMER_TOTAL_RATES_2026_06_01"
+        ],
+        "passed": true,
+        "plan_code": "E-TOU-C",
+        "production_line_cents": [
+          8097,
+          23525,
+          -1640,
+          2460,
+          -3618
+        ],
+        "production_total_cents": 28824,
+        "source_ids": [
+          "pge-advice-7846-e",
+          "pge-advice-7921-e"
+        ],
+        "source_sheets": [
+          "61124-E",
+          "61128-E",
+          "61130-E",
+          "61364-E"
+        ],
+        "tariff_version_id": "pge-etouc-2026-07"
+      },
+      {
+        "case_id": "pge-etoud-july-2026-hourly-flat-load",
+        "independent_line_cents": [
+          3149,
+          23196,
+          2460,
+          -3618
+        ],
+        "independent_total_cents": 25187,
+        "observed_rule_ids": [
+          "BSC_TIER3_2026_06_01",
+          "CALIFORNIA_CLIMATE_CREDIT_2026",
+          "ETOUD_SUMMER_TOTAL_RATES_2026_06_01"
+        ],
+        "passed": true,
+        "plan_code": "E-TOU-D",
+        "production_line_cents": [
+          3149,
+          23196,
+          2460,
+          -3618
+        ],
+        "production_total_cents": 25187,
+        "source_ids": [
+          "pge-advice-7846-e",
+          "pge-advice-7921-e"
+        ],
+        "source_sheets": [
+          "61134-E",
+          "61137-E",
+          "61365-E"
+        ],
+        "tariff_version_id": "pge-etoud-2026-07"
+      },
+      {
+        "case_id": "pge-eelec-july-2026-hourly-flat-load",
+        "independent_line_cents": [
+          8558,
+          4839,
+          15511,
+          2460,
+          -3618
+        ],
+        "independent_total_cents": 27750,
+        "observed_rule_ids": [
+          "BSC_TIER3_2026_06_01",
+          "CALIFORNIA_CLIMATE_CREDIT_2026",
+          "EELEC_SUMMER_TOTAL_RATES_2026_06_01"
+        ],
+        "passed": true,
+        "plan_code": "E-ELEC",
+        "production_line_cents": [
+          8558,
+          4839,
+          15511,
+          2460,
+          -3618
+        ],
+        "production_total_cents": 27750,
+        "source_ids": [
+          "pge-advice-7846-e",
+          "pge-advice-7921-e"
+        ],
+        "source_sheets": [
+          "61116-E",
+          "61119-E",
+          "61363-E"
+        ],
+        "tariff_version_id": "pge-eelec-2026-07"
+      },
+      {
+        "case_id": "pge-ev2a-july-2026-hourly-flat-load",
+        "independent_line_cents": [
+          8340,
+          5302,
+          10489,
+          2460,
+          -3618
+        ],
+        "independent_total_cents": 22973,
+        "observed_rule_ids": [
+          "BSC_TIER3_2026_06_01",
+          "CALIFORNIA_CLIMATE_CREDIT_2026",
+          "EV2A_SUMMER_TOTAL_RATES_2026_06_01"
+        ],
+        "passed": true,
+        "plan_code": "EV2-A",
+        "production_line_cents": [
+          8340,
+          5302,
+          10489,
+          2460,
+          -3618
+        ],
+        "production_total_cents": 22973,
+        "source_ids": [
+          "pge-advice-7846-e",
+          "pge-advice-7921-e"
+        ],
+        "source_sheets": [
+          "61169-E",
+          "61172-E",
+          "61374-E"
+        ],
+        "tariff_version_id": "pge-ev2a-2026-07"
+      }
+    ],
+    "passed": true
+  },
+  "profile_scope": "BUILT_IN_SIMULATED_JULY_2026",
+  "rankable": true,
+  "ranked_tariff_version_ids": [
+    "pge-etoud-2026-07",
+    "pge-ev2a-2026-07",
+    "pge-e1-2026-07",
+    "pge-etouc-2026-07",
+    "pge-eelec-2026-07"
+  ],
+  "required_component_keys": [
+    "base_services_charge",
+    "baseline_adjustment",
+    "bundled_energy",
+    "california_climate_credit",
+    "minimum_bill_adjustment"
+  ],
+  "schema_version": "m8-comparison-coverage-v1",
+  "winner_tariff_version_ids": [
+    "pge-etoud-2026-07"
+  ]
+}

@@ -1,0 +1,2146 @@
+{
+  "artifact_sha256": "213e57691239b5c4d7857c9d1b6dbbcbcf27bdf398158485f072ca55e9e63f4b",
+  "case_count": 25,
+  "cases": [
+    {
+      "case_id": "E-1-1",
+      "complete_optimum_set": [
+        [
+          0,
+          0,
+          10
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1148,
+        0,
+        3,
+        30
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-1",
+      "reference_schedule_wh": [
+        0,
+        0,
+        10
+      ],
+      "solver_selected_schedule_wh": [
+        0,
+        0,
+        10
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-e1-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-1-2",
+      "complete_optimum_set": [
+        [
+          0,
+          10,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1148,
+        0,
+        2,
+        20
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-1",
+      "reference_schedule_wh": [
+        0,
+        10,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        0,
+        10,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-e1-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-1-3",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1148,
+        0,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-1",
+      "reference_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-e1-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-1-4",
+      "complete_optimum_set": [
+        [
+          2,
+          3,
+          5
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1148,
+        0,
+        3,
+        23
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-1",
+      "reference_schedule_wh": [
+        2,
+        3,
+        5
+      ],
+      "solver_selected_schedule_wh": [
+        2,
+        3,
+        5
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-e1-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-1-5",
+      "complete_optimum_set": [
+        [
+          5,
+          3,
+          2
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1148,
+        0,
+        3,
+        17
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1148,
+          "lowered_supported_cost_cents": -1148,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-1",
+      "reference_schedule_wh": [
+        5,
+        3,
+        2
+      ],
+      "solver_selected_schedule_wh": [
+        5,
+        3,
+        2
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-e1-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-C-1",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1147,
+        2,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1147,
+          "lowered_supported_cost_cents": -1147,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-C",
+      "reference_schedule_wh": [
+        0,
+        0,
+        10
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etouc-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-C-2",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1147,
+        2,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1147,
+          "lowered_supported_cost_cents": -1147,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-C",
+      "reference_schedule_wh": [
+        0,
+        10,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etouc-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-C-3",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1147,
+        0,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1147,
+          "lowered_supported_cost_cents": -1147,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-C",
+      "reference_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etouc-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-C-4",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1147,
+        3,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1147,
+          "lowered_supported_cost_cents": -1147,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-C",
+      "reference_schedule_wh": [
+        2,
+        3,
+        5
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etouc-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-C-5",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1147,
+        3,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1147,
+          "lowered_supported_cost_cents": -1147,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-C",
+      "reference_schedule_wh": [
+        5,
+        3,
+        2
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etouc-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-D-1",
+      "complete_optimum_set": [
+        [
+          0,
+          0,
+          10
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1146,
+        0,
+        3,
+        30
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-D",
+      "reference_schedule_wh": [
+        0,
+        0,
+        10
+      ],
+      "solver_selected_schedule_wh": [
+        0,
+        0,
+        10
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etoud-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-D-2",
+      "complete_optimum_set": [
+        [
+          0,
+          10,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1146,
+        0,
+        2,
+        20
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-D",
+      "reference_schedule_wh": [
+        0,
+        10,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        0,
+        10,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etoud-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-D-3",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1146,
+        0,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-D",
+      "reference_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etoud-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-D-4",
+      "complete_optimum_set": [
+        [
+          2,
+          3,
+          5
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1146,
+        0,
+        3,
+        23
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-D",
+      "reference_schedule_wh": [
+        2,
+        3,
+        5
+      ],
+      "solver_selected_schedule_wh": [
+        2,
+        3,
+        5
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etoud-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-TOU-D-5",
+      "complete_optimum_set": [
+        [
+          5,
+          3,
+          2
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1146,
+        0,
+        3,
+        17
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1146,
+          "lowered_supported_cost_cents": -1146,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-TOU-D",
+      "reference_schedule_wh": [
+        5,
+        3,
+        2
+      ],
+      "solver_selected_schedule_wh": [
+        5,
+        3,
+        2
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-etoud-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-ELEC-1",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        2,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-ELEC",
+      "reference_schedule_wh": [
+        0,
+        0,
+        10
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-eelec-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-ELEC-2",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        2,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-ELEC",
+      "reference_schedule_wh": [
+        0,
+        10,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-eelec-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-ELEC-3",
+      "complete_optimum_set": [
+        [
+          10,
+          0,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        0,
+        1,
+        10
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-ELEC",
+      "reference_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-eelec-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-ELEC-4",
+      "complete_optimum_set": [
+        [
+          2,
+          3,
+          5
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        0,
+        3,
+        23
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-ELEC",
+      "reference_schedule_wh": [
+        2,
+        3,
+        5
+      ],
+      "solver_selected_schedule_wh": [
+        2,
+        3,
+        5
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-eelec-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "E-ELEC-5",
+      "complete_optimum_set": [
+        [
+          5,
+          3,
+          2
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        0,
+        3,
+        17
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "E-ELEC",
+      "reference_schedule_wh": [
+        5,
+        3,
+        2
+      ],
+      "solver_selected_schedule_wh": [
+        5,
+        3,
+        2
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-eelec-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "EV2-A-1",
+      "complete_optimum_set": [
+        [
+          0,
+          0,
+          10
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        0,
+        3,
+        30
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "EV2-A",
+      "reference_schedule_wh": [
+        0,
+        0,
+        10
+      ],
+      "solver_selected_schedule_wh": [
+        0,
+        0,
+        10
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-ev2a-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "EV2-A-2",
+      "complete_optimum_set": [
+        [
+          0,
+          10,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        0,
+        2,
+        20
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "EV2-A",
+      "reference_schedule_wh": [
+        0,
+        10,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        0,
+        10,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-ev2a-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "EV2-A-3",
+      "complete_optimum_set": [
+        [
+          5,
+          5,
+          0
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        2,
+        2,
+        15
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "EV2-A",
+      "reference_schedule_wh": [
+        10,
+        0,
+        0
+      ],
+      "solver_selected_schedule_wh": [
+        5,
+        5,
+        0
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-ev2a-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "EV2-A-4",
+      "complete_optimum_set": [
+        [
+          2,
+          3,
+          5
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        0,
+        3,
+        23
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "EV2-A",
+      "reference_schedule_wh": [
+        2,
+        3,
+        5
+      ],
+      "solver_selected_schedule_wh": [
+        2,
+        3,
+        5
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-ev2a-2026-07",
+      "verification_status": "VALID"
+    },
+    {
+      "case_id": "EV2-A-5",
+      "complete_optimum_set": [
+        [
+          5,
+          3,
+          2
+        ]
+      ],
+      "enumerated_schedule_count": 66,
+      "highest_objective_stage_proved_optimal": 4,
+      "independent_optimum_objective": [
+        -1143,
+        0,
+        3,
+        17
+      ],
+      "lowering_equivalence_checks": [
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            0,
+            10
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1142,
+          "lowered_supported_cost_cents": -1142,
+          "passed": true,
+          "schedule_wh": [
+            10,
+            0,
+            0
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            2,
+            3,
+            5
+          ]
+        },
+        {
+          "fresh_replay_supported_cost_cents": -1143,
+          "lowered_supported_cost_cents": -1143,
+          "passed": true,
+          "schedule_wh": [
+            5,
+            3,
+            2
+          ]
+        }
+      ],
+      "passed": true,
+      "plan_code": "EV2-A",
+      "reference_schedule_wh": [
+        5,
+        3,
+        2
+      ],
+      "solver_selected_schedule_wh": [
+        5,
+        3,
+        2
+      ],
+      "solver_status": "OPTIMAL",
+      "tariff_version_id": "pge-ev2a-2026-07",
+      "verification_status": "VALID"
+    }
+  ],
+  "gate_result": "PASS",
+  "limitations": [
+    "The independent oracle enumerates deliberately small integer scheduling instances.",
+    "Full July solver performance is measured separately under the frozen performance charter.",
+    "Optimization applies only to admitted historical counterfactual loads, not forecasts or device control."
+  ],
+  "manifest_sha256": "06186b97f28994d05144175d9b7b574ac441bbc2949524c2898d2c27984d0cf9",
+  "oracle_method": "COMPLETE_ENUMERATION_OF_ALL_3_SLOT_INTEGER_SCHEDULES",
+  "schema_version": "m8-optimizer-oracle-v1",
+  "seeded_corruption": {
+    "mutation": "add_one_watt_hour_to_first_selected_slot",
+    "observed_code": "VERIFIER_ENERGY_CONSERVATION_FAILED",
+    "passed": true
+  },
+  "tariff_count": 5
+}

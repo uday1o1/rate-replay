@@ -3,7 +3,7 @@ UV_CACHE_DIR ?= /private/tmp/rate-replay-uv-cache
 PNPM_STORE_DIR ?= /private/tmp/rate-replay-pnpm-store
 COMPOSE ?= $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: bootstrap browser-bootstrap browser-test check format format-check lint typecheck test security dependency-audit web-build compose-config operations-config-check release-config-check clean-checkout-check integration-auth integration-backup integration-object-store integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4 qualification-m6-study qualification-m7-restore qualification-m7-deployment qualification-m8 m8-manifest-check demo-artifacts demo-artifacts-check user-study-protocol-check
+.PHONY: bootstrap browser-bootstrap browser-test check format format-check lint typecheck test security dependency-audit web-build compose-config operations-config-check release-config-check clean-checkout-check integration-auth integration-backup integration-object-store integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4 qualification-m6-study qualification-m7-restore qualification-m7-deployment qualification-m8 qualification-m8-correctness m8-correctness-check m8-manifest-check demo-artifacts demo-artifacts-check user-study-protocol-check
 
 bootstrap:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync --frozen --all-groups
@@ -54,7 +54,7 @@ compose-config:
 	RATEREPLAY_PROXY_IMAGE=ratereplay-proxy:config \
 	$(COMPOSE) -f compose.release.yaml config --quiet
 
-check: format-check lint typecheck test browser-test security web-build compose-config operations-config-check release-config-check m8-manifest-check demo-artifacts-check user-study-protocol-check
+check: format-check lint typecheck test browser-test security web-build compose-config operations-config-check release-config-check m8-manifest-check m8-correctness-check demo-artifacts-check user-study-protocol-check
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_evidence.py
 
 operations-config-check:
@@ -86,6 +86,12 @@ qualification-m7-deployment:
 
 m8-manifest-check:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_m8_manifest.py
+
+qualification-m8-correctness: m8-manifest-check demo-artifacts-check
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.qualify_m8_correctness
+
+m8-correctness-check:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.qualify_m8_correctness --check
 
 clean-checkout-check:
 	./scripts/clean-checkout-check.sh

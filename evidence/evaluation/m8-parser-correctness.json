@@ -1,0 +1,62 @@
+{
+  "artifact_sha256": "c9960f638d071c6e4bde8bebea8cdf7a3e5424aad9f1810fcb17838dc8a3ffed",
+  "evidence_scope": "LOCKED_PUBLIC_FIXTURES_AND_SYNTHETIC_NEGATIVES_ONLY",
+  "gate_result": "PASS",
+  "limitations": [
+    "The provider CSV evidence covers only the content-locked provider-produced sample.",
+    "Synthetic scale vectors are engineering workloads and are not customer data.",
+    "Automatic file-format inference is intentionally unsupported; callers select one admitted adapter."
+  ],
+  "manifest_sha256": "06186b97f28994d05144175d9b7b574ac441bbc2949524c2898d2c27984d0cf9",
+  "negative_cases": {
+    "EXTERNAL_ENTITY_REFERENCE": {
+      "expected_code": "EXTERNAL_ENTITY_REFERENCE",
+      "observed_code": "EXTERNAL_ENTITY_REFERENCE",
+      "passed": true
+    },
+    "NON_INTEGRAL_WATT_HOUR": {
+      "expected_code": "NON_INTEGRAL_WATT_HOUR",
+      "observed_code": "NON_INTEGRAL_WATT_HOUR",
+      "passed": true
+    },
+    "UNKNOWN_FORMAT": {
+      "accepted_values": [
+        "ESPI_XML",
+        "PGE_CSV"
+      ],
+      "observed_code": "REQUEST_VALIDATION_ERROR",
+      "passed": true,
+      "public_boundary": "POST /v1/imports adapter literal",
+      "status_code": 422,
+      "test": "apps/api/tests/test_import_api.py::test_openapi_documents_upload_contract"
+    },
+    "XML_ENTITY_EXPANSION": {
+      "expected_code": "XML_ENTITY_EXPANSION",
+      "observed_code": "XML_ENTITY_EXPANSION",
+      "passed": true
+    }
+  },
+  "schema_version": "m8-parser-correctness-v1",
+  "valid_inputs": [
+    {
+      "adapter": "ESPI_XML",
+      "finding_codes": [],
+      "interval_seconds": 3600,
+      "passed": true,
+      "path": "data/fixtures/espi/independent-pacific-hourly.xml",
+      "reading_count": 362,
+      "schema_sha256": "5c40d509744cacb1813eb672305cfe83bb9b2ff494e254f269b093ce52010a33",
+      "sha256": "da68f74a2c9bcaf796af3aa540463cb662f1264da01e97432fe8c18dfeae1224"
+    },
+    {
+      "adapter": "PGE_CSV",
+      "finding_codes": [],
+      "interval_seconds": 900,
+      "passed": true,
+      "path": "third_party/pge-csv/provider-sample.csv",
+      "provider_produced_fixture": true,
+      "reading_count": 5664,
+      "sha256": "fab3fccd5f24070b892473ddefbab95c06689f9e41b0eb5981db2d18cbd8a0ac"
+    }
+  ]
+}
