@@ -173,7 +173,7 @@ def _exercise_restore_contract(
     raw_import_id = secrets.token_hex(16)
     raw_id = secrets.token_hex(16)
     raw_key = f"owners/{owners['retained']}/imports/{raw_import_id}/raw.xml"
-    raw_expires_at = started_at + timedelta(days=1)
+    raw_expires_at = started_at + timedelta(seconds=10)
     marker = b"RateReplay M7 encrypted backup marker"
     qualification_password_hash = hashlib.sha256(b"m7-noncredential").hexdigest()
     with sessions.begin() as database:
@@ -371,6 +371,7 @@ def _exercise_restore_contract(
         )
     )
 
+    _wait_until(raw_expires_at)
     _reset_quarantine(quarantine_container, quarantine_objects)
     restored = _restore(
         backup_id=backup_id,
@@ -395,20 +396,26 @@ def _exercise_restore_contract(
             fenced_owner = database.get(UserRecord, owners["fenced"])
             retained_owner = database.get(UserRecord, owners["retained"])
             restored_raw = database.get(RawObjectRecord, raw_id)
-        if not (
-            abort_owner is not None
-            and abort_owner.lifecycle_state == "ACTIVE"
-            and deleted_owner is None
-            and fenced_owner is None
-            and retained_owner is not None
-            and restored_raw is not None
-            and restored_raw.state == "DELETED"
-            and quarantine_objects.exists(owner_keys["abort"])
-            and not quarantine_objects.exists(owner_keys["deleted"])
-            and not quarantine_objects.exists(owner_keys["fenced"])
-            and not quarantine_objects.exists(raw_key)
-        ):
-            raise QualificationError("RESTORED_STATE_NOT_SUPPRESSED")
+        restored_state_checks = {
+            "ABORT_OWNER_ACTIVE": (
+                abort_owner is not None and abort_owner.lifecycle_state == "ACTIVE"
+            ),
+            "ABORT_OBJECT_PRESENT": quarantine_objects.exists(owner_keys["abort"]),
+            "DELETED_OBJECT_ABSENT": not quarantine_objects.exists(owner_keys["deleted"]),
+            "DELETED_OWNER_ABSENT": deleted_owner is None,
+            "FENCED_OBJECT_ABSENT": not quarantine_objects.exists(owner_keys["fenced"]),
+            "FENCED_OWNER_ABSENT": fenced_owner is None,
+            "RAW_OBJECT_ABSENT": not quarantine_objects.exists(raw_key),
+            "RAW_ROW_EXPIRED": restored_raw is not None and restored_raw.state == "DELETED",
+            "RETAINED_OWNER_PRESENT": retained_owner is not None,
+        }
+        failed_state_checks = sorted(
+            name for name, passed in restored_state_checks.items() if not passed
+        )
+        if failed_state_checks:
+            raise QualificationError(
+                "RESTORED_STATE_NOT_SUPPRESSED:" + ",".join(failed_state_checks)
+            )
     finally:
         quarantine_engine.dispose()
 
@@ -620,6 +627,12 @@ def _wait_for_database(engine: Engine) -> None:
             engine.dispose()
             time.sleep(1)
     raise QualificationError("POSTGRES_DID_NOT_RECOVER")
+
+
+def _wait_until(deadline: datetime) -> None:
+    remaining = (deadline - datetime.now(UTC)).total_seconds()
+    if remaining > 0:
+        time.sleep(remaining + 0.1)
 
 
 def _restore(
