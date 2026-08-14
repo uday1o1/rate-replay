@@ -234,6 +234,9 @@ class JobRecord(Base):
     not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     failure_code: Mapped[str | None] = mapped_column(String(64))
+    terminal_result_type: Mapped[str | None] = mapped_column(String(32))
+    terminal_result_id: Mapped[str | None] = mapped_column(String(32))
+    terminal_semantic_hash: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -255,6 +258,68 @@ class JobAttemptRecord(Base):
     lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failure_code: Mapped[str | None] = mapped_column(String(64))
+
+
+class ObjectUploadRegistrationRecord(Base):
+    __tablename__ = "object_upload_registrations"
+    __table_args__ = (
+        CheckConstraint(
+            "artifact_class IN ('REPORT', 'TRACE')",
+            name="ck_upload_artifact_class",
+        ),
+        CheckConstraint(
+            "state IN ('REGISTERED', 'STAGED', 'ACCEPTED', 'DELETE_PENDING', 'DELETED')",
+            name="ck_upload_state",
+        ),
+        UniqueConstraint("object_key", name="uq_upload_object_key"),
+        UniqueConstraint(
+            "job_id",
+            "fencing_generation",
+            "artifact_class",
+            name="uq_job_attempt_artifact_class",
+        ),
+        Index("ix_upload_cleanup", "state", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    fencing_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    artifact_class: Mapped[str] = mapped_column(String(32), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    upload_identifier: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class JobResultClaimRecord(Base):
+    __tablename__ = "job_result_claims"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_user_id",
+            "job_kind",
+            "semantic_hash",
+            name="uq_owner_job_semantic_result",
+        ),
+        UniqueConstraint("accepted_job_id", name="uq_result_claim_job"),
+        Index("ix_result_claim_owner_created", "owner_user_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    job_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    semantic_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    calculation_contract_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    result_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    accepted_job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ReplayResultRecord(Base):
@@ -427,5 +492,6 @@ for _immutable_model in (
     ScenarioResultRecord,
     CalculationManifestRecord,
     ComparisonResultRecord,
+    JobResultClaimRecord,
 ):
     event.listen(_immutable_model, "before_update", _prevent_immutable_update)

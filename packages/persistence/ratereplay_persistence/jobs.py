@@ -352,7 +352,41 @@ def _aware(value: datetime) -> datetime:
 
 
 def _lease_matches(job: JobRecord, lease: JobLease) -> bool:
-    return job.lease_owner == lease.worker_id and job.fencing_generation == lease.fencing_generation
+    return bool(
+        job.lease_owner == lease.worker_id
+        and job.fencing_generation == lease.fencing_generation
+        and job.kind == lease.kind
+        and job.scope_mode == lease.scope_mode
+        and job.import_id == lease.import_id
+        and job.profile_version_id == lease.profile_version_id
+    )
+
+
+def current_fenced_job(
+    database: Session,
+    lease: JobLease,
+    *,
+    now: datetime,
+    expected_states: frozenset[str],
+) -> JobRecord | None:
+    """Return the exact live fenced job only while every captured scope remains valid."""
+
+    job = database.get(JobRecord, lease.job_id)
+    if job is None:
+        return None
+    definition = JOB_DEFINITIONS.get(job.kind)
+    user, imported, profile = _load_scope(database, job)
+    if not (
+        job.state in expected_states
+        and _lease_matches(job, lease)
+        and job.lease_expires_at is not None
+        and now.astimezone(UTC) < _aware(job.lease_expires_at)
+        and not job.cancel_requested
+        and definition is not None
+        and _scope_is_valid(job, definition, user, imported, profile)
+    ):
+        return None
+    return job
 
 
 def _load_scope(
