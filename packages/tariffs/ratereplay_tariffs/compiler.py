@@ -335,6 +335,30 @@ def _validate_time_operators(tariff: TariffVersion) -> None:
         raise TariffCompileError("TOU_SCHEDULE_UNUSED", "Every time schedule must be used exactly")
 
 
+def _validate_comparison_components(tariff: TariffVersion) -> None:
+    modeled_components: set[str] = set()
+    for rule in tariff.charge_rules:
+        if isinstance(
+            rule,
+            (TieredEnergyCharge, TimeOfUseEnergyCharge, FixedDailyCharge, FixedMonthlyCharge),
+        ):
+            modeled_components.add(rule.charge_component_key)
+        if (
+            isinstance(rule, TimeOfUseEnergyCharge)
+            and rule.baseline_credit_charge_component_key is not None
+        ):
+            modeled_components.add(rule.baseline_credit_charge_component_key)
+    declared_components = set(tariff.comparison_component_keys)
+    if declared_components != modeled_components:
+        missing = sorted(modeled_components - declared_components)
+        unmodeled = sorted(declared_components - modeled_components)
+        raise TariffCompileError(
+            "COMPARISON_COMPONENT_COVERAGE_MISMATCH",
+            "Comparison components differ from modeled charges: "
+            f"missing={missing}, unmodeled={unmodeled}",
+        )
+
+
 def _load_golden_coverage(root: Path, tariff: TariffVersion) -> GoldenCoverage:
     if tariff.plan_code == "E-1":
         complete = _read_object(root / "tariffs/golden/e1-july-2026-complete-bill.json")
@@ -544,6 +568,7 @@ def compile_tariff(root: Path, definition_path: Path | None = None) -> Compilati
     _validate_target_account(root, tariff)
     _validate_bounds(tariff)
     _validate_time_operators(tariff)
+    _validate_comparison_components(tariff)
     for rule in tariff.charge_rules:
         _validate_source_link(
             rule.source.source_id,

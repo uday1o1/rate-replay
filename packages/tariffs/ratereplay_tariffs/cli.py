@@ -9,11 +9,17 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 
+from ratereplay_tariffs.admission import load_all_admitted_tariffs
 from ratereplay_tariffs.billing import (
     IntervalReplayRequest,
     ReplayError,
     ReplayRequest,
     replay_compiled_tariff,
+)
+from ratereplay_tariffs.comparison import (
+    ComparisonError,
+    compare_admitted_tariffs,
+    load_required_component_keys,
 )
 from ratereplay_tariffs.compiler import TariffCompileError, compile_tariff
 
@@ -113,6 +119,37 @@ def replay_definition(
         _fail("REPLAY_REQUEST_INVALID", str(error))
     except OSError as error:
         _fail("REPLAY_INPUT_UNREADABLE", str(error))
+    _emit(result.model_dump_json(indent=2), output)
+
+
+@app.command("compare")
+def compare(
+    input_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)],
+    root: Annotated[Path, typer.Option(exists=True, file_okay=False)] = DEFAULT_ROOT,
+    current_tariff_version_id: Annotated[
+        str, typer.Option(help="Current replay tariff version in the candidate set")
+    ] = "pge-e1-2026-07",
+    output: Annotated[Path | None, typer.Option(dir_okay=False)] = None,
+) -> None:
+    """Compare a strict interval request across every admitted tariff."""
+
+    try:
+        resolved_root = root.resolve()
+        request = IntervalReplayRequest.model_validate_json(input_path.read_bytes())
+        result = compare_admitted_tariffs(
+            load_all_admitted_tariffs(resolved_root),
+            request,
+            current_tariff_version_id=current_tariff_version_id,
+            required_component_keys=load_required_component_keys(resolved_root),
+        )
+    except TariffCompileError as error:
+        _fail(error.code, str(error))
+    except ComparisonError as error:
+        _fail(error.code, str(error))
+    except ValidationError as error:
+        _fail("COMPARISON_REQUEST_INVALID", str(error))
+    except OSError as error:
+        _fail("COMPARISON_INPUT_UNREADABLE", str(error))
     _emit(result.model_dump_json(indent=2), output)
 
 
