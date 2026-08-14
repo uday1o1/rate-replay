@@ -8,15 +8,17 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from ratereplay_persistence import models as persistence_models  # noqa: F401
+from ratereplay_persistence.comparisons import ComparisonService
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_persistence.replays import ReplayService
-from ratereplay_tariffs.admission import load_admitted_e1
+from ratereplay_tariffs.admission import load_all_admitted_tariffs
 
 from ratereplay_api.auth import AuthService, LoginRateLimiter
 from ratereplay_api.auth_routes import router as auth_router
+from ratereplay_api.comparison_routes import router as comparison_router
 from ratereplay_api.config import AppSettings
 from ratereplay_api.import_routes import router as import_router
 from ratereplay_api.problems import install_problem_handler
@@ -39,7 +41,12 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     )
     application.state.job_service = JobService(application.state.session_factory)
     application.state.replay_service = ReplayService(application.state.session_factory)
-    application.state.admitted_e1 = load_admitted_e1(resolved.repository_root)
+    application.state.comparison_service = ComparisonService(application.state.session_factory)
+    admitted_tariffs = load_all_admitted_tariffs(resolved.repository_root)
+    application.state.admitted_tariffs = {
+        admitted.lock.tariff_version_id: admitted for admitted in admitted_tariffs
+    }
+    application.state.admitted_e1 = application.state.admitted_tariffs["pge-e1-2026-07"]
     application.state.auth_service = AuthService(resolved.session_key)
     application.state.login_limiter = LoginRateLimiter(resolved.session_key)
     application.state.upload_limiter = LoginRateLimiter(
@@ -83,6 +90,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     application.include_router(auth_router)
     application.include_router(import_router)
     application.include_router(replay_router)
+    application.include_router(comparison_router)
     return application
 
 

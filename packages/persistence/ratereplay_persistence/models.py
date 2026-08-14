@@ -280,6 +280,29 @@ class CalculationManifestRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class ComparisonResultRecord(Base):
+    __tablename__ = "comparison_results"
+    __table_args__ = (
+        UniqueConstraint("owner_user_id", "semantic_hash", name="uq_owner_comparison_semantic"),
+        Index("ix_comparisons_owner_created", "owner_user_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    profile_version_id: Mapped[str] = mapped_column(
+        ForeignKey("profile_versions.id"), nullable=False
+    )
+    current_replay_id: Mapped[str] = mapped_column(ForeignKey("replay_results.id"), nullable=False)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), unique=True, nullable=False)
+    operation_request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    semantic_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
+    lifecycle_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 def _prevent_immutable_update(_mapper: object, _connection: object, target: object) -> None:
     raise RuntimeError(f"{type(target).__name__} is immutable")
 
@@ -290,5 +313,6 @@ for _immutable_model in (
     ProfileVersionRecord,
     ReplayResultRecord,
     CalculationManifestRecord,
+    ComparisonResultRecord,
 ):
     event.listen(_immutable_model, "before_update", _prevent_immutable_update)

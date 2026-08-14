@@ -84,8 +84,12 @@ class ReplayResourceResponse(FrozenModel):
     result: ReplayResult
 
 
-def _admitted(request: Request) -> AdmittedTariff:
-    return cast(AdmittedTariff, request.app.state.admitted_e1)
+def _admitted_tariffs(request: Request) -> dict[str, AdmittedTariff]:
+    return cast(dict[str, AdmittedTariff], request.app.state.admitted_tariffs)
+
+
+def _admitted_e1(request: Request) -> AdmittedTariff:
+    return _admitted_tariffs(request)["pge-e1-2026-07"]
 
 
 def _replays(request: Request) -> ReplayService:
@@ -124,7 +128,7 @@ def _problem(error: ReplayServiceError | ReplayError) -> ApiProblem:
     )
 
 
-def _profile_window(profile: ProfileVersionRecord) -> DateRange:
+def profile_window(profile: ProfileVersionRecord) -> DateRange:
     timezone = ZoneInfo(profile.tariff_timezone)
     epoch = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -206,7 +210,14 @@ def list_tariffs(
     request: Request,
     _authenticated: Annotated[AuthenticatedSession, Depends(get_authenticated_session)],
 ) -> TariffListResponse:
-    return TariffListResponse(items=(_summary(_admitted(request)),))
+    return TariffListResponse(
+        items=tuple(
+            _summary(admitted)
+            for admitted in sorted(
+                _admitted_tariffs(request).values(), key=lambda item: item.lock.plan_code
+            )
+        )
+    )
 
 
 @router.get(
@@ -219,8 +230,8 @@ def get_tariff(
     request: Request,
     _authenticated: Annotated[AuthenticatedSession, Depends(get_authenticated_session)],
 ) -> TariffDetailResponse:
-    admitted = _admitted(request)
-    if tariff_version_id != admitted.lock.tariff_version_id:
+    admitted = _admitted_tariffs(request).get(tariff_version_id)
+    if admitted is None:
         raise ApiProblem(status_code=404, code="TARIFF_NOT_FOUND", message="Tariff is unavailable")
     return TariffDetailResponse(admission=admitted.lock, compilation=admitted.compilation)
 
@@ -238,9 +249,15 @@ def create_replay(
     database: Annotated[Session, Depends(get_database)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
 ) -> ReplayResourceResponse:
-    admitted = _admitted(request)
-    if payload.tariff_version_id != admitted.lock.tariff_version_id:
+    admitted = _admitted_tariffs(request).get(payload.tariff_version_id)
+    if admitted is None:
         raise ApiProblem(status_code=404, code="TARIFF_NOT_FOUND", message="Tariff is unavailable")
+    if admitted.lock.tariff_version_id != _admitted_e1(request).lock.tariff_version_id:
+        raise ApiProblem(
+            status_code=422,
+            code="CURRENT_REPLAY_TARIFF_UNSUPPORTED",
+            message="Current-bill replay is admitted only for E-1 in this workflow",
+        )
     profile = database.scalar(
         select(ProfileVersionRecord).where(
             ProfileVersionRecord.id == payload.profile_version_id,
@@ -266,7 +283,7 @@ def create_replay(
                 "REPLAY_REQUEST_INVALID",
                 "Replay account facts or unsupported lines are invalid.",
             ) from error
-        service_window = _profile_window(profile)
+        service_window = profile_window(profile)
         if service_window != account_facts.service_window:
             raise ReplayError(
                 "PROFILE_ACCOUNT_WINDOW_MISMATCH",

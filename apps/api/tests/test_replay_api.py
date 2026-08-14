@@ -173,19 +173,24 @@ async def test_authenticated_tariff_provenance_and_replay_path(
 
     listed = await client.get("/v1/tariffs")
     assert listed.status_code == 200
-    assert listed.json()["items"] == [
-        {
-            "tariff_version_id": "pge-e1-2026-07",
-            "plan_code": "E-1",
-            "utility": "PG&E",
-            "admission_status": "ADMITTED",
-            "admitted_service_windows": [["2026-07-01", "2026-08-01"]],
-            "target_account_predicate_id": ("pge-bundled-residential-import-only-july-2026-v1"),
-            "calculation_time_mode": "HISTORICAL_REPLAY",
-            "comparison_admitted": False,
-            "optimization_admitted": False,
-        }
+    listed_items = listed.json()["items"]
+    assert [item["plan_code"] for item in listed_items] == [
+        "E-1",
+        "E-ELEC",
+        "E-TOU-C",
+        "E-TOU-D",
+        "EV2-A",
     ]
+    assert all(
+        item["utility"] == "PG&E"
+        and item["admission_status"] == "ADMITTED"
+        and item["admitted_service_windows"] == [["2026-07-01", "2026-08-01"]]
+        and item["target_account_predicate_id"].startswith("pge-")
+        and item["calculation_time_mode"] == "HISTORICAL_REPLAY"
+        and item["comparison_admitted"] is False
+        and item["optimization_admitted"] is False
+        for item in listed_items
+    )
     detail = await client.get("/v1/tariffs/pge-e1-2026-07")
     assert detail.status_code == 200
     assert detail.json()["admission"]["compiler_content_sha256"] == (
