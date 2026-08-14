@@ -68,6 +68,7 @@ package = true
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers --cov --cov-report=term-missing --cov-fail-under=85"
 markers = [
+  "backup: requires isolated PostgreSQL and primary plus backup object stores",
   "object_store: requires the isolated S3-compatible integration service",
   "postgres: requires the isolated PostgreSQL integration service",
 ]

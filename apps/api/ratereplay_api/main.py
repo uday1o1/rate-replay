@@ -42,7 +42,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     application.state.settings = resolved
     application.state.engine = engine
     application.state.session_factory = make_session_factory(engine)
-    application.state.object_store = resolved.object_store_configuration.build()
+    application.state.object_store = resolved.object_store_configuration.build(
+        ensure_bucket=resolved.environment == "development"
+    )
     application.state.deletion_ledger = FilesystemDeletionLedger(
         resolved.deletion_ledger_root,
         integrity_key=resolved.deletion_ledger_key,

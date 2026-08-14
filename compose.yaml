@@ -35,6 +35,24 @@ services:
       - minio_password
     volumes:
       - object-data:/data
+  backup-store:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/backup_minio_user
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/backup_minio_password
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    ports:
+      - "127.0.0.1:${RATEREPLAY_BACKUP_MINIO_PORT:-59001}:9000"
+    secrets:
+      - backup_minio_user
+      - backup_minio_password
+    volumes:
+      - backup-data:/data
 secrets:
   postgres_password:
     file: ${RATEREPLAY_POSTGRES_PASSWORD_FILE:-./.local-secrets/postgres_password}
@@ -42,6 +60,11 @@ secrets:
     file: ${RATEREPLAY_MINIO_USER_FILE:-./.local-secrets/minio_user}
   minio_password:
     file: ${RATEREPLAY_MINIO_PASSWORD_FILE:-./.local-secrets/minio_password}
+  backup_minio_user:
+    file: ${RATEREPLAY_BACKUP_MINIO_USER_FILE:-./.local-secrets/backup_minio_user}
+  backup_minio_password:
+    file: ${RATEREPLAY_BACKUP_MINIO_PASSWORD_FILE:-./.local-secrets/backup_minio_password}
 volumes:
   postgres-data:
   object-data:
+  backup-data:

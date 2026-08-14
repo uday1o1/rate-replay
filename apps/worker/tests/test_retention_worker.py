@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from ratereplay_persistence.artifacts import ArtifactService
+from ratereplay_persistence.backups import BackupRetentionService
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
 from ratereplay_persistence.deletion_sweep import DeletionSweepService
@@ -169,11 +170,12 @@ def test_retention_worker_enforces_exact_expiry_and_preserves_controls(
         outcome.raw_objects,
         outcome.orphan_artifacts,
         outcome.receipt_verifiers,
+        outcome.expired_backups,
         outcome.database.expired_operations,
         outcome.database.expired_sessions,
         outcome.database.expired_deletion_intents,
         outcome.database.expired_retention_jobs,
-    ) == (1, 1, 1, 1, 1, 1, 1)
+    ) == (1, 1, 1, 0, 1, 1, 1, 1)
 
     assert not harness.objects.exists(expired_raw_key)
     assert harness.objects.exists(future_raw_key)
@@ -226,6 +228,27 @@ def test_tampered_request_fails_closed_before_any_expiry(harness: Harness) -> No
         assert job is not None and job.state == "FAILED"
         assert job.failure_code == "RETENTION_REQUEST_INVALID"
         assert raw is not None and raw.state == "AVAILABLE"
+
+
+def test_durable_retention_job_expires_encrypted_backup_prefix(
+    harness: Harness,
+    tmp_path: Path,
+) -> None:
+    backup_objects = FilesystemObjectStore(tmp_path / "backups")
+    backup_id = "20260715T090000000000Z-0123456789abcdef"
+    backup_objects.put_file(
+        f"backups/{backup_id}/database.dump",
+        BytesIO(b"expired backup"),
+        maximum_bytes=1024,
+    )
+    harness.worker._backup_retention = BackupRetentionService(backup_objects)
+    harness.scheduler.schedule(now=NOW)
+
+    assert harness.worker.run_once(now=NOW)
+
+    assert harness.worker.last_outcome is not None
+    assert harness.worker.last_outcome.expired_backups == 1
+    assert backup_objects.list_prefix(f"backups/{backup_id}") == ()
 
 
 def test_raw_deadline_job_runs_at_the_exact_ttl_boundary(harness: Harness) -> None:

@@ -52,3 +52,12 @@ make clean-checkout-check
 That gate installs dependencies from locks, runs the full repository verification suite, regenerates the accepted M3 and M4 qualifications, and exercises the production-authenticated API journey from simulated import through verified optimization.
 
 The built-in public demo remains unavailable until its production artifacts pass the Milestone 6 release build.
+
+## Data retention and deletion
+
+Confirmed raw uploads enter immediate deletion when normalization no longer needs them, and every raw upload has a fixed 24-hour maximum lifetime.
+Account deletion removes live database rows, object-store data, sessions, queued work, and generated artifacts through a generation-fenced workflow.
+Deleted data may remain only in separately encrypted backups until the backup reaches its fixed maximum age of 30 days.
+Individual backups are not rewritten after a deletion.
+Every restore remains quarantined until the separately protected deletion ledger is verified and suppressive deletion records have been reapplied.
+The repository currently claims only `LOCAL_REPRODUCIBLE`; hosted encryption, restore, and retention behavior remains unclaimed until an authorized hosted qualification passes.

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from ratereplay_persistence.artifacts import ArtifactService
+from ratereplay_persistence.backups import BackupError, BackupRetentionService
 from ratereplay_persistence.deletion_ledger import DeletionLedgerError
 from ratereplay_persistence.deletion_sweep import DeletionSweepError, DeletionSweepService
 from ratereplay_persistence.imports import ImportService
@@ -27,6 +28,7 @@ class RetentionOutcome:
     raw_objects: int
     orphan_artifacts: int
     receipt_verifiers: int
+    expired_backups: int
     database: DatabaseRetentionOutcome
 
 
@@ -41,6 +43,7 @@ class RetentionWorker:
         artifacts: ArtifactService,
         deletions: DeletionSweepService,
         database_retention: DatabaseRetentionService,
+        backup_retention: BackupRetentionService | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._sessions = session_factory
@@ -49,6 +52,7 @@ class RetentionWorker:
         self._artifacts = artifacts
         self._deletions = deletions
         self._database = database_retention
+        self._backup_retention = backup_retention
         self.last_outcome: RetentionOutcome | None = None
 
     def run_once(self, *, now: datetime) -> bool:
@@ -79,6 +83,11 @@ class RetentionWorker:
                     older_than=now - timedelta(seconds=request.orphan_grace_seconds),
                 ),
                 receipt_verifiers=self._deletions.expire_receipt_verifiers(now=now),
+                expired_backups=(
+                    self._backup_retention.expire(now=now).expired_backups
+                    if self._backup_retention is not None
+                    else 0
+                ),
                 database=self._database.expire(current_job_id=lease.job_id, now=now),
             )
             if not self._jobs.complete_system(lease, now=now):
@@ -96,6 +105,6 @@ class RetentionWorker:
                 retryable=True,
                 now=now,
             )
-        except (DeletionLedgerError, DeletionSweepError, RetentionError) as error:
+        except (BackupError, DeletionLedgerError, DeletionSweepError, RetentionError) as error:
             self._jobs.fail(lease, code=error.code, retryable=False, now=now)
         return True

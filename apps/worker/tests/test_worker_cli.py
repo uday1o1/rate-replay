@@ -1,4 +1,8 @@
+import json
+import re
+import sys
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -6,6 +10,7 @@ from ratereplay_persistence.database import Base, make_engine, make_session_fact
 from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
 from ratereplay_persistence.deletions import _scope_token
 from ratereplay_persistence.models import JobRecord, UserRecord
+from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_worker.cli import app
 from typer.testing import CliRunner
 
@@ -36,6 +41,9 @@ def test_worker_cli_exposes_one_shot_and_continuous_modes() -> None:
     assert "schedule-retention" in result.output
     assert "run-retention-once" in result.output
     assert "run-retention" in result.output
+    assert "create-backup" in result.output
+    assert "verify-backup" in result.output
+    assert "expire-backups-once" in result.output
     assert "qualify-restore" in result.output
     assert "verify-restore-qualification" in result.output
 
@@ -73,6 +81,68 @@ def test_retention_cli_schedules_idempotently_and_runs_system_job(
         assert len(jobs) == 1
         assert jobs[0].kind == "RETENTION" and jobs[0].state == "SUCCEEDED"
     engine.dispose()
+
+
+def test_backup_cli_creates_verifies_and_applies_retention(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    primary_root = tmp_path / "primary"
+    backup_root = tmp_path / "backups"
+    FilesystemObjectStore(primary_root).put_file(
+        "qualification/object",
+        BytesIO(b"safe qualification object"),
+        maximum_bytes=1024,
+    )
+    keyring = tmp_path / "backup-keys"
+    keyring.mkdir()
+    (keyring / "backup-key-v1").write_text("62" * 32, encoding="ascii")
+    dump_script = """
+import sys
+if "--version" in sys.argv:
+    sys.stdout.write("pg_dump (PostgreSQL) 16.10\\n")
+else:
+    sys.stdout.buffer.write(b"PGDMP safe CLI dump")
+"""
+    restore_script = """
+import sys
+raise SystemExit(0 if sys.stdin.buffer.read(5) == b"PGDMP" else 1)
+"""
+    monkeypatch.setenv("RATEREPLAY_OBJECT_STORE_ROOT", str(primary_root))
+    monkeypatch.setenv("RATEREPLAY_BACKUP_OBJECT_STORE_ROOT", str(backup_root))
+    monkeypatch.setenv("RATEREPLAY_BACKUP_OBJECT_ENCRYPTION_KEYS_DIR", str(keyring))
+    monkeypatch.setenv(
+        "RATEREPLAY_BACKUP_OBJECT_ENCRYPTION_CURRENT_KEY_VERSION",
+        "backup-key-v1",
+    )
+    monkeypatch.setenv(
+        "RATEREPLAY_BACKUP_PGDUMP_COMMAND_JSON",
+        json.dumps([sys.executable, "-c", dump_script]),
+    )
+    monkeypatch.setenv(
+        "RATEREPLAY_BACKUP_PGDUMP_VERSION_COMMAND_JSON",
+        json.dumps([sys.executable, "-c", dump_script]),
+    )
+    monkeypatch.setenv(
+        "RATEREPLAY_BACKUP_PGRESTORE_COMMAND_JSON",
+        json.dumps([sys.executable, "-c", restore_script]),
+    )
+
+    runner = CliRunner()
+    created = runner.invoke(app, ["create-backup"])
+
+    assert created.exit_code == 0, created.output
+    match = re.search(r"backup_id=([^ ]+)", created.output)
+    assert match is not None
+    backup_id = match.group(1)
+    verified = runner.invoke(app, ["verify-backup", backup_id])
+    retained = runner.invoke(app, ["expire-backups-once"])
+
+    assert verified.exit_code == 0 and "verified=true" in verified.output
+    assert retained.exit_code == 0 and "expired_backups=0" in retained.output
+    persisted = b"".join(path.read_bytes() for path in backup_root.rglob("*") if path.is_file())
+    assert b"PGDMP" not in persisted
+    assert b"safe qualification object" not in persisted
 
 
 def test_deletion_reconciler_requires_separate_control_keys(

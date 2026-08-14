@@ -7,6 +7,7 @@ import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
+from ratereplay_persistence.database import DatabaseAtRestConfiguration
 from ratereplay_persistence.object_store import ObjectStoreConfiguration
 
 
@@ -14,6 +15,7 @@ from ratereplay_persistence.object_store import ObjectStoreConfiguration
 class AppSettings:
     environment: str
     database_url: str
+    database_at_rest: DatabaseAtRestConfiguration
     allowed_origin: str
     session_key: bytes
     deletion_ledger_key: bytes
@@ -72,9 +74,13 @@ class AppSettings:
             environment=environment,
             default_root=object_store_root,
         )
+        database_at_rest = DatabaseAtRestConfiguration.from_environment(
+            environment=environment,
+        )
         return cls(
             environment=environment,
             database_url=database_url,
+            database_at_rest=database_at_rest,
             allowed_origin=allowed_origin,
             session_key=session_key,
             deletion_ledger_key=deletion_ledger_key,
@@ -102,6 +108,9 @@ class AppSettings:
         return cls(
             environment="test",
             database_url=database_url,
+            database_at_rest=DatabaseAtRestConfiguration(
+                mode="development-unencrypted",
+            ),
             allowed_origin=allowed_origin,
             session_key=b"rate-replay-test-session-key-v1!",
             deletion_ledger_key=b"rate-replay-test-ledger-key-v1!!",

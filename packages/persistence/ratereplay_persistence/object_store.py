@@ -16,6 +16,7 @@ from tempfile import SpooledTemporaryFile
 from typing import BinaryIO, Final, Protocol, cast
 
 from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from minio import Minio
 from minio.error import InvalidResponseError, S3Error, ServerError
@@ -126,7 +127,7 @@ class FilesystemObjectStore:
     def list_prefix(self, prefix: str) -> tuple[str, ...]:
         """Return a strongly consistent snapshot of every file below a key prefix."""
 
-        root = self._path(prefix)
+        root = self._root if not prefix else self._path(prefix)
         if root.is_file():
             return (prefix,)
         if not root.exists():
@@ -293,7 +294,6 @@ class EncryptedObjectStore:
 
     def put_file(self, key: str, source: BinaryIO, *, maximum_bytes: int) -> StoredObject:
         _validate_key(key)
-        plaintext = _read_bounded(source, maximum_bytes=maximum_bytes)
         nonce = os.urandom(12)
         header = json.dumps(
             {
@@ -306,18 +306,35 @@ class EncryptedObjectStore:
             ensure_ascii=True,
         ).encode("ascii")
         associated_data = _associated_data(key, header)
-        ciphertext = AESGCM(self._keys[self._current_key_version]).encrypt(
-            nonce,
-            plaintext,
-            associated_data,
-        )
-        envelope = _ENCRYPTED_OBJECT_MAGIC + struct.pack(">I", len(header)) + header + ciphertext
-        self._backend.put_file(
-            key,
-            BytesIO(envelope),
-            maximum_bytes=maximum_bytes + _MAXIMUM_ENCRYPTION_OVERHEAD,
-        )
-        return StoredObject(hashlib.sha256(plaintext).hexdigest(), len(plaintext))
+        encryptor = Cipher(
+            algorithms.AES(self._keys[self._current_key_version]),
+            modes.GCM(nonce),
+        ).encryptor()
+        encryptor.authenticate_additional_data(associated_data)
+        digest = hashlib.sha256()
+        size = 0
+        with SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b") as envelope:
+            envelope.write(_ENCRYPTED_OBJECT_MAGIC)
+            envelope.write(struct.pack(">I", len(header)))
+            envelope.write(header)
+            while chunk := source.read(64 * 1024):
+                size += len(chunk)
+                if size > maximum_bytes:
+                    raise ObjectStoreError(
+                        "OVERSIZED_FILE",
+                        "Object exceeds the adapter limit",
+                    )
+                digest.update(chunk)
+                envelope.write(encryptor.update(chunk))
+            envelope.write(encryptor.finalize())
+            envelope.write(encryptor.tag)
+            envelope.seek(0)
+            self._backend.put_file(
+                key,
+                cast(BinaryIO, envelope),
+                maximum_bytes=maximum_bytes + _MAXIMUM_ENCRYPTION_OVERHEAD,
+            )
+        return StoredObject(digest.hexdigest(), size)
 
     def content_hash(self, key: str, *, maximum_bytes: int) -> str:
         digest = hashlib.sha256()
@@ -429,11 +446,19 @@ class ObjectStoreConfiguration:
         *,
         environment: str,
         default_root: Path,
+        namespace: str = "RATEREPLAY",
     ) -> ObjectStoreConfiguration:
-        backend = os.getenv("RATEREPLAY_OBJECT_STORE_BACKEND", "filesystem")
-        filesystem_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", str(default_root)))
+        if not namespace or any(
+            not (character.isupper() or character.isdigit() or character == "_")
+            for character in namespace
+        ):
+            raise ValueError("Object-store environment namespace is invalid")
+        backend_variable = f"{namespace}_OBJECT_STORE_BACKEND"
+        root_variable = f"{namespace}_OBJECT_STORE_ROOT"
+        backend = os.getenv(backend_variable, "filesystem")
+        filesystem_root = Path(os.getenv(root_variable, str(default_root)))
         if backend not in {"filesystem", "s3"}:
-            raise RuntimeError("RATEREPLAY_OBJECT_STORE_BACKEND must be filesystem or s3")
+            raise RuntimeError(f"{backend_variable} must be filesystem or s3")
         if environment in {"production", "staging"} and backend != "s3":
             raise RuntimeError("Production and staging require the S3 object-store backend")
         s3_endpoint: str | None = None
@@ -442,24 +467,26 @@ class ObjectStoreConfiguration:
         s3_secret_key: str | None = None
         s3_secure = True
         if backend == "s3":
-            s3_endpoint = _required_environment("RATEREPLAY_S3_ENDPOINT")
-            s3_bucket = _required_environment("RATEREPLAY_S3_BUCKET")
-            s3_access_key = _read_text_secret("RATEREPLAY_S3_ACCESS_KEY_FILE")
-            s3_secret_key = _read_text_secret("RATEREPLAY_S3_SECRET_KEY_FILE")
-            s3_secure = _environment_boolean("RATEREPLAY_S3_SECURE", default=True)
+            s3_endpoint = _required_environment(f"{namespace}_S3_ENDPOINT")
+            s3_bucket = _required_environment(f"{namespace}_S3_BUCKET")
+            s3_access_key = _read_text_secret(f"{namespace}_S3_ACCESS_KEY_FILE")
+            s3_secret_key = _read_text_secret(f"{namespace}_S3_SECRET_KEY_FILE")
+            s3_secure = _environment_boolean(f"{namespace}_S3_SECURE", default=True)
             if environment in {"production", "staging"} and not s3_secure:
                 raise RuntimeError("Production and staging require TLS to the S3 object store")
-        key_directory = os.getenv("RATEREPLAY_OBJECT_ENCRYPTION_KEYS_DIR")
-        current_key_version = os.getenv("RATEREPLAY_OBJECT_ENCRYPTION_CURRENT_KEY_VERSION")
+        keys_directory_variable = f"{namespace}_OBJECT_ENCRYPTION_KEYS_DIR"
+        current_key_variable = f"{namespace}_OBJECT_ENCRYPTION_CURRENT_KEY_VERSION"
+        key_directory = os.getenv(keys_directory_variable)
+        current_key_version = os.getenv(current_key_variable)
         encryption_keys: tuple[tuple[str, bytes], ...] = ()
         if key_directory is not None:
             if current_key_version is None:
-                raise RuntimeError("RATEREPLAY_OBJECT_ENCRYPTION_CURRENT_KEY_VERSION is required")
+                raise RuntimeError(f"{current_key_variable} is required")
             encryption_keys = _load_encryption_keyring(Path(key_directory))
             if current_key_version not in dict(encryption_keys):
                 raise RuntimeError("Current object encryption key version is unavailable")
         elif environment in {"production", "staging"}:
-            raise RuntimeError("RATEREPLAY_OBJECT_ENCRYPTION_KEYS_DIR is required")
+            raise RuntimeError(f"{keys_directory_variable} is required")
         elif current_key_version is not None:
             raise RuntimeError("Object encryption key version requires an encryption key directory")
         return cls(

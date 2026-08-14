@@ -13,13 +13,28 @@ from typing import Annotated
 import typer
 from ratereplay_domain.environment import environment_lock_hash
 from ratereplay_persistence.artifacts import ArtifactService
-from ratereplay_persistence.database import make_engine, make_session_factory
+from ratereplay_persistence.backups import (
+    BackupError,
+    BackupRetentionService,
+    BackupRuntimeConfiguration,
+    BackupService,
+    PostgresDumpRunner,
+)
+from ratereplay_persistence.database import (
+    DatabaseAtRestConfiguration,
+    make_engine,
+    make_session_factory,
+)
 from ratereplay_persistence.deletion_ledger import DeletionLedgerError, FilesystemDeletionLedger
 from ratereplay_persistence.deletion_sweep import DeletionSweepService
 from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
-from ratereplay_persistence.object_store import ObjectStore, ObjectStoreConfiguration
+from ratereplay_persistence.object_store import (
+    ObjectStore,
+    ObjectStoreConfiguration,
+    ObjectStoreError,
+)
 from ratereplay_persistence.restore import (
     RestoreQualificationError,
     RestoreReconciler,
@@ -49,13 +64,67 @@ RETENTION_SCHEDULER_POLL_SECONDS = 60.0
 def main() -> None:
     """Run durable RateReplay worker operations."""
 
+    DatabaseAtRestConfiguration.from_environment(
+        environment=os.getenv("RATEREPLAY_ENV", "development")
+    )
+
 
 def _configured_object_store() -> ObjectStore:
-    configuration = ObjectStoreConfiguration.from_environment(
+    return _object_store_configuration().build(
+        ensure_bucket=os.getenv("RATEREPLAY_ENV", "development") == "development"
+    )
+
+
+def _object_store_configuration() -> ObjectStoreConfiguration:
+    return ObjectStoreConfiguration.from_environment(
         environment=os.getenv("RATEREPLAY_ENV", "development"),
         default_root=Path("/var/lib/ratereplay/objects"),
     )
-    return configuration.build()
+
+
+def _backup_runtime_configuration(
+    primary_store: ObjectStoreConfiguration,
+) -> BackupRuntimeConfiguration:
+    return BackupRuntimeConfiguration.from_environment(
+        environment=os.getenv("RATEREPLAY_ENV", "development"),
+        primary_store=primary_store,
+        default_root=Path("/var/lib/ratereplay/backups"),
+    )
+
+
+def _configured_backup_service() -> BackupService:
+    primary_configuration = _object_store_configuration()
+    backup_configuration = _backup_runtime_configuration(primary_configuration)
+    ensure_bucket = os.getenv("RATEREPLAY_ENV", "development") == "development"
+    return BackupService(
+        source_objects=primary_configuration.build(ensure_bucket=ensure_bucket),
+        backup_objects=backup_configuration.store.build(ensure_bucket=ensure_bucket),
+        database_dumper=PostgresDumpRunner(backup_configuration.postgres),
+        database_maximum_bytes=backup_configuration.postgres.maximum_bytes,
+        source_object_maximum_bytes=backup_configuration.source_object_maximum_bytes,
+    )
+
+
+def _configured_backup_retention(
+    primary_configuration: ObjectStoreConfiguration,
+) -> BackupRetentionService | None:
+    environment = os.getenv("RATEREPLAY_ENV", "development")
+    configured = any(
+        os.getenv(variable) is not None
+        for variable in (
+            "RATEREPLAY_BACKUP_OBJECT_STORE_BACKEND",
+            "RATEREPLAY_BACKUP_OBJECT_STORE_ROOT",
+            "RATEREPLAY_BACKUP_S3_ENDPOINT",
+            "RATEREPLAY_BACKUP_OBJECT_ENCRYPTION_KEYS_DIR",
+            "RATEREPLAY_BACKUP_OBJECT_ENCRYPTION_CURRENT_KEY_VERSION",
+        )
+    )
+    if environment not in {"production", "staging"} and not configured:
+        return None
+    backup_configuration = _backup_runtime_configuration(primary_configuration)
+    return BackupRetentionService(
+        backup_configuration.store.build(ensure_bucket=environment == "development")
+    )
 
 
 def _configured_worker() -> tuple[ImportWorker, Engine]:
@@ -147,7 +216,10 @@ def _configured_retention_worker() -> tuple[RetentionWorker, Engine]:
     ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
-    objects = _configured_object_store()
+    primary_configuration = _object_store_configuration()
+    objects = primary_configuration.build(
+        ensure_bucket=os.getenv("RATEREPLAY_ENV", "development") == "development"
+    )
     ledger = FilesystemDeletionLedger(ledger_root, integrity_key=ledger_key)
     return (
         RetentionWorker(
@@ -158,6 +230,7 @@ def _configured_retention_worker() -> tuple[RetentionWorker, Engine]:
             artifacts=ArtifactService(sessions, objects),
             deletions=DeletionSweepService(sessions, objects, ledger),
             database_retention=DatabaseRetentionService(sessions, ledger),
+            backup_retention=_configured_backup_retention(primary_configuration),
         ),
         engine,
     )
@@ -456,6 +529,62 @@ def run_retention() -> None:
         typer.echo("stopped")
     finally:
         engine.dispose()
+
+
+@app.command("create-backup")
+def create_backup() -> None:
+    """Create and read-after-write verify one encrypted backup."""
+
+    try:
+        result = _configured_backup_service().create(now=datetime.now(UTC))
+    except (BackupError, ObjectStoreError, RuntimeError) as error:
+        code = getattr(error, "code", "BACKUP_CONFIGURATION_INVALID")
+        typer.echo(f"{code}: backup creation failed", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(
+        f"backup_id={result.backup_id} expires_at={result.expires_at.isoformat()} "
+        f"objects={result.object_count} plaintext_bytes={result.total_plaintext_bytes} "
+        f"database_sha256={result.database_content_hash} "
+        f"manifest_sha256={result.manifest_content_hash}"
+    )
+
+
+@app.command("verify-backup")
+def verify_backup(backup_id: str) -> None:
+    """Verify one encrypted backup against its committed manifest."""
+
+    try:
+        result = _configured_backup_service().verify(backup_id)
+    except (BackupError, ObjectStoreError, RuntimeError) as error:
+        code = getattr(error, "code", "BACKUP_CONFIGURATION_INVALID")
+        typer.echo(f"{code}: backup verification failed", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(
+        f"backup_id={result.backup_id} verified=true "
+        f"expires_at={result.expires_at.isoformat()} "
+        f"manifest_sha256={result.manifest_content_hash}"
+    )
+
+
+@app.command("expire-backups-once")
+def expire_backups_once() -> None:
+    """Apply the fixed 30-day encrypted-backup retention deadline once."""
+
+    try:
+        primary_configuration = _object_store_configuration()
+        runtime = _backup_runtime_configuration(primary_configuration)
+        outcome = BackupRetentionService(
+            runtime.store.build(
+                ensure_bucket=os.getenv("RATEREPLAY_ENV", "development") == "development"
+            )
+        ).expire(now=datetime.now(UTC))
+    except (BackupError, ObjectStoreError, RuntimeError) as error:
+        code = getattr(error, "code", "BACKUP_CONFIGURATION_INVALID")
+        typer.echo(f"{code}: backup retention failed", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(
+        f"expired_backups={outcome.expired_backups} deleted_objects={outcome.deleted_objects}"
+    )
 
 
 @app.command("qualify-restore")
