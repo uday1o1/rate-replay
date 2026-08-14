@@ -84,6 +84,23 @@ class DatabaseDump:
     pg_dump_version: str
 
 
+@dataclass(frozen=True, slots=True)
+class MaterializedBackupObject:
+    source_key: str
+    path: Path
+    content_hash: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class MaterializedBackup:
+    backup_id: str
+    manifest_content_hash: str
+    database_dump_path: Path
+    database_content_hash: str
+    objects: tuple[MaterializedBackupObject, ...]
+
+
 class DatabaseDumper(Protocol):
     def dump(self, destination: Path) -> DatabaseDump: ...
 
@@ -288,6 +305,64 @@ class PostgresDumpRunner:
                 "PostgreSQL dump version cannot be verified",
             )
         return version
+
+
+class PostgresRestoreRunner:
+    """Restore one verified custom-format dump into the configured quarantine database."""
+
+    def __init__(self, configuration: PostgresDumpConfiguration) -> None:
+        self._configuration = configuration
+
+    def restore(self, dump_path: Path) -> str:
+        try:
+            size_bytes = dump_path.stat().st_size
+            with dump_path.open("rb") as source:
+                magic = source.read(5)
+        except OSError as error:
+            raise BackupError(
+                "PG_RESTORE_INPUT_UNREADABLE",
+                "PostgreSQL restore input cannot be read",
+            ) from error
+        if size_bytes <= 0 or size_bytes > self._configuration.maximum_bytes or magic != b"PGDMP":
+            raise BackupError(
+                "PG_RESTORE_INPUT_INVALID",
+                "PostgreSQL restore input is not a bounded custom-format dump",
+            )
+        environment = dict(self._configuration.process_environment)
+        PostgresDumpRunner(self._configuration)._verify_restore_listing(
+            dump_path,
+            environment=environment,
+        )
+        try:
+            with dump_path.open("rb") as source:
+                returncode = _run_command(
+                    [
+                        *self._configuration.restore_command,
+                        "--clean",
+                        "--if-exists",
+                        "--no-owner",
+                        "--no-privileges",
+                        "--exit-on-error",
+                    ],
+                    stdin=source,
+                    environment=environment,
+                    timeout_seconds=self._configuration.timeout_seconds,
+                )
+        except FileNotFoundError as error:
+            raise BackupError(
+                "PG_RESTORE_UNAVAILABLE",
+                "The configured PostgreSQL restore command is unavailable",
+            ) from error
+        except _CommandTimeout as error:
+            raise BackupError("PG_RESTORE_TIMEOUT", "PostgreSQL restore timed out") from error
+        except OSError as error:
+            raise BackupError(
+                "PG_RESTORE_IO_FAILED",
+                "PostgreSQL restore could not read its verified input",
+            ) from error
+        if returncode != 0:
+            raise BackupError("PG_RESTORE_FAILED", "PostgreSQL restore command failed")
+        return _file_sha256(dump_path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -587,6 +662,175 @@ class BackupService:
             + sum(entry.size_bytes for entry in manifest.objects),
         )
 
+    def materialize_verified(self, backup_id: str, destination: Path) -> MaterializedBackup:
+        """Copy one verified encrypted backup into a new private quarantine directory."""
+
+        verified = self.verify(backup_id)
+        destination = destination.resolve()
+        if destination.exists():
+            raise BackupError(
+                "BACKUP_MATERIALIZATION_DESTINATION_EXISTS",
+                "Backup materialization destination already exists",
+            )
+        try:
+            destination.mkdir(parents=True, mode=0o700)
+            os.chmod(destination, 0o700)
+            marker = destination / ".backup-materialization-in-progress"
+            marker.write_text(
+                "ratereplay-backup-materialization-v1\n",
+                encoding="ascii",
+            )
+            os.chmod(marker, 0o600)
+            prefix = f"{BACKUP_PREFIX}/{backup_id}"
+            manifest_key = next(
+                key
+                for key in self._backups.list_prefix(prefix)
+                if key.startswith(f"{prefix}/manifest-") and key.endswith(".json")
+            )
+            with self._backups.open_file(
+                manifest_key,
+                maximum_bytes=BACKUP_MANIFEST_MAX_BYTES,
+            ) as source:
+                manifest_bytes = source.read(BACKUP_MANIFEST_MAX_BYTES + 1)
+            manifest = BackupManifest.model_validate_json(manifest_bytes)
+            database_path = destination / "database.dump"
+            with (
+                self._backups.open_file(
+                    manifest.database.key,
+                    maximum_bytes=self._database_maximum_bytes,
+                ) as source,
+                database_path.open("xb") as output,
+            ):
+                database_hash, database_size = _copy_and_hash(
+                    source,
+                    output,
+                    maximum_bytes=self._database_maximum_bytes,
+                )
+                output.flush()
+                os.fsync(output.fileno())
+            os.chmod(database_path, 0o600)
+            if (
+                database_hash != manifest.database.content_hash
+                or database_size != manifest.database.size_bytes
+            ):
+                raise BackupError(
+                    "BACKUP_DATABASE_VERIFY_FAILED",
+                    "Materialized database dump does not match its manifest",
+                )
+            object_root = destination / "objects"
+            object_root.mkdir(mode=0o700)
+            materialized_objects: list[MaterializedBackupObject] = []
+            for entry in manifest.objects:
+                object_path = object_root / entry.content_hash
+                if not object_path.exists():
+                    with (
+                        self._backups.open_file(
+                            entry.backup_key,
+                            maximum_bytes=self._source_object_maximum_bytes,
+                        ) as source,
+                        object_path.open("xb") as output,
+                    ):
+                        content_hash, size_bytes = _copy_and_hash(
+                            source,
+                            output,
+                            maximum_bytes=self._source_object_maximum_bytes,
+                        )
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.chmod(object_path, 0o600)
+                    if content_hash != entry.content_hash or size_bytes != entry.size_bytes:
+                        raise BackupError(
+                            "BACKUP_OBJECT_VERIFY_FAILED",
+                            "Materialized backup object does not match its manifest",
+                        )
+                elif (
+                    object_path.stat().st_size != entry.size_bytes
+                    or _file_sha256(object_path) != entry.content_hash
+                ):
+                    raise BackupError(
+                        "BACKUP_OBJECT_VERIFY_FAILED",
+                        "Deduplicated materialized object does not match its manifest",
+                    )
+                materialized_objects.append(
+                    MaterializedBackupObject(
+                        source_key=entry.source_key,
+                        path=object_path,
+                        content_hash=entry.content_hash,
+                        size_bytes=entry.size_bytes,
+                    )
+                )
+            if self.verify(backup_id) != verified:
+                raise BackupError(
+                    "BACKUP_CHANGED_DURING_MATERIALIZATION",
+                    "Backup changed while it was materialized",
+                )
+            marker.unlink()
+            _fsync_directory(destination)
+            return MaterializedBackup(
+                backup_id=backup_id,
+                manifest_content_hash=verified.manifest_content_hash,
+                database_dump_path=database_path,
+                database_content_hash=database_hash,
+                objects=tuple(materialized_objects),
+            )
+        except (BackupError, ObjectStoreError, OSError, ValidationError, StopIteration) as error:
+            if isinstance(error, BackupError):
+                raise
+            raise BackupError(
+                "BACKUP_MATERIALIZATION_FAILED",
+                "Verified backup could not be materialized",
+            ) from error
+
+    def restore_materialized_objects(
+        self,
+        materialized: MaterializedBackup,
+        destination_objects: ObjectStore,
+    ) -> None:
+        """Restore exact materialized objects only into an empty quarantine namespace."""
+
+        try:
+            if destination_objects.list_prefix(""):
+                raise BackupError(
+                    "BACKUP_RESTORE_DESTINATION_NOT_EMPTY",
+                    "Quarantine object destination must be empty",
+                )
+            for entry in materialized.objects:
+                with entry.path.open("rb") as source:
+                    stored = destination_objects.put_file(
+                        entry.source_key,
+                        source,
+                        maximum_bytes=self._source_object_maximum_bytes,
+                    )
+                if (
+                    stored.content_hash != entry.content_hash
+                    or stored.size_bytes != entry.size_bytes
+                ):
+                    raise BackupError(
+                        "BACKUP_OBJECT_RESTORE_FAILED",
+                        "Restored quarantine object does not match verified materialization",
+                    )
+            expected = {entry.source_key: entry.content_hash for entry in materialized.objects}
+            restored_keys = destination_objects.list_prefix("")
+            if set(restored_keys) != set(expected) or any(
+                destination_objects.content_hash(
+                    key,
+                    maximum_bytes=self._source_object_maximum_bytes,
+                )
+                != expected[key]
+                for key in restored_keys
+            ):
+                raise BackupError(
+                    "BACKUP_OBJECT_RESTORE_FAILED",
+                    "Quarantine object restore did not reproduce the manifest",
+                )
+        except BackupError:
+            raise
+        except (OSError, ObjectStoreError) as error:
+            raise BackupError(
+                "BACKUP_OBJECT_RESTORE_FAILED",
+                "Quarantine object restore failed",
+            ) from error
+
     def _cleanup_failed_backup(self, prefix: str) -> None:
         try:
             for key in self._backups.list_prefix(prefix):
@@ -693,6 +937,14 @@ def _file_sha256(path: Path) -> str:
     except OSError as error:
         raise BackupError("PG_DUMP_IO_FAILED", "PostgreSQL dump cannot be hashed") from error
     return digest.hexdigest()
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _command_from_environment(variable: str, *, default: tuple[str, ...]) -> tuple[str, ...]:

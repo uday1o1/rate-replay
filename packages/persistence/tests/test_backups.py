@@ -16,6 +16,7 @@ from ratereplay_persistence.backups import (
     DatabaseDump,
     PostgresDumpConfiguration,
     PostgresDumpRunner,
+    PostgresRestoreRunner,
 )
 from ratereplay_persistence.database import DatabaseAtRestConfiguration
 from ratereplay_persistence.object_store import (
@@ -95,6 +96,51 @@ def test_backup_is_content_addressed_encrypted_verified_and_excludes_ledger(
     assert b"same bytes" not in persisted
     assert b"PGDMP" not in persisted
     assert b"deletion_ledger_included" not in persisted
+
+
+def test_verified_backup_materializes_and_restores_fresh_quarantine_objects(
+    tmp_path: Path,
+) -> None:
+    source = FilesystemObjectStore(tmp_path / "source")
+    source.put_file("owners/one/raw", BytesIO(b"same bytes"), maximum_bytes=1024)
+    source.put_file("owners/two/report", BytesIO(b"same bytes"), maximum_bytes=1024)
+    encrypted_backups = EncryptedObjectStore(
+        FilesystemObjectStore(tmp_path / "backup"),
+        current_key_version="backup-key-v1",
+        keys={"backup-key-v1": b"b" * 32},
+    )
+    service = BackupService(
+        source_objects=source,
+        backup_objects=encrypted_backups,
+        database_dumper=_FakeDumper(),
+        database_maximum_bytes=1024,
+        source_object_maximum_bytes=1024,
+    )
+    created = service.create(now=NOW)
+
+    materialized = service.materialize_verified(created.backup_id, tmp_path / "materialized")
+
+    assert materialized.database_dump_path.read_bytes() == b"PGDMP fake custom dump"
+    assert materialized.database_content_hash == created.database_content_hash
+    assert len(materialized.objects) == 2
+    assert materialized.objects[0].path == materialized.objects[1].path
+    quarantine = FilesystemObjectStore(tmp_path / "quarantine")
+    service.restore_materialized_objects(materialized, quarantine)
+    assert quarantine.list_prefix("") == ("owners/one/raw", "owners/two/report")
+    for key in quarantine.list_prefix(""):
+        with quarantine.open_file(key, maximum_bytes=1024) as restored:
+            assert restored.read() == b"same bytes"
+    with pytest.raises(BackupError) as occupied:
+        service.restore_materialized_objects(materialized, quarantine)
+    assert occupied.value.code == "BACKUP_RESTORE_DESTINATION_NOT_EMPTY"
+    with pytest.raises(BackupError) as destination_exists:
+        service.materialize_verified(created.backup_id, tmp_path / "materialized")
+    assert destination_exists.value.code == "BACKUP_MATERIALIZATION_DESTINATION_EXISTS"
+    blocked_parent = tmp_path / "blocked-parent"
+    blocked_parent.write_text("not a directory", encoding="ascii")
+    with pytest.raises(BackupError) as materialization_failed:
+        service.materialize_verified(created.backup_id, blocked_parent / "child")
+    assert materialization_failed.value.code == "BACKUP_MATERIALIZATION_FAILED"
 
 
 def test_backup_retention_deletes_at_exact_thirty_day_deadline(tmp_path: Path) -> None:
@@ -221,6 +267,79 @@ raise SystemExit(0 if sys.stdin.buffer.read(5) == b"PGDMP" else 1)
 
     assert dumped.content_hash == hashlib.sha256(b"PGDMP verified custom archive").hexdigest()
     assert dumped.pg_dump_version == "pg_dump (PostgreSQL) 16.10"
+
+
+def test_postgres_restore_runner_lists_then_restores_with_fail_closed_flags(
+    tmp_path: Path,
+) -> None:
+    restore_script = """
+import sys
+payload = sys.stdin.buffer.read(5)
+if "--list" in sys.argv:
+    raise SystemExit(0 if payload == b"PGDMP" else 1)
+required = {"--clean", "--if-exists", "--no-owner", "--no-privileges", "--exit-on-error"}
+raise SystemExit(0 if payload == b"PGDMP" and required.issubset(sys.argv) else 1)
+"""
+    dump_path = tmp_path / "database.dump"
+    dump_path.write_bytes(b"PGDMP verified restore archive")
+    runner = PostgresRestoreRunner(
+        PostgresDumpConfiguration(
+            dump_command=(sys.executable, "-c", "raise SystemExit(1)"),
+            restore_command=(sys.executable, "-c", restore_script),
+            process_environment=(("PATH", "/usr/bin"),),
+            maximum_bytes=1024,
+            timeout_seconds=10,
+        )
+    )
+
+    restored_hash = runner.restore(dump_path)
+
+    assert restored_hash == hashlib.sha256(dump_path.read_bytes()).hexdigest()
+
+
+def test_postgres_restore_runner_rejects_non_custom_input(tmp_path: Path) -> None:
+    dump_path = tmp_path / "database.dump"
+    dump_path.write_bytes(b"not a postgres archive")
+    runner = PostgresRestoreRunner(
+        PostgresDumpConfiguration(
+            dump_command=("unused",),
+            restore_command=("unused",),
+            process_environment=(),
+            maximum_bytes=1024,
+        )
+    )
+
+    with pytest.raises(BackupError) as invalid:
+        runner.restore(dump_path)
+
+    assert invalid.value.code == "PG_RESTORE_INPUT_INVALID"
+
+
+def test_postgres_restore_runner_normalizes_missing_input_and_restore_failure(
+    tmp_path: Path,
+) -> None:
+    restore_script = """
+import sys
+sys.stdin.buffer.read()
+raise SystemExit(0 if "--list" in sys.argv else 1)
+"""
+    runner = PostgresRestoreRunner(
+        PostgresDumpConfiguration(
+            dump_command=("unused",),
+            restore_command=(sys.executable, "-c", restore_script),
+            process_environment=(("PATH", "/usr/bin"),),
+            maximum_bytes=1024,
+        )
+    )
+    with pytest.raises(BackupError) as missing:
+        runner.restore(tmp_path / "missing.dump")
+    assert missing.value.code == "PG_RESTORE_INPUT_UNREADABLE"
+
+    dump_path = tmp_path / "database.dump"
+    dump_path.write_bytes(b"PGDMP seeded restore failure")
+    with pytest.raises(BackupError) as failed:
+        runner.restore(dump_path)
+    assert failed.value.code == "PG_RESTORE_FAILED"
 
 
 def test_postgres_dump_runner_removes_invalid_output(
