@@ -67,11 +67,14 @@ def require_same_origin(request: Request) -> None:
 
 
 def get_authenticated_session(
+    request: Request,
     database: Annotated[Session, Depends(get_database)],
     auth: Annotated[AuthService, Depends(get_auth_service)],
     session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> AuthenticatedSession:
-    return auth.authenticate(database, session_token=session_token)
+    authenticated = auth.authenticate(database, session_token=session_token)
+    request.state.user_pseudonym = auth.user_pseudonym(authenticated.user_id)
+    return authenticated
 
 
 def require_csrf_session(

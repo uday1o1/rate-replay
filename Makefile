@@ -3,7 +3,7 @@ UV_CACHE_DIR ?= /private/tmp/rate-replay-uv-cache
 PNPM_STORE_DIR ?= /private/tmp/rate-replay-pnpm-store
 COMPOSE ?= $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: bootstrap browser-bootstrap browser-test check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-backup integration-object-store integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4 qualification-m6-study demo-artifacts demo-artifacts-check user-study-protocol-check
+.PHONY: bootstrap browser-bootstrap browser-test check format format-check lint typecheck test security dependency-audit web-build compose-config operations-config-check clean-checkout-check integration-auth integration-backup integration-object-store integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4 qualification-m6-study demo-artifacts demo-artifacts-check user-study-protocol-check
 
 bootstrap:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync --frozen --all-groups
@@ -48,8 +48,11 @@ web-build:
 compose-config:
 	$(COMPOSE) -f compose.yaml config --quiet
 
-check: format-check lint typecheck test browser-test security web-build compose-config demo-artifacts-check user-study-protocol-check
+check: format-check lint typecheck test browser-test security web-build compose-config operations-config-check demo-artifacts-check user-study-protocol-check
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_evidence.py
+
+operations-config-check:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_operations.py
 
 browser-test:
 	corepack pnpm test:e2e

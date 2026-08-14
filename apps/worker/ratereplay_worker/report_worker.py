@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
 from datetime import UTC, datetime
 from io import BytesIO
 
 from pydantic import ValidationError
+from ratereplay_domain.telemetry import Telemetry
 from ratereplay_optimizer.results import ScenarioOptimizationResult
 from ratereplay_persistence.artifacts import ArtifactService, ArtifactServiceError
 from ratereplay_persistence.jobs import JobLease, JobService
@@ -44,13 +46,16 @@ class ReportWorker:
         session_factory: sessionmaker[Session],
         jobs: JobService,
         artifacts: ArtifactService,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._sessions = session_factory
         self._jobs = jobs
         self._artifacts = artifacts
+        self._telemetry = telemetry
 
     def run_once(self, *, now: datetime) -> bool:
+        started = time.perf_counter()
         now = now.astimezone(UTC)
         lease = self._jobs.lease_next(
             worker_id=self._worker_id,
@@ -59,6 +64,12 @@ class ReportWorker:
         )
         if lease is None:
             return False
+        if self._telemetry is not None:
+            self._telemetry.record_job_lease(
+                kind=lease.kind,
+                job_id=lease.job_id,
+                attempt_number=lease.attempt_number,
+            )
         if not self._jobs.start(lease, now=now):
             return True
         try:
@@ -70,6 +81,11 @@ class ReportWorker:
                 retryable=error.retryable,
                 now=now,
             )
+            if self._telemetry is not None:
+                self._telemetry.observe_report(
+                    outcome="FAILED",
+                    duration_seconds=time.perf_counter() - started,
+                )
         except (ArtifactServiceError, ObjectStoreError):
             self._jobs.fail(
                 lease,
@@ -77,6 +93,17 @@ class ReportWorker:
                 retryable=True,
                 now=now,
             )
+            if self._telemetry is not None:
+                self._telemetry.observe_report(
+                    outcome="FAILED",
+                    duration_seconds=time.perf_counter() - started,
+                )
+        else:
+            if self._telemetry is not None:
+                self._telemetry.observe_report(
+                    outcome="SUCCEEDED",
+                    duration_seconds=time.perf_counter() - started,
+                )
         return True
 
     def _publish(self, lease: JobLease, *, now: datetime) -> None:

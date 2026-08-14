@@ -153,7 +153,10 @@ def create_app(
     ) -> Response:
         request.state.request_id = secrets.token_hex(12)
         process_telemetry = cast(Telemetry, request.app.state.telemetry)
-        with process_telemetry.http_request(request.method) as observation:
+        with process_telemetry.http_request(
+            request.method,
+            request_id=request.state.request_id,
+        ) as observation:
             response = await call_next(request)
             route = request.scope.get("route")
             route_path = getattr(route, "path", "unmatched")
@@ -161,6 +164,9 @@ def create_app(
                 route=route_path,
                 status_code=response.status_code,
                 failed=response.status_code >= 500,
+                error_code=getattr(request.state, "error_code", None),
+                user_pseudonym=getattr(request.state, "user_pseudonym", None),
+                job_id=getattr(request.state, "job_id", None),
             )
             response.headers["X-Request-ID"] = request.state.request_id
             return response

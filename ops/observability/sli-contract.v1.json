@@ -1,0 +1,86 @@
+{
+  "schema_version": "ratereplay-sli-contract-v1",
+  "scope": "LOCAL_REPRODUCIBLE",
+  "hosted_validation": "WITHHELD",
+  "indicators": [
+    {
+      "id": "api-availability",
+      "description": "Fraction of completed API requests that do not return a server error.",
+      "metrics": ["ratereplay_http_requests_total"],
+      "query": "1 - sum(rate(ratereplay_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(ratereplay_http_requests_total[5m])), 1)",
+      "interpretation": "A decline identifies safe but unavailable request paths and is investigated by normalized route and stable error code."
+    },
+    {
+      "id": "api-latency",
+      "description": "The 95th percentile API request duration by normalized route.",
+      "metrics": ["ratereplay_http_request_duration_seconds"],
+      "query": "histogram_quantile(0.95, sum by (le, route) (rate(ratereplay_http_request_duration_seconds_bucket[5m])))",
+      "interpretation": "This is process-observed latency and excludes browser rendering and network transit."
+    },
+    {
+      "id": "import-health",
+      "description": "Import outcomes, parser duration, parser memory, and quality findings using fixed labels.",
+      "metrics": [
+        "ratereplay_import_requests_total",
+        "ratereplay_parser_duration_seconds",
+        "ratereplay_parser_peak_resident_memory_bytes",
+        "ratereplay_quality_findings_total"
+      ],
+      "query": "sum by (adapter, outcome) (rate(ratereplay_import_requests_total[5m]))",
+      "interpretation": "Adapter and quality labels are allowlisted and never include filenames, identifiers, or interval values."
+    },
+    {
+      "id": "durable-job-health",
+      "description": "Queue depth, oldest lease age, retries, and worker outcomes by fixed job kind.",
+      "metrics": [
+        "ratereplay_job_queue_depth",
+        "ratereplay_job_oldest_lease_age_seconds",
+        "ratereplay_job_retry_attempts",
+        "ratereplay_worker_runs_total"
+      ],
+      "query": "max by (kind) (ratereplay_job_queue_depth)",
+      "interpretation": "The worker runtime refreshes snapshots from the durable database before every polling cycle."
+    },
+    {
+      "id": "scenario-latency",
+      "description": "Scenario worker duration by fixed flexible-load count bucket.",
+      "metrics": ["ratereplay_scenario_duration_seconds"],
+      "query": "histogram_quantile(0.95, sum by (le, workload_size) (rate(ratereplay_scenario_duration_seconds_bucket[15m])))",
+      "interpretation": "The workload bucket is derived from declared load count and contains no user-entered load details."
+    },
+    {
+      "id": "solver-health",
+      "description": "Solver terminal status and solver-only duration.",
+      "metrics": [
+        "ratereplay_solver_results_total",
+        "ratereplay_solver_duration_seconds"
+      ],
+      "query": "sum by (status) (rate(ratereplay_solver_results_total[15m]))",
+      "interpretation": "The status labels distinguish optimal, best-found, invalid, and contract-failure outcomes."
+    },
+    {
+      "id": "report-latency",
+      "description": "Redacted report generation duration by fixed success or failure outcome.",
+      "metrics": ["ratereplay_report_generation_duration_seconds"],
+      "query": "histogram_quantile(0.95, sum by (le, outcome) (rate(ratereplay_report_generation_duration_seconds_bucket[15m])))",
+      "interpretation": "The metric covers report generation and persistence but never includes report content."
+    },
+    {
+      "id": "deletion-health",
+      "description": "Deletion worker completion and failure counts.",
+      "metrics": ["ratereplay_deletion_results_total"],
+      "query": "sum by (outcome) (increase(ratereplay_deletion_results_total[1h]))",
+      "interpretation": "Any failure requires checking the durable job and separately protected ledger before retrying."
+    },
+    {
+      "id": "trace-correlation",
+      "description": "Request, durable job, worker, solver, result, and report spans share safe random correlation identifiers.",
+      "metrics": [
+        "ratereplay_http_requests_total",
+        "ratereplay_worker_runs_total"
+      ],
+      "query": "sum by (kind, outcome) (rate(ratereplay_worker_runs_total[5m]))",
+      "interpretation": "Trace attributes are restricted to request IDs, job IDs, fixed versions, fixed statuses, and normalized routes."
+    }
+  ]
+}

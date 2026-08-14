@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
 from pydantic import ValidationError
+from ratereplay_domain.telemetry import Telemetry
 from ratereplay_optimizer.lowering import OptimizationLoweringError
 from ratereplay_optimizer.models import (
     CanonicalProfileSlot,
@@ -66,6 +68,7 @@ class ScenarioWorker:
         artifacts: ArtifactService,
         admitted_tariffs: dict[str, AdmittedTariff],
         environment_lock_hash: str,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._sessions = session_factory
@@ -73,8 +76,10 @@ class ScenarioWorker:
         self._artifacts = artifacts
         self._tariffs = admitted_tariffs
         self._environment_lock_hash = environment_lock_hash
+        self._telemetry = telemetry
 
     def run_once(self, *, now: datetime) -> bool:
+        started = time.perf_counter()
         now = now.astimezone(UTC)
         lease = self._jobs.lease_next(
             worker_id=self._worker_id,
@@ -83,11 +88,17 @@ class ScenarioWorker:
         )
         if lease is None:
             return False
+        if self._telemetry is not None:
+            self._telemetry.record_job_lease(
+                kind=lease.kind,
+                job_id=lease.job_id,
+                attempt_number=lease.attempt_number,
+            )
         if not self._jobs.start(lease, now=now):
             return True
         self._mark_running(lease)
         try:
-            self._publish(lease, now=now)
+            load_count, solver_status, solver_duration = self._publish(lease, now=now)
         except ScenarioWorkerError as error:
             failed = self._jobs.fail(
                 lease,
@@ -106,6 +117,16 @@ class ScenarioWorker:
             )
             if failed:
                 self._sync_terminal_state(lease.job_id)
+        else:
+            if self._telemetry is not None:
+                self._telemetry.observe_solver(
+                    status=solver_status,
+                    duration_seconds=solver_duration,
+                )
+                self._telemetry.observe_scenario(
+                    load_count=load_count,
+                    duration_seconds=time.perf_counter() - started,
+                )
         return True
 
     def _mark_running(self, lease: JobLease) -> None:
@@ -141,7 +162,7 @@ class ScenarioWorker:
                 scenario.state = job.state
                 scenario.completed_at = job.completed_at
 
-    def _publish(self, lease: JobLease, *, now: datetime) -> None:
+    def _publish(self, lease: JobLease, *, now: datetime) -> tuple[int, str, float]:
         with self._sessions() as database:
             job = database.get(JobRecord, lease.job_id)
             if (
@@ -250,6 +271,7 @@ class ScenarioWorker:
                         "SCENARIO_SEMANTIC_IDENTITY_MISMATCH",
                         "Scenario request differs from its submitted semantic identity",
                     )
+                solver_started = time.perf_counter()
                 exact = optimize_exact(
                     validated,
                     tariff.compilation,
@@ -257,6 +279,7 @@ class ScenarioWorker:
                     dated_facts=dated_facts,
                     configuration=solver_configuration,
                 )
+                solver_duration = time.perf_counter() - solver_started
                 heuristic = optimize_off_peak_heuristic(
                     validated,
                     tariff.compilation,
@@ -341,6 +364,7 @@ class ScenarioWorker:
             now=now,
             publish_result=publish_result,
         )
+        return len(scenario_input.loads), exact.search_status, solver_duration
 
 
 def _request_payload(value: str) -> dict[str, object]:

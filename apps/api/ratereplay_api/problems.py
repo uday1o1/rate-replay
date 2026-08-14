@@ -8,6 +8,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from ratereplay_persistence.object_store import ObjectStoreError
+from sqlalchemy.exc import SQLAlchemyError
 
 
 class ApiProblem(Exception):
@@ -44,6 +46,7 @@ class ProblemResponse(BaseModel):
 def install_problem_handler(app: FastAPI) -> None:
     @app.exception_handler(ApiProblem)
     async def handle_api_problem(request: Request, error: ApiProblem) -> JSONResponse:
+        request.state.error_code = error.code
         request_id = getattr(request.state, "request_id", "unavailable")
         problem = ProblemResponse(
             code=error.code,
@@ -62,6 +65,7 @@ def install_problem_handler(app: FastAPI) -> None:
     async def handle_validation_error(
         request: Request, error: RequestValidationError
     ) -> JSONResponse:
+        request.state.error_code = "REQUEST_VALIDATION_FAILED"
         field_paths = tuple(
             ".".join(str(part) for part in item["loc"] if part != "body") for item in error.errors()
         )
@@ -76,6 +80,47 @@ def install_problem_handler(app: FastAPI) -> None:
             content=problem.model_dump(mode="json"),
             headers={"Cache-Control": "no-store"},
         )
+
+    @app.exception_handler(ObjectStoreError)
+    @app.exception_handler(SQLAlchemyError)
+    async def handle_dependency_error(request: Request, error: Exception) -> JSONResponse:
+        del error
+        return _safe_failure(
+            request,
+            status_code=503,
+            code="DEPENDENCY_UNAVAILABLE",
+            message="A required service is unavailable.",
+        )
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
+        del error
+        return _safe_failure(
+            request,
+            status_code=500,
+            code="UNEXPECTED_FAILURE",
+            message="RateReplay could not complete the request safely.",
+        )
+
+
+def _safe_failure(
+    request: Request,
+    *,
+    status_code: int,
+    code: str,
+    message: str,
+) -> JSONResponse:
+    request.state.error_code = code
+    problem = ProblemResponse(
+        code=code,
+        message=message,
+        request_id=getattr(request.state, "request_id", "unavailable"),
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content=problem.model_dump(mode="json"),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def problem_openapi_responses(*status_codes: int) -> dict[int | str, dict[str, Any]]:

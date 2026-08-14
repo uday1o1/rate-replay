@@ -201,6 +201,7 @@ def create_report_export(
             idempotency_key=idempotency_key,
             now=datetime.now(UTC),
         )
+        request.state.job_id = submission.job_id
     except ReportServiceError as error:
         statuses = {
             "IDEMPOTENCY_KEY_REUSED": 409,

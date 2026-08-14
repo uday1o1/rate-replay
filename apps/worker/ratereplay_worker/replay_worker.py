@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from pydantic import TypeAdapter, ValidationError
+from ratereplay_domain.telemetry import Telemetry
 from ratereplay_persistence.artifacts import ArtifactService, ArtifactServiceError
 from ratereplay_persistence.jobs import JobLease, JobService
 from ratereplay_persistence.models import (
@@ -47,6 +48,7 @@ class ReplayWorker:
         artifacts: ArtifactService,
         admitted_tariffs: dict[str, AdmittedTariff],
         environment_lock_hash: str,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._sessions = session_factory
@@ -54,6 +56,7 @@ class ReplayWorker:
         self._artifacts = artifacts
         self._tariffs = admitted_tariffs
         self._environment_lock_hash = environment_lock_hash
+        self._telemetry = telemetry
 
     def run_once(self, *, now: datetime) -> bool:
         now = now.astimezone(UTC)
@@ -64,6 +67,12 @@ class ReplayWorker:
         )
         if lease is None:
             return False
+        if self._telemetry is not None:
+            self._telemetry.record_job_lease(
+                kind=lease.kind,
+                job_id=lease.job_id,
+                attempt_number=lease.attempt_number,
+            )
         if not self._jobs.start(lease, now=now):
             return True
         try:

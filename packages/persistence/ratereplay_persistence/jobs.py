@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
 from typing import Final
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ratereplay_persistence.audit import (
@@ -61,6 +61,14 @@ class JobLease:
     kind: str = "IMPORT"
     profile_version_id: str | None = None
     scope_mode: str = "ACTIVE_SCOPE"
+
+
+@dataclass(frozen=True, slots=True)
+class JobOperationalSnapshot:
+    kind: str
+    queue_depth: int
+    oldest_lease_age_seconds: float
+    retry_attempts: int
 
 
 class JobService:
@@ -174,6 +182,52 @@ class JobService:
             expected_state="LEASED",
             next_state="RUNNING",
             now=now,
+        )
+
+    def operational_snapshots(self, *, now: datetime) -> tuple[JobOperationalSnapshot, ...]:
+        """Return fixed-cardinality nonterminal queue, lease, and retry observations."""
+
+        now = now.astimezone(UTC)
+        with self._session_factory() as database:
+            rows = database.execute(
+                select(
+                    JobRecord.kind,
+                    func.sum(case((JobRecord.state == "QUEUED", 1), else_=0)),
+                    func.min(
+                        case(
+                            (
+                                JobRecord.state.in_(("LEASED", "RUNNING")),
+                                JobRecord.lease_acquired_at,
+                            ),
+                            else_=None,
+                        )
+                    ),
+                    func.sum(
+                        case(
+                            (JobRecord.attempt_count > 1, JobRecord.attempt_count - 1),
+                            else_=0,
+                        )
+                    ),
+                )
+                .where(JobRecord.state.in_(("QUEUED", "LEASED", "RUNNING")))
+                .group_by(JobRecord.kind)
+            ).all()
+        observed = {
+            kind: JobOperationalSnapshot(
+                kind=kind,
+                queue_depth=int(queue_depth or 0),
+                oldest_lease_age_seconds=(
+                    0.0
+                    if oldest_lease_at is None
+                    else max(0.0, (now - _aware(oldest_lease_at)).total_seconds())
+                ),
+                retry_attempts=int(retry_attempts or 0),
+            )
+            for kind, queue_depth, oldest_lease_at, retry_attempts in rows
+        }
+        return tuple(
+            observed.get(kind, JobOperationalSnapshot(kind, 0, 0.0, 0))
+            for kind in sorted(JOB_DEFINITIONS)
         )
 
     def heartbeat(self, lease: JobLease, *, now: datetime) -> bool:

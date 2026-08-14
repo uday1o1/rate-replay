@@ -133,6 +133,11 @@ class AuthService:
             hashlib.sha256,
         ).hexdigest()
 
+    def user_pseudonym(self, user_id: str) -> str:
+        """Return a process-stable pseudonym safe for operational correlation."""
+
+        return self._digest(b"telemetry-user", user_id)[:24]
+
     def _new_session(
         self,
         database: Session,

@@ -279,6 +279,7 @@ def create_comparison(
             environment_lock_hash=cast(str, request.app.state.environment_lock_hash),
             now=datetime.now(UTC),
         )
+        request.state.job_id = submission.job_id
     except (ComparisonError, ComparisonServiceError, ReplayError) as error:
         raise _problem(error) from error
     return job_resource(

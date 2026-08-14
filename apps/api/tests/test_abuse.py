@@ -11,6 +11,7 @@ from ratereplay_api.config import AppSettings
 from ratereplay_api.main import create_app
 from ratereplay_api.problems import ApiProblem
 from ratereplay_persistence.object_store import ObjectStoreError
+from sqlalchemy.exc import OperationalError
 
 
 def _limiter(
@@ -144,3 +145,30 @@ async def test_readiness_fails_closed_without_dependency_details() -> None:
     assert "PRIVATE_BACKEND_FAILURE" not in response.text
     assert "__readiness__" not in response.text
     assert 'outcome="unready"' in metrics.text
+
+
+@pytest.mark.anyio
+async def test_dependency_and_unexpected_failures_use_redacted_problem_schema() -> None:
+    application = create_app(AppSettings.for_test())
+
+    def unavailable() -> None:
+        raise OperationalError("private statement", {}, RuntimeError("private database host"))
+
+    def unexpected() -> None:
+        raise RuntimeError("private implementation detail")
+
+    application.add_api_route("/test/dependency", unavailable)
+    application.add_api_route("/test/unexpected", unexpected)
+    transport = httpx.ASGITransport(app=application, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="https://ratereplay.test") as client:
+        dependency = await client.get("/test/dependency")
+        internal = await client.get("/test/unexpected")
+
+    assert dependency.status_code == 503
+    assert dependency.json()["code"] == "DEPENDENCY_UNAVAILABLE"
+    assert internal.status_code == 500
+    assert internal.json()["code"] == "UNEXPECTED_FAILURE"
+    combined = dependency.text + internal.text
+    assert "private" not in combined
+    assert dependency.headers["cache-control"] == "no-store"
+    assert internal.headers["cache-control"] == "no-store"

@@ -1,0 +1,66 @@
+{
+  "groups":
+    [
+      {
+        "name": "ratereplay-v1",
+        "rules":
+          [
+            {
+              "alert": "RateReplayApiErrorBudgetBurn",
+              "expr": 'sum(rate(ratereplay_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(ratereplay_http_requests_total[5m])), 1) > 0.05',
+              "for": "10m",
+              "labels": { "severity": "page" },
+              "annotations":
+                {
+                  "summary": "API server errors exceed five percent",
+                  "runbook": "ops/README.md#api-server-errors",
+                },
+            },
+            {
+              "alert": "RateReplayScenarioBacklog",
+              "expr": 'ratereplay_job_queue_depth{kind="SCENARIO"} > 25',
+              "for": "15m",
+              "labels": { "severity": "ticket" },
+              "annotations":
+                {
+                  "summary": "Scenario queue remains above the local operating threshold",
+                  "runbook": "ops/README.md#durable-job-backlog",
+                },
+            },
+            {
+              "alert": "RateReplayLeaseStalled",
+              "expr": "ratereplay_job_oldest_lease_age_seconds > 300",
+              "for": "5m",
+              "labels": { "severity": "page" },
+              "annotations":
+                {
+                  "summary": "A durable lease is older than five minutes",
+                  "runbook": "ops/README.md#stalled-lease",
+                },
+            },
+            {
+              "alert": "RateReplayWorkerRetries",
+              "expr": "ratereplay_job_retry_attempts > 10",
+              "for": "15m",
+              "labels": { "severity": "ticket" },
+              "annotations":
+                {
+                  "summary": "Retry attempts remain elevated",
+                  "runbook": "ops/README.md#repeated-worker-failures",
+                },
+            },
+            {
+              "alert": "RateReplayDeletionFailures",
+              "expr": 'increase(ratereplay_deletion_results_total{outcome="FAILED"}[15m]) > 0',
+              "for": "0m",
+              "labels": { "severity": "page" },
+              "annotations":
+                {
+                  "summary": "A deletion worker operation failed",
+                  "runbook": "ops/README.md#deletion-failure",
+                },
+            },
+          ],
+      },
+    ],
+}

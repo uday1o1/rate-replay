@@ -11,6 +11,7 @@ from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict
+from ratereplay_domain.telemetry import Telemetry
 from ratereplay_ingestion.normalize import ConfirmationError
 from ratereplay_ingestion.simulated import LockedSimulatedProfile
 from ratereplay_persistence.imports import ImportService, ImportServiceError
@@ -171,9 +172,18 @@ async def create_import(
             now=datetime.now(UTC),
         )
     except (ImportServiceError, ObjectStoreError) as error:
+        cast(Telemetry, request.app.state.telemetry).record_import(
+            adapter=adapter,
+            outcome="FAILED",
+        )
         raise _problem(error) from error
     finally:
         await file.close()
+    request.state.job_id = submission.job_id
+    cast(Telemetry, request.app.state.telemetry).record_import(
+        adapter=adapter,
+        outcome="REPEATED" if submission.repeated else "ACCEPTED",
+    )
     return ImportSubmissionResponse(
         import_id=submission.import_id,
         job_id=submission.job_id,
@@ -209,7 +219,15 @@ def create_built_in_simulated_profile(
             now=datetime.now(UTC),
         )
     except ImportServiceError as error:
+        cast(Telemetry, request.app.state.telemetry).record_import(
+            adapter="SIMULATED",
+            outcome="FAILED",
+        )
         raise _problem(error) from error
+    cast(Telemetry, request.app.state.telemetry).record_import(
+        adapter="SIMULATED",
+        outcome="REPEATED" if installed.repeated else "ACCEPTED",
+    )
     return BuiltInSimulatedProfileResponse(
         label=artifact.label,
         source_artifact_sha256=artifact.artifact_sha256,

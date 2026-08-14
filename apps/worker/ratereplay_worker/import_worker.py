@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import resource
+import sys
+import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from ratereplay_domain.telemetry import Telemetry
 from ratereplay_ingestion.espi import EspiParseError, parse_espi
 from ratereplay_ingestion.normalize import normalize_espi, normalize_pge_csv
 from ratereplay_ingestion.pge_csv import PgeCsvError, parse_pge_csv
@@ -22,11 +26,13 @@ class ImportWorker:
         jobs: JobService,
         imports: ImportService,
         espi_schema_path: Path,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._jobs = jobs
         self._imports = imports
         self._espi_schema_path = espi_schema_path
+        self._telemetry = telemetry
 
     def run_once(
         self,
@@ -46,27 +52,50 @@ class ImportWorker:
             return False
         if lease.import_id is None:
             raise RuntimeError("IMPORT_LEASE_MISSING_IMPORT_SCOPE")
+        if self._telemetry is not None:
+            self._telemetry.record_job_lease(
+                kind=lease.kind,
+                job_id=lease.job_id,
+                attempt_number=lease.attempt_number,
+            )
         if after_lease is not None:
             after_lease(lease)
         if not self._jobs.start(lease, now=now):
             return False
         try:
             with self._imports.open_raw(lease.import_id) as (adapter, payload):
-                if adapter == "ESPI_XML":
-                    draft = normalize_espi(
-                        parse_espi(
-                            payload,
-                            schema_path=self._espi_schema_path,
-                            on_chunk=(
-                                None if during_parse is None else lambda _size: during_parse(lease)
-                            ),
+                parse_started = time.perf_counter()
+                try:
+                    if adapter == "ESPI_XML":
+                        draft = normalize_espi(
+                            parse_espi(
+                                payload,
+                                schema_path=self._espi_schema_path,
+                                on_chunk=(
+                                    None
+                                    if during_parse is None
+                                    else lambda _size: during_parse(lease)
+                                ),
+                            )
                         )
-                    )
-                elif adapter == "PGE_CSV":
-                    draft = normalize_pge_csv(parse_pge_csv(payload))
-                else:
-                    raise ImportServiceError(
-                        "UNSUPPORTED_ADAPTER", "Import adapter is not supported"
+                    elif adapter == "PGE_CSV":
+                        draft = normalize_pge_csv(parse_pge_csv(payload))
+                    else:
+                        raise ImportServiceError(
+                            "UNSUPPORTED_ADAPTER", "Import adapter is not supported"
+                        )
+                finally:
+                    if self._telemetry is not None:
+                        self._telemetry.observe_parser(
+                            adapter=adapter,
+                            duration_seconds=time.perf_counter() - parse_started,
+                            peak_bytes=_peak_resident_memory_bytes(),
+                        )
+            if self._telemetry is not None:
+                for finding in draft.findings:
+                    self._telemetry.record_quality_finding(
+                        code=finding.code,
+                        severity=finding.severity,
                     )
             if after_parse is not None:
                 after_parse(lease)
@@ -98,3 +127,8 @@ class ImportWorker:
                 now=now,
             )
             return True
+
+
+def _peak_resident_memory_bytes() -> int:
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return int(peak if sys.platform == "darwin" else peak * 1024)

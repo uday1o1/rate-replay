@@ -145,7 +145,7 @@ def _configured_backup_retention(
     )
 
 
-def _configured_worker() -> tuple[ImportWorker, Engine]:
+def _configured_worker(telemetry: Telemetry | None = None) -> tuple[ImportWorker, Engine]:
     database_url = os.getenv("RATEREPLAY_DATABASE_URL")
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
@@ -164,6 +164,7 @@ def _configured_worker() -> tuple[ImportWorker, Engine]:
         jobs=JobService(sessions),
         imports=imports,
         espi_schema_path=schema_path,
+        telemetry=telemetry,
     )
     return worker, engine
 
@@ -189,7 +190,9 @@ def _configured_deletion_reconciler() -> tuple[DeletionCoordinator, Engine]:
     return coordinator, engine
 
 
-def _configured_deletion_worker() -> tuple[DeletionWorker, Engine]:
+def _configured_deletion_worker(
+    telemetry: Telemetry | None = None,
+) -> tuple[DeletionWorker, Engine]:
     database_url = os.getenv("RATEREPLAY_DATABASE_URL")
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
@@ -210,6 +213,7 @@ def _configured_deletion_worker() -> tuple[DeletionWorker, Engine]:
             _configured_object_store(),
             ledger,
         ),
+        telemetry=telemetry,
     )
     return worker, engine
 
@@ -223,7 +227,9 @@ def _configured_retention_scheduler() -> tuple[RetentionScheduler, Engine]:
     return RetentionScheduler(make_session_factory(engine)), engine
 
 
-def _configured_retention_worker() -> tuple[RetentionWorker, Engine]:
+def _configured_retention_worker(
+    telemetry: Telemetry | None = None,
+) -> tuple[RetentionWorker, Engine]:
     database_url = os.getenv("RATEREPLAY_DATABASE_URL")
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
@@ -249,6 +255,7 @@ def _configured_retention_worker() -> tuple[RetentionWorker, Engine]:
             deletions=DeletionSweepService(sessions, objects, ledger),
             database_retention=DatabaseRetentionService(sessions, ledger),
             backup_retention=_configured_backup_retention(primary_configuration),
+            telemetry=telemetry,
         ),
         engine,
     )
@@ -285,7 +292,7 @@ def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
     )
 
 
-def _configured_report_worker() -> tuple[ReportWorker, Engine]:
+def _configured_report_worker(telemetry: Telemetry | None = None) -> tuple[ReportWorker, Engine]:
     database_url = os.getenv("RATEREPLAY_DATABASE_URL")
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
@@ -299,12 +306,13 @@ def _configured_report_worker() -> tuple[ReportWorker, Engine]:
             session_factory=sessions,
             jobs=JobService(sessions),
             artifacts=ArtifactService(sessions, objects),
+            telemetry=telemetry,
         ),
         engine,
     )
 
 
-def _configured_replay_worker() -> tuple[ReplayWorker, Engine]:
+def _configured_replay_worker(telemetry: Telemetry | None = None) -> tuple[ReplayWorker, Engine]:
     database_url = os.getenv("RATEREPLAY_DATABASE_URL")
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
@@ -321,12 +329,15 @@ def _configured_replay_worker() -> tuple[ReplayWorker, Engine]:
             artifacts=ArtifactService(sessions, _configured_object_store()),
             admitted_tariffs={item.lock.tariff_version_id: item for item in tariffs},
             environment_lock_hash=environment_lock_hash(repository_root),
+            telemetry=telemetry,
         ),
         engine,
     )
 
 
-def _configured_comparison_worker() -> tuple[ComparisonWorker, Engine]:
+def _configured_comparison_worker(
+    telemetry: Telemetry | None = None,
+) -> tuple[ComparisonWorker, Engine]:
     database_url = os.getenv("RATEREPLAY_DATABASE_URL")
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
@@ -344,12 +355,15 @@ def _configured_comparison_worker() -> tuple[ComparisonWorker, Engine]:
             admitted_tariffs={item.lock.tariff_version_id: item for item in tariffs},
             required_component_keys=load_required_component_keys(repository_root),
             environment_lock_hash=environment_lock_hash(repository_root),
+            telemetry=telemetry,
         ),
         engine,
     )
 
 
-def _configured_scenario_worker() -> tuple[ScenarioWorker, Engine]:
+def _configured_scenario_worker(
+    telemetry: Telemetry | None = None,
+) -> tuple[ScenarioWorker, Engine]:
     database_url = os.getenv("RATEREPLAY_DATABASE_URL")
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
@@ -366,6 +380,7 @@ def _configured_scenario_worker() -> tuple[ScenarioWorker, Engine]:
             artifacts=ArtifactService(sessions, _configured_object_store()),
             admitted_tariffs={item.lock.tariff_version_id: item for item in tariffs},
             environment_lock_hash=environment_lock_hash(repository_root),
+            telemetry=telemetry,
         ),
         engine,
     )
@@ -406,8 +421,8 @@ def _read_outcome_evidence(path: Path | None) -> tuple[TransactionOutcomeEvidenc
 def run_once() -> None:
     """Lease and process at most one durable import job."""
 
-    worker, engine = _configured_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_worker(telemetry)
     try:
         processed = _run_worker_poll(telemetry, "IMPORT", worker)
         typer.echo("processed" if processed else "idle")
@@ -420,8 +435,8 @@ def run_once() -> None:
 def run() -> None:
     """Poll continuously for durable import jobs."""
 
-    worker, engine = _configured_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_worker(telemetry)
     try:
         while True:
             processed = _run_worker_poll(telemetry, "IMPORT", worker)
@@ -468,8 +483,8 @@ def reconcile_deletions() -> None:
 def run_deletion_once() -> None:
     """Lease and advance at most one durable account deletion."""
 
-    worker, engine = _configured_deletion_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_deletion_worker(telemetry)
     try:
         processed = _run_worker_poll(telemetry, "DELETION", worker)
         typer.echo("processed" if processed else "idle")
@@ -482,8 +497,8 @@ def run_deletion_once() -> None:
 def run_deletions() -> None:
     """Poll continuously for durable account deletions."""
 
-    worker, engine = _configured_deletion_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_deletion_worker(telemetry)
     try:
         while True:
             processed = _run_worker_poll(telemetry, "DELETION", worker)
@@ -535,8 +550,8 @@ def schedule_retention() -> None:
 def run_retention_once() -> None:
     """Lease and execute at most one durable system retention job."""
 
-    worker, engine = _configured_retention_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_retention_worker(telemetry)
     try:
         processed = _run_worker_poll(telemetry, "RETENTION", worker)
         typer.echo("processed" if processed else "idle")
@@ -549,8 +564,8 @@ def run_retention_once() -> None:
 def run_retention() -> None:
     """Poll continuously for durable system retention jobs."""
 
-    worker, engine = _configured_retention_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_retention_worker(telemetry)
     try:
         while True:
             processed = _run_worker_poll(telemetry, "RETENTION", worker)
@@ -716,8 +731,8 @@ def verify_restore_qualification(
 def run_report_once() -> None:
     """Lease and publish at most one redacted report export."""
 
-    worker, engine = _configured_report_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_report_worker(telemetry)
     try:
         processed = _run_worker_poll(telemetry, "REPORT", worker)
         typer.echo("processed" if processed else "idle")
@@ -730,8 +745,8 @@ def run_report_once() -> None:
 def run_reports() -> None:
     """Poll continuously for durable redacted report jobs."""
 
-    worker, engine = _configured_report_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_report_worker(telemetry)
     try:
         while True:
             processed = _run_worker_poll(telemetry, "REPORT", worker)
@@ -748,8 +763,8 @@ def run_reports() -> None:
 def run_replay_once() -> None:
     """Lease and publish at most one durable historical replay."""
 
-    worker, engine = _configured_replay_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_replay_worker(telemetry)
     try:
         processed = _run_worker_poll(telemetry, "REPLAY", worker)
         typer.echo("processed" if processed else "idle")
@@ -762,8 +777,8 @@ def run_replay_once() -> None:
 def run_replays() -> None:
     """Poll continuously for durable historical replay jobs."""
 
-    worker, engine = _configured_replay_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_replay_worker(telemetry)
     try:
         while True:
             processed = _run_worker_poll(telemetry, "REPLAY", worker)
@@ -780,8 +795,8 @@ def run_replays() -> None:
 def run_comparison_once() -> None:
     """Lease and publish at most one durable tariff comparison."""
 
-    worker, engine = _configured_comparison_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_comparison_worker(telemetry)
     try:
         processed = _run_worker_poll(telemetry, "COMPARISON", worker)
         typer.echo("processed" if processed else "idle")
@@ -794,8 +809,8 @@ def run_comparison_once() -> None:
 def run_comparisons() -> None:
     """Poll continuously for durable tariff comparison jobs."""
 
-    worker, engine = _configured_comparison_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_comparison_worker(telemetry)
     try:
         while True:
             processed = _run_worker_poll(telemetry, "COMPARISON", worker)
@@ -812,8 +827,8 @@ def run_comparisons() -> None:
 def run_scenario_once() -> None:
     """Lease and publish at most one durable flexible-load scenario."""
 
-    worker, engine = _configured_scenario_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_scenario_worker(telemetry)
     try:
         processed = _run_worker_poll(telemetry, "SCENARIO", worker)
         typer.echo("processed" if processed else "idle")
@@ -826,8 +841,8 @@ def run_scenario_once() -> None:
 def run_scenarios() -> None:
     """Poll continuously for durable flexible-load scenario jobs."""
 
-    worker, engine = _configured_scenario_worker()
     telemetry = _configured_telemetry()
+    worker, engine = _configured_scenario_worker(telemetry)
     try:
         while True:
             processed = _run_worker_poll(telemetry, "SCENARIO", worker)

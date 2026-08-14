@@ -100,4 +100,7 @@ async def test_http_metrics_and_traces_exclude_payloads_and_object_ids(
         "http.request.method",
         "http.response.status_code",
         "http.route",
+        "ratereplay.request.id",
     }
+    assert isinstance(replay_attributes["ratereplay.request.id"], str)
+    assert len(replay_attributes["ratereplay.request.id"]) == 24

@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 39,
+  "title": "RateReplay LOCAL_REPRODUCIBLE overview",
+  "uid": "ratereplay-local-v1",
+  "tags": ["ratereplay", "local-reproducible"],
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "API server error rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ratereplay_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(ratereplay_http_requests_total[5m])), 1)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "API p95 duration",
+      "type": "timeseries",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(ratereplay_http_request_duration_seconds_bucket[5m])))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Durable job queue depth",
+      "type": "timeseries",
+      "targets": [{ "refId": "A", "expr": "ratereplay_job_queue_depth" }]
+    },
+    {
+      "id": 4,
+      "title": "Oldest lease age",
+      "type": "timeseries",
+      "targets": [
+        { "refId": "A", "expr": "ratereplay_job_oldest_lease_age_seconds" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Parser p95 duration",
+      "type": "timeseries",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, adapter) (rate(ratereplay_parser_duration_seconds_bucket[15m])))"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Solver outcomes",
+      "type": "timeseries",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(ratereplay_solver_results_total[15m]))"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Deletion outcomes",
+      "type": "timeseries",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (increase(ratereplay_deletion_results_total[1h]))"
+        }
+      ]
+    }
+  ]
+}

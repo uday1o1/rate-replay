@@ -138,6 +138,57 @@ def test_job_registry_fixes_every_v1_kind_to_one_scope_mode() -> None:
     }
 
 
+def test_operational_snapshot_has_fixed_kinds_and_nonterminal_counts(
+    harness: JobHarness,
+) -> None:
+    _add_job(
+        harness,
+        job_id="scenario-observed",
+        kind="SCENARIO",
+        scope_mode="ACTIVE_SCOPE",
+        owner_user_id=OWNER_ID,
+        import_id=IMPORT_ID,
+        profile_version_id=PROFILE_ID,
+        account_generation=0,
+        import_generation=0,
+        profile_generation=0,
+    )
+    _add_job(
+        harness,
+        job_id="report-observed",
+        kind="REPORT",
+        scope_mode="ACTIVE_SCOPE",
+        owner_user_id=OWNER_ID,
+        import_id=IMPORT_ID,
+        profile_version_id=PROFILE_ID,
+        account_generation=0,
+        import_generation=0,
+        profile_generation=0,
+    )
+    lease = harness.jobs.lease_next(
+        worker_id="observability-worker",
+        now=NOW,
+        kinds=frozenset({"SCENARIO"}),
+    )
+    assert lease is not None and harness.jobs.start(lease, now=NOW)
+    with harness.sessions.begin() as database:
+        report = database.get(JobRecord, "report-observed")
+        assert report is not None
+        report.attempt_count = 3
+
+    snapshots = {
+        item.kind: item
+        for item in harness.jobs.operational_snapshots(now=NOW + timedelta(seconds=5))
+    }
+
+    assert set(snapshots) == set(JOB_DEFINITIONS)
+    assert snapshots["SCENARIO"].queue_depth == 0
+    assert snapshots["SCENARIO"].oldest_lease_age_seconds == 5
+    assert snapshots["REPORT"].queue_depth == 1
+    assert snapshots["REPORT"].retry_attempts == 2
+    assert snapshots["IMPORT"].queue_depth == 0
+
+
 def test_active_compute_lease_is_fenced_by_profile_generation(harness: JobHarness) -> None:
     _add_job(
         harness,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import Sequence
 
 import pytest
@@ -116,6 +118,70 @@ def test_console_exporter_configuration_is_explicit_and_shutdown_flushes(
     assert telemetry.run_worker("IMPORT", lambda: True)
     telemetry.shutdown()
     assert len(exporter.spans) == 1
+
+
+def test_operational_metrics_cover_fixed_sli_surface() -> None:
+    telemetry = _telemetry()
+    telemetry.record_import(adapter="ESPI_XML", outcome="ACCEPTED")
+    telemetry.record_import(adapter="private-adapter", outcome="private-outcome")
+    telemetry.observe_parser(adapter="PGE_CSV", duration_seconds=0.25, peak_bytes=64_000_000)
+    telemetry.record_quality_finding(code="INTERVAL_GAP", severity="WARNING")
+    telemetry.set_job_snapshot(
+        kind="SCENARIO",
+        queue_depth=2,
+        oldest_lease_age_seconds=3.5,
+        retry_attempts=1,
+    )
+    telemetry.observe_scenario(load_count=3, duration_seconds=1.25)
+    telemetry.observe_solver(status="OPTIMAL", duration_seconds=0.75)
+    telemetry.observe_report(outcome="SUCCEEDED", duration_seconds=0.05)
+    telemetry.record_deletion(outcome="FAILED")
+
+    metrics = telemetry.prometheus_bytes().decode("utf-8")
+    expected = (
+        'adapter="ESPI_XML",outcome="ACCEPTED"',
+        'adapter="OTHER",outcome="OTHER"',
+        'code="INTERVAL_GAP",severity="WARNING"',
+        'kind="SCENARIO"',
+        'status="OPTIMAL"',
+        'workload_size="2_5"',
+        'outcome="SUCCEEDED"',
+        'outcome="FAILED"',
+    )
+    assert all(value in metrics for value in expected)
+    assert "private-adapter" not in metrics
+    assert "private-outcome" not in metrics
+
+
+def test_structured_events_keep_only_schema_bound_safe_fields(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    telemetry = _telemetry()
+    sensitive = "interval reading 8675309"
+
+    with caplog.at_level(logging.INFO, logger="ratereplay.telemetry"):
+        telemetry.log_event(
+            "job_completed",
+            request_id="a" * 24,
+            job_id="b" * 32,
+            error_code="REPORT_STORAGE_UNAVAILABLE",
+            duration_ms=12.34567,
+            forbidden=sensitive,
+            route=sensitive,
+        )
+
+    assert len(caplog.records) == 1
+    payload = json.loads(caplog.records[0].message)
+    assert payload == {
+        "duration_ms": 12.346,
+        "error_code": "REPORT_STORAGE_UNAVAILABLE",
+        "event": "job_completed",
+        "job_id": "b" * 32,
+        "request_id": "a" * 24,
+        "route": "redacted",
+        "schema_version": "ratereplay-telemetry-v1",
+    }
+    assert sensitive not in caplog.text
 
 
 def _raise(message: str) -> bool:
