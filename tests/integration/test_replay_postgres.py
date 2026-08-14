@@ -6,31 +6,35 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from ratereplay_persistence.artifacts import ArtifactService
 from ratereplay_persistence.database import make_engine, make_session_factory
+from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.models import (
     CalculationManifestRecord,
     ImportReadingRecord,
     ImportRecord,
     JobAttemptRecord,
     JobRecord,
+    JobResultClaimRecord,
     OperationRequestRecord,
     ProfileVersionRecord,
     RawObjectRecord,
     ReplayResultRecord,
     UserRecord,
 )
+from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_persistence.replays import ReplayService
 from ratereplay_tariffs.admission import load_admitted_e1
-from ratereplay_tariffs.billing import ReplayRequest, replay_compiled_tariff
-from ratereplay_tariffs.hashing import canonical_content_sha256
+from ratereplay_tariffs.billing import ReplayRequest, ReplayResult
 from ratereplay_tariffs.schema import AccountFacts, DateRange
+from ratereplay_worker.replay_worker import ReplayWorker
 from sqlalchemy import delete, select
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.postgres
-def test_migrated_postgres_publishes_immutable_replay() -> None:
+def test_migrated_postgres_publishes_immutable_replay(tmp_path: Path) -> None:
     database_url = os.getenv("RATEREPLAY_TEST_DATABASE_URL")
     if database_url is None:
         pytest.skip("RATEREPLAY_TEST_DATABASE_URL is not configured")
@@ -114,57 +118,73 @@ def test_migrated_postgres_publishes_immutable_replay() -> None:
         account_facts=account_facts,
         energy_wh=310_000,
     )
-    result = replay_compiled_tariff(load_admitted_e1(ROOT).compilation, request)
-    operation_hash = canonical_content_sha256(
-        b"RateReplay.ReplayOperationRequest.v1", request.model_dump(mode="json")
-    )
+    tariff = load_admitted_e1(ROOT)
     service = ReplayService(sessions)
-    stored = service.publish(
+    submitted = service.submit(
         owner_user_id=owner_id,
         profile_version_id=profile_id,
         idempotency_key="postgres-replay-key",
-        operation_request_hash=operation_hash,
-        result=result,
+        tariff=tariff,
+        replay_request=request,
+        environment_lock_hash="e" * 64,
         now=now,
     )
-    repeated = service.publish(
+    worker = ReplayWorker(
+        worker_id="postgres-replay-worker",
+        session_factory=sessions,
+        jobs=JobService(sessions),
+        artifacts=ArtifactService(sessions, FilesystemObjectStore(tmp_path / "objects")),
+        admitted_tariffs={tariff.lock.tariff_version_id: tariff},
+        environment_lock_hash="e" * 64,
+    )
+    assert worker.run_once(now=now)
+    repeated = service.submit(
         owner_user_id=owner_id,
         profile_version_id=profile_id,
         idempotency_key="postgres-replay-key",
-        operation_request_hash=operation_hash,
-        result=result,
+        tariff=tariff,
+        replay_request=request,
+        environment_lock_hash="e" * 64,
         now=now,
     )
-    assert repeated.repeated is True
-    assert repeated.replay_id == stored.replay_id
+    assert repeated.repeated_operation is True
+    assert repeated.job_id == submitted.job_id
+    assert repeated.result_id is not None
+    replay_id = repeated.result_id
     with sessions() as database:
-        replay = database.get(ReplayResultRecord, stored.replay_id)
+        replay = database.get(ReplayResultRecord, replay_id)
         manifest = database.scalar(
             select(CalculationManifestRecord).where(
-                CalculationManifestRecord.replay_id == stored.replay_id
+                CalculationManifestRecord.replay_id == replay_id
             )
         )
-        job = database.get(JobRecord, stored.job_id)
-        assert replay is not None and replay.result_hash == result.result_sha256
-        assert manifest is not None and manifest.calculation_hash == (
-            result.manifest.calculation_sha256
-        )
+        job = database.get(JobRecord, submitted.job_id)
+        assert replay is not None
+        parsed = ReplayResult.model_validate_json(replay.result_json)
+        assert replay.result_hash == parsed.result_sha256
+        assert manifest is not None
+        assert manifest.calculation_hash == parsed.manifest.calculation_sha256
         assert job is not None and job.state == "SUCCEEDED"
 
     with sessions.begin() as database:
         database.execute(
             delete(CalculationManifestRecord).where(
-                CalculationManifestRecord.replay_id == stored.replay_id
+                CalculationManifestRecord.replay_id == replay_id
             )
         )
-        database.execute(
-            delete(ReplayResultRecord).where(ReplayResultRecord.id == stored.replay_id)
-        )
+        database.execute(delete(ReplayResultRecord).where(ReplayResultRecord.id == replay_id))
         database.execute(
             delete(OperationRequestRecord).where(OperationRequestRecord.owner_user_id == owner_id)
         )
-        database.execute(delete(JobAttemptRecord).where(JobAttemptRecord.job_id == stored.job_id))
-        database.execute(delete(JobRecord).where(JobRecord.id == stored.job_id))
+        database.execute(
+            delete(JobResultClaimRecord).where(
+                JobResultClaimRecord.accepted_job_id == submitted.job_id
+            )
+        )
+        database.execute(
+            delete(JobAttemptRecord).where(JobAttemptRecord.job_id == submitted.job_id)
+        )
+        database.execute(delete(JobRecord).where(JobRecord.id == submitted.job_id))
         database.execute(
             delete(ImportReadingRecord).where(ImportReadingRecord.import_id == import_id)
         )

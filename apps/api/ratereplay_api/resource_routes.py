@@ -28,6 +28,8 @@ class JobResourceResponse(FrozenModel):
     job_id: str
     kind: str
     state: str
+    operation_request_hash: str
+    semantic_hash: str | None
     failure_code: str | None
     terminal_result_type: str | None
     terminal_result_id: str | None
@@ -63,11 +65,13 @@ def _iso(value: datetime) -> str:
     return (value.replace(tzinfo=UTC) if value.tzinfo is None else value).isoformat()
 
 
-def _job_resource(job: JobRecord, *, repeated: bool = False) -> JobResourceResponse:
+def job_resource(job: JobRecord, *, repeated: bool = False) -> JobResourceResponse:
     return JobResourceResponse(
         job_id=job.id,
         kind=job.kind,
         state=job.state,
+        operation_request_hash=job.request_hash,
+        semantic_hash=job.requested_semantic_hash,
         failure_code=job.failure_code,
         terminal_result_type=job.terminal_result_type,
         terminal_result_id=job.terminal_result_id,
@@ -77,7 +81,7 @@ def _job_resource(job: JobRecord, *, repeated: bool = False) -> JobResourceRespo
     )
 
 
-def _owned_job(database: Session, owner_user_id: str, job_id: str) -> JobRecord:
+def owned_job(database: Session, owner_user_id: str, job_id: str) -> JobRecord:
     job = database.scalar(
         select(JobRecord).where(
             JobRecord.id == job_id,
@@ -131,7 +135,7 @@ def get_job(
     authenticated: Annotated[AuthenticatedSession, Depends(get_authenticated_session)],
     database: Annotated[Session, Depends(get_database)],
 ) -> JobResourceResponse:
-    return _job_resource(_owned_job(database, authenticated.user_id, job_id))
+    return job_resource(owned_job(database, authenticated.user_id, job_id))
 
 
 @router.get(
@@ -212,8 +216,8 @@ def create_report_export(
             code=error.code,
             message=str(error),
         ) from error
-    return _job_resource(
-        _owned_job(database, authenticated.user_id, submission.job_id),
+    return job_resource(
+        owned_job(database, authenticated.user_id, submission.job_id),
         repeated=submission.repeated,
     )
 

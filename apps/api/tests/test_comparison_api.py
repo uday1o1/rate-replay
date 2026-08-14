@@ -12,6 +12,7 @@ import pytest
 from fastapi import FastAPI
 from ratereplay_api.config import AppSettings
 from ratereplay_api.main import create_app
+from ratereplay_persistence.artifacts import ArtifactService
 from ratereplay_persistence.models import (
     ComparisonResultRecord,
     ImportReadingRecord,
@@ -20,6 +21,7 @@ from ratereplay_persistence.models import (
     JobRecord,
     ProfileVersionRecord,
 )
+from ratereplay_worker.replay_worker import ReplayWorker
 from sqlalchemy import func, select
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -201,8 +203,20 @@ async def _create_replay(
         },
         json=_replay_payload(profile_id),
     )
-    assert response.status_code == 201, response.text
-    return cast(str, response.json()["replay_id"]), owner_id, csrf
+    assert response.status_code == 202, response.text
+    state = cast(Any, test_app.state)
+    worker = ReplayWorker(
+        worker_id="comparison-replay-worker",
+        session_factory=state.session_factory,
+        jobs=state.job_service,
+        artifacts=ArtifactService(state.session_factory, state.object_store),
+        admitted_tariffs=state.admitted_tariffs,
+        environment_lock_hash=state.environment_lock_hash,
+    )
+    assert worker.run_once(now=datetime.now(UTC))
+    job = await client.get(f"/v1/jobs/{response.json()['job_id']}")
+    assert job.status_code == 200 and job.json()["state"] == "SUCCEEDED"
+    return cast(str, job.json()["terminal_result_id"]), owner_id, csrf
 
 
 @pytest.mark.anyio

@@ -7,11 +7,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from ratereplay_tariffs.billing import ReplayResult
+from ratereplay_domain.semantic_identity import SemanticCalculationIdentity
+from ratereplay_tariffs.admission import AdmittedTariff
+from ratereplay_tariffs.billing import ReconciliationPolicy, ReplayRequest, ReplayResult
+from ratereplay_tariffs.hashing import canonical_content_sha256
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from ratereplay_persistence.calculations import (
+    CalculationSubmission,
+    CalculationSubmissionError,
+    CalculationSubmissionService,
+)
 from ratereplay_persistence.models import (
     CalculationManifestRecord,
     ImportRecord,
@@ -26,6 +34,7 @@ from ratereplay_persistence.models import (
 REPLAY_ROUTE: Final = "POST:/v1/replays"
 REPLAY_REQUEST_SCHEMA: Final = "replay-operation-v1"
 IDEMPOTENCY_RETENTION: Final = timedelta(hours=24)
+REPLAY_CALCULATION_CONTRACT: Final = "historical-replay-calculation-v1"
 
 
 class ReplayServiceError(RuntimeError):
@@ -44,6 +53,41 @@ class StoredReplay:
 class ReplayService:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
+        self._submissions = CalculationSubmissionService(session_factory)
+
+    def submit(
+        self,
+        *,
+        owner_user_id: str,
+        profile_version_id: str,
+        idempotency_key: str,
+        tariff: AdmittedTariff,
+        replay_request: ReplayRequest,
+        environment_lock_hash: str,
+        now: datetime,
+    ) -> CalculationSubmission:
+        identity = replay_semantic_identity(
+            tariff=tariff,
+            replay_request=replay_request,
+            environment_lock_hash=environment_lock_hash,
+        )
+        try:
+            return self._submissions.submit(
+                owner_user_id=owner_user_id,
+                profile_version_id=profile_version_id,
+                job_kind="REPLAY",
+                request_schema_version=REPLAY_REQUEST_SCHEMA,
+                idempotency_key=idempotency_key,
+                operation_payload={
+                    "profile_version_id": profile_version_id,
+                    "tariff_version_id": tariff.lock.tariff_version_id,
+                    "replay_request": replay_request.model_dump(mode="json"),
+                },
+                semantic_identity=identity,
+                now=now,
+            )
+        except CalculationSubmissionError as error:
+            raise ReplayServiceError(error.code, str(error)) from error
 
     def publish(
         self,
@@ -253,3 +297,54 @@ class ReplayService:
         if replay is None:
             raise ReplayServiceError("OPERATION_INCOMPLETE", "Replay operation is incomplete")
         return StoredReplay(replay.id, replay.job_id, True)
+
+
+def replay_semantic_identity(
+    *,
+    tariff: AdmittedTariff,
+    replay_request: ReplayRequest,
+    environment_lock_hash: str,
+    reconciliation_policy: ReconciliationPolicy | None = None,
+) -> SemanticCalculationIdentity:
+    resolved_policy = reconciliation_policy or ReconciliationPolicy()
+    reconciliation_input_hash: str | None = None
+    reconciliation_policy_hash: str | None = None
+    if replay_request.current_bill_total_cents is not None:
+        reconciliation_input_hash = canonical_content_sha256(
+            b"RateReplay.ReconciliationInput.v1",
+            {
+                "entered_bill_total_cents": replay_request.current_bill_total_cents,
+                "user_unsupported_lines": [
+                    item.model_dump(mode="json") for item in replay_request.user_unsupported_lines
+                ],
+            },
+        )
+        reconciliation_policy_hash = canonical_content_sha256(
+            b"RateReplay.ReconciliationPolicy.v1",
+            resolved_policy.model_dump(mode="json"),
+        )
+    component_vector_hash = canonical_content_sha256(
+        b"RateReplay.ComparisonComponentVector.v1",
+        tariff.compilation.reports.component_vector.model_dump(mode="json"),
+    )
+    return SemanticCalculationIdentity(
+        job_kind="REPLAY",
+        request_schema_version=REPLAY_REQUEST_SCHEMA,
+        calculation_contract_version=REPLAY_CALCULATION_CONTRACT,
+        environment_lock_hash=environment_lock_hash,
+        tariff_compiler_version=tariff.compilation.bundle_version,
+        billing_evaluator_version="historical-replay-evaluator-v1",
+        profile_version_hash=replay_request.profile_content_sha256,
+        tariff_ast_hashes=(tariff.compilation.reports.normalized_ast_sha256,),
+        component_vector_hashes=(component_vector_hash,),
+        account_facts_hash=canonical_content_sha256(
+            b"RateReplay.AccountFacts.v1",
+            replay_request.account_facts.model_dump(mode="json"),
+        ),
+        billing_period_identity_hash=canonical_content_sha256(
+            b"RateReplay.BillingPeriodIdentity.v1",
+            replay_request.account_facts.service_window.model_dump(mode="json"),
+        ),
+        reconciliation_inputs_hash=reconciliation_input_hash,
+        reconciliation_policy_hash=reconciliation_policy_hash,
+    )

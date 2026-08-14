@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,6 +14,7 @@ from ratereplay_api.main import create_app
 from ratereplay_optimizer.results import ScenarioOptimizationResult
 from ratereplay_persistence.artifacts import ArtifactService
 from ratereplay_reports.redacted import build_redacted_report
+from ratereplay_worker.replay_worker import ReplayWorker
 from ratereplay_worker.report_worker import ReportWorker
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -107,8 +109,22 @@ async def test_private_account_completes_portfolio_core_through_public_api(
             ],
         },
     )
-    assert replayed.status_code == 201, replayed.text
-    replay = replayed.json()
+    assert replayed.status_code == 202, replayed.text
+    state = cast(Any, test_app.state)
+    replay_worker = ReplayWorker(
+        worker_id="portfolio-replay-worker",
+        session_factory=state.session_factory,
+        jobs=state.job_service,
+        artifacts=ArtifactService(state.session_factory, state.object_store),
+        admitted_tariffs=state.admitted_tariffs,
+        environment_lock_hash=state.environment_lock_hash,
+    )
+    assert replay_worker.run_once(now=datetime.now(UTC))
+    replay_job = await client.get(f"/v1/jobs/{replayed.json()['job_id']}")
+    assert replay_job.status_code == 200 and replay_job.json()["state"] == "SUCCEEDED"
+    replay_response = await client.get(f"/v1/replays/{replay_job.json()['terminal_result_id']}")
+    assert replay_response.status_code == 200
+    replay = replay_response.json()
     assert replay["result"]["supported_calculated_cents"] == 27_728
     assert replay["result"]["reconciliation"]["unexplained_residual_cents"] == 1_972
     assert replay["result"]["provenance_sources"]

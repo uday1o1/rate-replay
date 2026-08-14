@@ -20,10 +20,9 @@ from ratereplay_tariffs.billing import (
     ReplayRequest,
     ReplayResult,
     UserUnsupportedLine,
-    replay_compiled_tariff,
 )
 from ratereplay_tariffs.compiled import CompilationBundle
-from ratereplay_tariffs.hashing import canonical_content_sha256, canonical_json_bytes
+from ratereplay_tariffs.hashing import canonical_json_bytes
 from ratereplay_tariffs.schema import AccountFacts, DateRange, FrozenModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -35,6 +34,7 @@ from ratereplay_api.auth_routes import (
     require_csrf_session,
 )
 from ratereplay_api.problems import ApiProblem, problem_openapi_responses
+from ratereplay_api.resource_routes import JobResourceResponse, job_resource, owned_job
 
 
 class TariffSummary(FrozenModel):
@@ -238,8 +238,8 @@ def get_tariff(
 
 @router.post(
     "/v1/replays",
-    response_model=ReplayResourceResponse,
-    status_code=status.HTTP_201_CREATED,
+    response_model=JobResourceResponse,
+    status_code=status.HTTP_202_ACCEPTED,
     responses=problem_openapi_responses(401, 403, 404, 409, 422),
 )
 def create_replay(
@@ -248,7 +248,7 @@ def create_replay(
     authenticated: Annotated[AuthenticatedSession, Depends(require_csrf_session)],
     database: Annotated[Session, Depends(get_database)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> ReplayResourceResponse:
+) -> JobResourceResponse:
     admitted = _admitted_tariffs(request).get(payload.tariff_version_id)
     if admitted is None:
         raise ApiProblem(status_code=404, code="TARIFF_NOT_FOUND", message="Tariff is unavailable")
@@ -297,33 +297,21 @@ def create_replay(
             current_bill_total_cents=payload.current_bill_total_cents,
             user_unsupported_lines=unsupported_lines,
         )
-        operation_hash = canonical_content_sha256(
-            b"RateReplay.ReplayOperationRequest.v1",
-            {
-                "profile_version_id": payload.profile_version_id,
-                "tariff_version_id": payload.tariff_version_id,
-                "replay_request": replay_request.model_dump(mode="json"),
-            },
-        )
-        result = replay_compiled_tariff(admitted.compilation, replay_request)
-        stored = _replays(request).publish(
+        submission = _replays(request).submit(
             owner_user_id=authenticated.user_id,
             profile_version_id=profile.id,
             idempotency_key=idempotency_key,
-            operation_request_hash=operation_hash,
-            result=result,
+            tariff=admitted,
+            replay_request=replay_request,
+            environment_lock_hash=cast(str, request.app.state.environment_lock_hash),
             now=datetime.now(UTC),
         )
     except (ReplayError, ReplayServiceError) as error:
         raise _problem(error) from error
-    record = database.get(ReplayResultRecord, stored.replay_id)
-    if record is None or record.owner_user_id != authenticated.user_id:
-        raise ApiProblem(
-            status_code=409,
-            code="REPLAY_PUBLICATION_INCOMPLETE",
-            message="Replay publication is incomplete",
-        )
-    return _resource(record, repeated=stored.repeated)
+    return job_resource(
+        owned_job(database, authenticated.user_id, submission.job_id),
+        repeated=submission.repeated_operation,
+    )
 
 
 @router.get(
