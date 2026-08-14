@@ -33,6 +33,14 @@ COMPOSE_URL: Final = (
     "https://github.com/docker/compose/releases/download/v5.4.0/docker-compose-linux-x86_64"
 )
 COMPOSE_SHA256: Final = "837fd1d35bf6a494f41b5b5988269a7be79de337cf1a1a6ff0e45ab51bb4e9be"
+MAKE_PACKAGE_URL: Final = (
+    "https://archive.ubuntu.com/ubuntu/pool/main/m/make-dfsg/make_4.3-4.1build2_amd64.deb"
+)
+MAKE_PACKAGE_SHA256: Final = "1fe6a815b56c7b6e9ce4086a363f09444bbd0a0d30e230c453d0b78e44b57a99"
+RIPGREP_PACKAGE_URL: Final = (
+    "https://archive.ubuntu.com/ubuntu/pool/universe/r/rust-ripgrep/ripgrep_14.1.0-1_amd64.deb"
+)
+RIPGREP_PACKAGE_SHA256: Final = "c5ae63c7bee915b1cfc9f0bd07c55b4ce7f2bcd1133cba4da56719aac26101a4"
 PYTHON_VERSION: Final = "3.12.13"
 QUALIFICATION_COMMANDS: Final = (
     "make bootstrap",
@@ -48,7 +56,17 @@ REQUIRED_OUTPUT_MARKERS: Final = (
     "Public demo artifacts are reproducible and current.",
     "No known vulnerabilities found",
 )
-ENVIRONMENT_PREFIXES: Final = ("os=", "arch=", "python=", "node=", "uv=", "pnpm=", "compose=")
+ENVIRONMENT_PREFIXES: Final = (
+    "os=",
+    "arch=",
+    "python=",
+    "node=",
+    "uv=",
+    "pnpm=",
+    "compose=",
+    "make=",
+    "ripgrep=",
+)
 ALLOWED_EXECUTABLES: Final = frozenset({"docker", "git"})
 
 
@@ -112,12 +130,9 @@ def _container_script() -> str:
     return f"""
 set -eu
 tools=/workspace/.qualification-tools
-apt_root="$tools/apt/root"
-apt_state="$tools/apt/state"
-apt_cache="$tools/apt/cache"
-mkdir -p "$tools" "$apt_root" "$apt_state/lists/partial" "$apt_cache/archives/partial" \
-  "$tools/debs" "$tools/node" "$tools/python" "$tools/uv-cache" "$tools/pnpm-store" \
-  "$tools/playwright"
+package_root="$tools/packages/root"
+mkdir -p "$tools" "$package_root" "$tools/node" "$tools/python" "$tools/uv-cache" \
+  "$tools/pnpm-store" "$tools/playwright"
 
 curl --fail --location --silent --show-error '{UV_WHEEL_URL}' --output "$tools/uv.whl"
 printf '%s  %s\n' '{UV_WHEEL_SHA256}' "$tools/uv.whl" | sha256sum --check --strict
@@ -133,16 +148,15 @@ curl --fail --location --silent --show-error '{COMPOSE_URL}' --output "$tools/do
 printf '%s  %s\n' '{COMPOSE_SHA256}' "$tools/docker-compose" | sha256sum --check --strict
 chmod 0755 "$tools/docker-compose"
 
-apt-get -o "Dir::State=$apt_state" -o "Dir::Cache=$apt_cache" update
-(
-  cd "$tools/debs"
-  apt-get -o "Dir::State=$apt_state" -o "Dir::Cache=$apt_cache" download make ripgrep
-)
-for package in "$tools"/debs/*.deb; do
-  dpkg-deb --extract "$package" "$apt_root"
-done
+curl --fail --location --silent --show-error '{MAKE_PACKAGE_URL}' --output "$tools/make.deb"
+printf '%s  %s\n' '{MAKE_PACKAGE_SHA256}' "$tools/make.deb" | sha256sum --check --strict
+dpkg-deb --extract "$tools/make.deb" "$package_root"
 
-export PATH="$apt_root/usr/bin:$tools/node/bin:$tools:$PATH"
+curl --fail --location --silent --show-error '{RIPGREP_PACKAGE_URL}' --output "$tools/ripgrep.deb"
+printf '%s  %s\n' '{RIPGREP_PACKAGE_SHA256}' "$tools/ripgrep.deb" | sha256sum --check --strict
+dpkg-deb --extract "$tools/ripgrep.deb" "$package_root"
+
+export PATH="$package_root/usr/bin:$tools/node/bin:$tools:$PATH"
 export UV_CACHE_DIR="$tools/uv-cache"
 export UV_PYTHON_INSTALL_DIR="$tools/python"
 export UV_PYTHON='{PYTHON_VERSION}'
@@ -169,6 +183,10 @@ printf 'pnpm='
 corepack pnpm --version
 printf 'compose='
 docker-compose version --short
+printf 'make='
+make --version | head -n 1
+printf 'ripgrep='
+rg --version | head -n 1
 
 {commands}
 """.strip()
@@ -225,6 +243,8 @@ def qualify() -> dict[str, Any]:
             "uv_wheel_sha256": UV_WHEEL_SHA256,
             "node_archive_sha256": NODE_ARCHIVE_SHA256,
             "compose_binary_sha256": COMPOSE_SHA256,
+            "make_package_sha256": MAKE_PACKAGE_SHA256,
+            "ripgrep_package_sha256": RIPGREP_PACKAGE_SHA256,
         },
         "host": {
             "system": platform.system(),
@@ -280,6 +300,8 @@ def validate(path: Path = OUTPUT) -> dict[str, Any]:
         "uv_wheel_sha256": UV_WHEEL_SHA256,
         "node_archive_sha256": NODE_ARCHIVE_SHA256,
         "compose_binary_sha256": COMPOSE_SHA256,
+        "make_package_sha256": MAKE_PACKAGE_SHA256,
+        "ripgrep_package_sha256": RIPGREP_PACKAGE_SHA256,
     }
     _require(
         payload["qualification_container"] == expected_container,

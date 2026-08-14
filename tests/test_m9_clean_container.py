@@ -6,10 +6,12 @@ from scripts.qualify_m9_clean_container import (
     COMPOSE_SHA256,
     CONTAINER_IMAGE,
     CONTAINER_PLATFORM,
+    MAKE_PACKAGE_SHA256,
     NODE_ARCHIVE_SHA256,
     PYTHON_VERSION,
     QUALIFICATION_COMMANDS,
     REQUIRED_OUTPUT_MARKERS,
+    RIPGREP_PACKAGE_SHA256,
     UV_WHEEL_SHA256,
     _container_script,
 )
@@ -27,18 +29,30 @@ def test_qualification_environment_pins_image_and_tool_downloads() -> None:
         "2faf6a387e9b62b888e21c54f01249fb27537ffecf1842f29f4c919d0a59a0ff"
     )
     assert COMPOSE_SHA256 == ("837fd1d35bf6a494f41b5b5988269a7be79de337cf1a1a6ff0e45ab51bb4e9be")
+    assert MAKE_PACKAGE_SHA256 == (
+        "1fe6a815b56c7b6e9ce4086a363f09444bbd0a0d30e230c453d0b78e44b57a99"
+    )
+    assert RIPGREP_PACKAGE_SHA256 == (
+        "c5ae63c7bee915b1cfc9f0bd07c55b4ce7f2bcd1133cba4da56719aac26101a4"
+    )
 
 
 def test_container_script_keeps_downloads_and_package_state_in_checkout() -> None:
     script = _container_script()
     assert "tools=/workspace/.qualification-tools" in script
-    assert "Dir::State=$apt_state" in script
-    assert "Dir::Cache=$apt_cache" in script
-    assert "download make ripgrep" in script
+    assert "apt-get" not in script
+    assert "make_4.3-4.1build2_amd64.deb" in script
+    assert "ripgrep_14.1.0-1_amd64.deb" in script
     assert "playwright install --with-deps" not in script
     assert f"uv python install '{PYTHON_VERSION}'" not in script
     assert f"\"$uv\" python install '{PYTHON_VERSION}'" in script
-    for checksum in (UV_WHEEL_SHA256, NODE_ARCHIVE_SHA256, COMPOSE_SHA256):
+    for checksum in (
+        UV_WHEEL_SHA256,
+        NODE_ARCHIVE_SHA256,
+        COMPOSE_SHA256,
+        MAKE_PACKAGE_SHA256,
+        RIPGREP_PACKAGE_SHA256,
+    ):
         assert checksum in script
 
 
