@@ -119,11 +119,12 @@ def _validate_tariffs() -> None:
     _require(statuses["E-1"] == "ADMITTED", "E1_ADMISSION_STATUS_MISMATCH")
     _require(statuses["E-TOU-C"] == "ADMITTED", "ETOUC_ADMISSION_STATUS_MISMATCH")
     _require(statuses["E-TOU-D"] == "ADMITTED", "ETOUD_ADMISSION_STATUS_MISMATCH")
+    _require(statuses["E-ELEC"] == "ADMITTED", "EELEC_ADMISSION_STATUS_MISMATCH")
     _require(
         all(
             statuses[tariff_id] != "ADMITTED"
             for tariff_id in statuses
-            if tariff_id not in {"E-1", "E-TOU-C", "E-TOU-D"}
+            if tariff_id not in {"E-1", "E-TOU-C", "E-TOU-D", "E-ELEC"}
         ),
         "PREMATURE_TARIFF_ADMISSION",
     )
@@ -155,6 +156,12 @@ def _validate_tariffs() -> None:
         etoud.compilation.compiler_content_sha256
         == "5eb62747fb1f31e4d9d3d799619743a8e387373cf3b601b1e2c6656963b5edc2",
         "ETOUD_COMPILER_HASH_MISMATCH",
+    )
+    eelec = load_admitted_tariff(ROOT, "E-ELEC")
+    _require(
+        eelec.compilation.compiler_content_sha256
+        == "15d9ecca0b2ca03b475b9c493412423509529c089b13c473873ec59f9bc073b7",
+        "EELEC_COMPILER_HASH_MISMATCH",
     )
     holiday = _json("tariffs/calendars/ca-observed-holidays-2026.json")
     _require(

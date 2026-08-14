@@ -93,11 +93,13 @@ class AccountFacts(FrozenModel):
     solar_or_export: bool
     baseline_territory: BaselineTerritory
     baseline_quantity_code: BaselineQuantityCode
-    qualifying_technologies: tuple[QualifyingTechnology, ...] = ()
+    qualifying_technologies: tuple[QualifyingTechnology, ...] | None = None
     user_attested_at: datetime
 
     @model_validator(mode="after")
     def validate_technologies(self) -> AccountFacts:
+        if self.qualifying_technologies is None:
+            return self
         if tuple(sorted(self.qualifying_technologies)) != self.qualifying_technologies:
             raise ValueError("qualifying technologies must be unique and sorted")
         return self

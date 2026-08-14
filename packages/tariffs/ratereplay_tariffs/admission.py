@@ -88,6 +88,7 @@ _LOCK_PATHS = {
     "E-1": "tariffs/admission/pge-e1-2026-07.json",
     "E-TOU-C": "tariffs/admission/pge-etouc-2026-07.json",
     "E-TOU-D": "tariffs/admission/pge-etoud-2026-07.json",
+    "E-ELEC": "tariffs/admission/pge-eelec-2026-07.json",
 }
 
 

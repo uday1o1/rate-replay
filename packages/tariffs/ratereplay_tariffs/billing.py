@@ -282,16 +282,19 @@ def evaluate_eligibility(
         ),
     )
     ineligible.extend(code for matches, code in requirements if not matches)
-    if (
-        predicate.required_qualifying_technology is not None
-        and predicate.required_qualifying_technology not in facts.qualifying_technologies
-    ):
-        ineligible.append("QUALIFYING_TECHNOLOGY_MISSING")
-    if isinstance(predicate, EligibilityPredicateV2):
-        if predicate.required_any_qualifying_technologies and not set(
-            predicate.required_any_qualifying_technologies
-        ).intersection(facts.qualifying_technologies):
+    if predicate.required_qualifying_technology is not None:
+        if facts.qualifying_technologies is None:
+            unknown.append("QUALIFYING_TECHNOLOGY_FACT_MISSING")
+        elif predicate.required_qualifying_technology not in facts.qualifying_technologies:
             ineligible.append("QUALIFYING_TECHNOLOGY_MISSING")
+    if isinstance(predicate, EligibilityPredicateV2):
+        if predicate.required_any_qualifying_technologies:
+            if facts.qualifying_technologies is None:
+                unknown.append("QUALIFYING_TECHNOLOGY_FACT_MISSING")
+            elif not set(predicate.required_any_qualifying_technologies).intersection(
+                facts.qualifying_technologies
+            ):
+                ineligible.append("QUALIFYING_TECHNOLOGY_MISSING")
         if predicate.requires_dated_technology_attestation:
             if dated_facts is None or dated_facts.facts_as_of is None:
                 unknown.append("DATED_TECHNOLOGY_FACT_MISSING")
