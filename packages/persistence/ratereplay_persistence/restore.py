@@ -135,8 +135,8 @@ class RestoreReconciler:
         restore_key_version: str,
         outcome_evidence_key: bytes,
     ) -> None:
-        if len(restore_key) < 32 or len(outcome_evidence_key) < 32:
-            raise ValueError("Restore and transaction outcome keys must contain 32 bytes")
+        if len(restore_key) != 32 or len(outcome_evidence_key) != 32:
+            raise ValueError("Restore and transaction outcome keys must contain exactly 32 bytes")
         self._session_factory = session_factory
         self._objects = object_store
         self._ledger = ledger

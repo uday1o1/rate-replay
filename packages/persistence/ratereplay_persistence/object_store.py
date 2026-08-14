@@ -22,6 +22,8 @@ from minio import Minio
 from minio.error import InvalidResponseError, S3Error, ServerError
 from urllib3.exceptions import HTTPError
 
+from ratereplay_persistence.keyrings import KEY_VERSION, KeyringError, load_keyring
+
 
 class ObjectStoreError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
@@ -482,9 +484,10 @@ class ObjectStoreConfiguration:
         if key_directory is not None:
             if current_key_version is None:
                 raise RuntimeError(f"{current_key_variable} is required")
-            encryption_keys = _load_encryption_keyring(Path(key_directory))
-            if current_key_version not in dict(encryption_keys):
-                raise RuntimeError("Current object encryption key version is unavailable")
+            encryption_keys = _load_encryption_keyring(
+                Path(key_directory),
+                current_version=current_key_version,
+            )
         elif environment in {"production", "staging"}:
             raise RuntimeError(f"{keys_directory_variable} is required")
         elif current_key_version is not None:
@@ -554,9 +557,7 @@ def _validate_key(key: str) -> None:
 
 
 def _valid_key_version(version: str) -> bool:
-    return 1 <= len(version) <= 64 and all(
-        character.isalnum() or character in "-._" for character in version
-    )
+    return KEY_VERSION.fullmatch(version) is not None
 
 
 def _associated_data(key: str, header: bytes) -> bytes:
@@ -600,30 +601,13 @@ def _environment_boolean(variable: str, *, default: bool) -> bool:
     raise RuntimeError(f"{variable} must be true or false")
 
 
-def _load_encryption_keyring(directory: Path) -> tuple[tuple[str, bytes], ...]:
+def _load_encryption_keyring(
+    directory: Path,
+    *,
+    current_version: str,
+) -> tuple[tuple[str, bytes], ...]:
     try:
-        paths = tuple(sorted(path for path in directory.iterdir() if path.is_file()))
-    except OSError as error:
-        raise RuntimeError("Object encryption key directory cannot be read") from error
-    if not paths:
-        raise RuntimeError("Object encryption key directory is empty")
-    keys: list[tuple[str, bytes]] = []
-    for path in paths:
-        version = path.name
-        if not _valid_key_version(version):
-            raise RuntimeError("Object encryption key version filename is invalid")
-        try:
-            encoded = path.read_bytes()
-        except OSError as error:
-            raise RuntimeError("Object encryption key file cannot be read") from error
-        key = encoded
-        hexadecimal = encoded.strip()
-        if len(hexadecimal) == 64:
-            try:
-                key = bytes.fromhex(hexadecimal.decode("ascii"))
-            except (UnicodeError, ValueError) as error:
-                raise RuntimeError("Object encryption key must be raw or hexadecimal") from error
-        if len(key) != 32:
-            raise RuntimeError("Object encryption keys must contain exactly 32 bytes")
-        keys.append((version, key))
-    return tuple(keys)
+        keyring = load_keyring(directory, current_version=current_version)
+    except KeyringError as error:
+        raise RuntimeError("Object encryption keyring is invalid or unavailable") from error
+    return tuple(keyring.keys.items())

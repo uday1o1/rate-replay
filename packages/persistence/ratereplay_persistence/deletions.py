@@ -97,8 +97,8 @@ class DeletionCoordinator:
         restore_key: bytes,
         restore_key_version: str = RESTORE_KEY_VERSION,
     ) -> None:
-        if len(restore_key) < 32:
-            raise ValueError("Restore suppression key must contain at least 32 bytes")
+        if len(restore_key) != 32:
+            raise ValueError("Restore suppression key must contain exactly 32 bytes")
         if not restore_key_version or len(restore_key_version) > 32:
             raise ValueError("Restore key version is invalid")
         self._session_factory = session_factory

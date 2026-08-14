@@ -41,11 +41,11 @@ class AppSettings:
         object_store_root = Path(
             os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/private/tmp/rate-replay-objects")
         )
+        configured_ledger_root = os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT")
         deletion_ledger_root = Path(
-            os.getenv(
-                "RATEREPLAY_DELETION_LEDGER_ROOT",
-                "/private/tmp/rate-replay-deletion-ledger",
-            )
+            configured_ledger_root
+            if configured_ledger_root is not None
+            else f"/private/tmp/rate-replay-deletion-ledger-v2-{os.getpid()}-{secrets.token_hex(6)}"
         )
         espi_schema_path = Path(
             os.getenv(
@@ -103,7 +103,7 @@ class AppSettings:
         database_url: str = "sqlite+pysqlite:///:memory:",
         allowed_origin: str = "https://app.ratereplay.test",
         object_store_root: Path = Path("/private/tmp/rate-replay-test-objects"),
-        deletion_ledger_root: Path = Path("/private/tmp/rate-replay-test-deletion-ledger"),
+        deletion_ledger_root: Path | None = None,
         espi_schema_path: Path = Path("third_party/espi-schema/espi-4.0.xsd"),
         repository_root: Path = Path("."),
     ) -> AppSettings:
@@ -120,7 +120,14 @@ class AppSettings:
             restore_key_version="restore-test-v1",
             object_store_root=object_store_root,
             object_store_configuration=ObjectStoreConfiguration.filesystem(object_store_root),
-            deletion_ledger_root=deletion_ledger_root,
+            deletion_ledger_root=(
+                deletion_ledger_root
+                if deletion_ledger_root is not None
+                else Path(
+                    f"/private/tmp/rate-replay-test-deletion-ledger-v2-{os.getpid()}-"
+                    f"{secrets.token_hex(6)}"
+                )
+            ),
             espi_schema_path=espi_schema_path,
             repository_root=repository_root.resolve(),
             trusted_proxy_cidrs=(),
@@ -136,8 +143,8 @@ def _load_control_key(*, environment: str, variable: str) -> bytes:
             raise RuntimeError(f"{variable} is required")
         return secrets.token_bytes(32)
     value = Path(path).read_bytes().strip()
-    if len(value) < 32:
-        raise RuntimeError(f"{variable} must reference at least 32 bytes")
+    if len(value) != 32:
+        raise RuntimeError(f"{variable} must reference exactly 32 bytes")
     return value
 
 

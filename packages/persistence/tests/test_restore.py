@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -374,8 +375,12 @@ def test_unverifiable_ledger_and_missing_restore_key_version_fail_closed(
     tmp_path: Path,
 ) -> None:
     _prepare(harness)
-    ledger_path = tmp_path / "ledger" / "deletion-ledger-v1.jsonl"
-    ledger_path.write_text(ledger_path.read_text().replace('"receipt":"', '"receipt":"x'))
+    ledger_path = tmp_path / "ledger" / "deletion-ledger-v2.jsonl"
+    records = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+    ciphertext = bytearray(base64.b64decode(records[0]["ciphertext"]))
+    ciphertext[0] ^= 1
+    records[0]["ciphertext"] = base64.b64encode(ciphertext).decode("ascii")
+    ledger_path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
     with pytest.raises(RestoreQualificationError) as tampered:
         harness.restore.qualify(now=NOW + timedelta(seconds=2))
     assert tampered.value.code == "LEDGER_UNVERIFIED"

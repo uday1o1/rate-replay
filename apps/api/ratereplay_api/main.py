@@ -70,6 +70,8 @@ def create_app(
     application.state.deletion_ledger = FilesystemDeletionLedger(
         resolved.deletion_ledger_root,
         integrity_key=resolved.deletion_ledger_key,
+        restore_key_version=resolved.restore_key_version,
+        actor="API_COORDINATOR",
     )
     application.state.built_in_simulated_profile = load_locked_simulated_profile(
         resolved.repository_root

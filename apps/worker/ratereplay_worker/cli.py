@@ -183,7 +183,12 @@ def _configured_deletion_reconciler() -> tuple[DeletionCoordinator, Engine]:
     sessions = make_session_factory(engine)
     coordinator = DeletionCoordinator(
         sessions,
-        FilesystemDeletionLedger(ledger_root, integrity_key=ledger_key),
+        FilesystemDeletionLedger(
+            ledger_root,
+            integrity_key=ledger_key,
+            restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+            actor="PREPARATION_RECONCILER",
+        ),
         restore_key=restore_key,
         restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
     )
@@ -204,7 +209,12 @@ def _configured_deletion_worker(
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
     jobs = JobService(sessions)
-    ledger = FilesystemDeletionLedger(ledger_root, integrity_key=ledger_key)
+    ledger = FilesystemDeletionLedger(
+        ledger_root,
+        integrity_key=ledger_key,
+        restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+        actor="DELETION_WORKER",
+    )
     worker = DeletionWorker(
         worker_id=f"{socket.gethostname()}-{os.getpid()}",
         jobs=jobs,
@@ -244,7 +254,12 @@ def _configured_retention_worker(
     objects = primary_configuration.build(
         ensure_bucket=os.getenv("RATEREPLAY_ENV", "development") == "development"
     )
-    ledger = FilesystemDeletionLedger(ledger_root, integrity_key=ledger_key)
+    ledger = FilesystemDeletionLedger(
+        ledger_root,
+        integrity_key=ledger_key,
+        restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+        actor="RETENTION_WORKER",
+    )
     return (
         RetentionWorker(
             worker_id=f"{socket.gethostname()}-{os.getpid()}",
@@ -275,6 +290,8 @@ def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
     ledger = FilesystemDeletionLedger(
         ledger_root,
         integrity_key=ledger_key,
+        restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+        actor="RESTORE_QUALIFIER",
         require_existing=True,
     )
     engine = make_engine(database_url)
@@ -396,8 +413,8 @@ def _required_key_file(variable: str) -> bytes:
     except OSError:
         typer.echo(f"{variable} cannot be read", err=True)
         raise typer.Exit(code=2) from None
-    if len(value) < 32:
-        typer.echo(f"{variable} must reference at least 32 bytes", err=True)
+    if len(value) != 32:
+        typer.echo(f"{variable} must reference exactly 32 bytes", err=True)
         raise typer.Exit(code=2)
     return value
 

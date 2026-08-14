@@ -32,3 +32,25 @@ Crashes after preparation, after the fence, during sweep, after verification, an
 A sweep cannot delete the target lifecycle row, control operation, job attempt, checkpoint, receipt verifier, ledger event, or suppression state before verified terminal completion.
 Restore reconciliation treats an account or import suppressive event as authoritative over subordinate child controls restored from the same older backup, removes those controls before sweeping the parent scope, and never exposes a restored target first.
 The executable model and state-machine tests are in the domain package.
+
+## Encrypted local ledger
+
+The `LOCAL_REPRODUCIBLE` adapter stores one encrypted global JSONL chain outside the primary database and object-store backup inputs.
+Clear record envelopes contain only the random ledger identifier, sequence, fixed record type, key version, 96-bit nonce, previous record hash, ciphertext, and record hash.
+Deletion identities, opaque suppression tokens, generation values, proof digests, event receipts, timestamps, and access details remain inside AES-256-GCM ciphertext.
+The associated data authenticates every clear envelope field, and a global record hash chain detects gaps, reordering, middle deletion, and ordinary truncation.
+
+HKDF-SHA256 derives separate envelope-encryption, event-receipt, genesis, head, and active-marker keys from each exact 32-byte ledger master key.
+The implementation rejects nonce reuse under a key and fails closed when a historical key version is unavailable.
+Signed genesis and head files bind the ledger identity, last acknowledged record, current ledger key version, and current restore key version.
+An authenticated stream tail written before a crash but not yet reflected in the signed head is recovered under the exclusive ledger lock.
+Every other head mismatch fails closed.
+
+Every successful read or mutation first validates the entire chain and durably appends an encrypted access-audit record with a fixed actor, fixed operation, random operation ID, timestamp, and prior chain position.
+Access-audit records never contain deletion IDs, scope tokens, user IDs, paths, secrets, or free text.
+If the audit cannot be persisted, the requested read or mutation does not proceed.
+
+The runtime never silently opens the earlier plaintext v1 ledger.
+An existing v1 ledger produces `LEDGER_FORMAT_MIGRATION_REQUIRED` until an explicit offline migration is completed.
+The filesystem adapter does not claim protection against an attacker who can atomically replay the complete stream and every signed control file together.
+Hosted operation therefore remains withheld until a separately credentialed conditional-append or externally witnessed adapter is implemented and qualified.
