@@ -1,0 +1,99 @@
+{
+  "artifact_sha256": "b8d00030904f6dbf629f6f3da6d0e30616be4e7d941734be4e837ab57f530122",
+  "backup": {
+    "created_before_deletion": true,
+    "created_before_raw_expiry": true,
+    "database_sha256": "08fe8374f10a0079311f752c638f9a45ef9cf8fac2743294d39b12a7e6685a83",
+    "encrypted_at_rest_probe_passed": true,
+    "manifest_sha256": "164d34b5c51ba073b032143ffb7d28dd324aa1215fd54a228de2d49730f626b3",
+    "object_count": 5
+  },
+  "backup_retention": {
+    "clock_mode": "INJECTED_LOGICAL_TIME",
+    "expired_at_deadline": true,
+    "remaining_backup_object_count": 0,
+    "retained_one_microsecond_before_deadline": true
+  },
+  "claims_withheld": [
+    "HOSTED_VALIDATED",
+    "REAL_WAL_RECOVERY",
+    "POINT_IN_TIME_RECOVERY",
+    "PRODUCTION_TLS",
+    "MANAGED_VOLUME_ENCRYPTION",
+    "PRODUCTION_NETWORK_ISOLATION"
+  ],
+  "environment": {
+    "architecture": "arm64",
+    "docker_compose": "5.4.0",
+    "docker_engine": "29.5.2",
+    "minio_image": "minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+    "os": "macOS-26.5.2-arm64-arm-64bit",
+    "postgres_image": "postgres:16.10-alpine3.22@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297",
+    "python": "3.12.13"
+  },
+  "evidence_level": "LOCAL_REPRODUCIBLE",
+  "failure_injections": [
+    {
+      "expected": "LEDGER_MISSING",
+      "id": "MISSING_LEDGER",
+      "passed": true
+    },
+    {
+      "expected": "QUARANTINED",
+      "id": "UNRESOLVED_PREPARED",
+      "passed": true
+    },
+    {
+      "expected": "LEDGER_UNVERIFIED",
+      "id": "TAMPERED_LEDGER",
+      "passed": true
+    },
+    {
+      "expected": "QUARANTINED_THEN_ABORTED",
+      "id": "PRIMARY_LOSS_AFTER_PREPARED",
+      "passed": true
+    },
+    {
+      "expected": "COMMITTED_OUTCOME_REQUIRED",
+      "id": "PRIMARY_LOSS_AFTER_FENCE",
+      "passed": true
+    },
+    {
+      "expected": "SUPPRESS_FROM_LEDGER",
+      "id": "PRIMARY_LOSS_AFTER_REQUESTED",
+      "passed": true
+    }
+  ],
+  "gate_result": "PASS",
+  "generated_at": "2026-08-14T17:53:12.579581+00:00",
+  "inputs": {
+    "compose_sha256": "bb890accbf24b36f09cff22a401b53859468e1587184ff22907cd40157d84976",
+    "migration_head": "20260814_0015",
+    "uv_lock_sha256": "3cd113307fefd018828604cb2b6ebcee05d3e60c97e68380e88f1c4637b29263"
+  },
+  "reconciliation": {
+    "aborted_deletion_count": 1,
+    "exposure_allowed": true,
+    "exposure_artifact_sha256": "6c323822fe5185c0adc23c2abc6d13c1c96548c541a09e9f90af0472d3e2603e",
+    "no_suppressive_scope_remains": true,
+    "qualification_sha256": "ef156f2e3357f170c829047f9082834e55f15532c2c65cff5c5f9ef1f9cfdc21",
+    "quarantine_hold_count": 0,
+    "retention_expired_object_count": 1,
+    "suppressed_deletion_count": 2
+  },
+  "rollback": {
+    "failed_upgrade_rolled_back": true,
+    "reupgraded_to": "20260814_0015",
+    "safe_migration_from": "20260814_0014",
+    "safe_migration_to": "20260814_0013",
+    "stable_row_unchanged": true
+  },
+  "schema_version": "m7-local-restore-rollback-evidence-v1",
+  "source_commit": "36fd8742a090cbbc270f010e5c4d0965d1b3794c",
+  "topology": {
+    "api_started_before_qualification": false,
+    "backup_store_separate": true,
+    "ledger_in_database_backup": false,
+    "source_and_quarantine_volumes_distinct": true
+  }
+}
