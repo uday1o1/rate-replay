@@ -560,21 +560,47 @@ describe("App", () => {
   });
 
   it("renders a rankable comparison with coverage and filed-source evidence", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
-      .mockResolvedValueOnce(
-        response(201, {
-          user: { user_id: "owner", username: "owner_one" },
-          csrf_token: "csrf-token",
-        }),
-      )
-      .mockResolvedValueOnce(response(200, { items: [] }))
-      .mockResolvedValueOnce(response(200, tariffList))
-      .mockResolvedValueOnce(response(200, tariffDetail))
-      .mockResolvedValueOnce(response(201, builtInProfile))
-      .mockResolvedValueOnce(response(201, replayResource))
-      .mockResolvedValueOnce(response(201, rankableComparison));
+    const fetchMock = vi.fn(
+      (input: string | URL | Request, init?: RequestInit) => {
+        void init;
+        const path =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (path === "/v1/auth/session") {
+          return Promise.resolve(response(401, { message: "Sign in" }));
+        }
+        if (path === "/v1/auth/register") {
+          return Promise.resolve(
+            response(201, {
+              user: { user_id: "owner", username: "owner_one" },
+              csrf_token: "csrf-token",
+            }),
+          );
+        }
+        if (path === "/v1/profiles?page_size=1") {
+          return Promise.resolve(response(200, { items: [] }));
+        }
+        if (path === "/v1/tariffs/pge-e1-2026-07") {
+          return Promise.resolve(response(200, tariffDetail));
+        }
+        if (path === "/v1/tariffs") {
+          return Promise.resolve(response(200, tariffList));
+        }
+        if (path === "/v1/imports/built-in-simulated-profile") {
+          return Promise.resolve(response(201, builtInProfile));
+        }
+        if (path === "/v1/replays") {
+          return Promise.resolve(response(201, replayResource));
+        }
+        if (path === "/v1/comparisons") {
+          return Promise.resolve(response(201, rankableComparison));
+        }
+        return Promise.reject(new Error(`Unexpected request: ${path}`));
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("crypto", { randomUUID: () => "comparison-request-id" });
     render(<App />);
@@ -618,16 +644,22 @@ describe("App", () => {
       screen.getAllByRole("link", { name: "pge-advice-7921-e" }).length,
     ).toBeGreaterThan(0);
 
-    const builtInCall = fetchMock.mock.calls[5] as [string, RequestInit];
-    const replayCall = fetchMock.mock.calls[6] as [string, RequestInit];
-    const comparisonCall = fetchMock.mock.calls[7] as [string, RequestInit];
-    expect(builtInCall[0]).toBe("/v1/imports/built-in-simulated-profile");
-    expect(builtInCall[1].method).toBe("POST");
-    expect(comparisonCall[0]).toBe("/v1/comparisons");
-    const replayBody = JSON.parse(replayCall[1].body as string) as {
+    const builtInCall = fetchMock.mock.calls.find(
+      ([path]) => path === "/v1/imports/built-in-simulated-profile",
+    );
+    const replayCall = fetchMock.mock.calls.find(
+      ([path]) => path === "/v1/replays",
+    );
+    const comparisonCall = fetchMock.mock.calls.find(
+      ([path]) => path === "/v1/comparisons",
+    );
+    expect(builtInCall?.[0]).toBe("/v1/imports/built-in-simulated-profile");
+    expect(builtInCall?.[1]?.method).toBe("POST");
+    expect(comparisonCall?.[0]).toBe("/v1/comparisons");
+    const replayBody = JSON.parse(replayCall?.[1]?.body as string) as {
       account_facts: unknown;
     };
-    const comparisonBody = JSON.parse(comparisonCall[1].body as string) as {
+    const comparisonBody = JSON.parse(comparisonCall?.[1]?.body as string) as {
       candidate_tariff_version_ids: string[];
       account_facts: unknown;
       dated_eligibility_facts: {
