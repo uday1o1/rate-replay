@@ -8,9 +8,9 @@
   "target_account_predicate_id": "pge-etouc-bundled-residential-july-2026-v2",
   "definition": {
     "path": "tariffs/definitions/pge-etouc-2026-07.json",
-    "sha256": "72583e8617b2ae8caf1f2b57bed976e873c4f0ecf165d48751a45a9b3898c4c5"
+    "sha256": "725e664f5f63a79a6f94ce3798c9df07dca94a81c6a6a05c9bc623bdef049f80"
   },
-  "compiler_content_sha256": "1ee58b8ccbff4be24ca72e8b9ec47b54bbc8fb02f5ae4f7e37ca4886ee09e5de",
+  "compiler_content_sha256": "4514eb416fbc697835c29cc393767c932b5e184bbcd0cdfc52e0c058fed56a04",
   "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
   "source_hashes": [
     "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",

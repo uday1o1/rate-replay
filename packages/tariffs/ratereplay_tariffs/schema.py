@@ -292,6 +292,10 @@ class TimeOfUseEnergyCharge(RuleBase):
     period_rates: tuple[TimeOfUsePeriodRate, ...] = Field(min_length=2)
     baseline_credit_microdollars_per_kwh: int | None = Field(default=None, le=0)
     baseline_rule_id: str | None = None
+    baseline_credit_charge_component_key: Literal["baseline_adjustment"] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def validate_period_rates(self) -> TimeOfUseEnergyCharge:
@@ -301,8 +305,15 @@ class TimeOfUseEnergyCharge(RuleBase):
         order = {"PEAK": 0, "PARTIAL_PEAK": 1, "OFF_PEAK": 2}
         if tuple(sorted(periods, key=order.__getitem__)) != periods:
             raise ValueError("time-of-use rate periods must be sorted")
-        if (self.baseline_credit_microdollars_per_kwh is None) != (self.baseline_rule_id is None):
-            raise ValueError("baseline credit requires a baseline rule")
+        credit_fields = (
+            self.baseline_credit_microdollars_per_kwh,
+            self.baseline_rule_id,
+            self.baseline_credit_charge_component_key,
+        )
+        if any(value is None for value in credit_fields) != all(
+            value is None for value in credit_fields
+        ):
+            raise ValueError("baseline credit requires a baseline rule and component key")
         return self
 
 

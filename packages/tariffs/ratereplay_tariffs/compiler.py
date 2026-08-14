@@ -492,6 +492,7 @@ def _lower_rule(root: Path, rule: TariffRule) -> CompiledRule:
             ),
             baseline_credit_microdollars_per_kwh=(rule.baseline_credit_microdollars_per_kwh),
             baseline_rule_id=rule.baseline_rule_id,
+            baseline_credit_charge_component_key=(rule.baseline_credit_charge_component_key),
         )
     if isinstance(rule, FixedDailyCharge):
         return IRFixedDailyCharge(

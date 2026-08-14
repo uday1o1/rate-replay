@@ -142,7 +142,7 @@ def _validate_tariffs() -> None:
     etouc = load_admitted_tariff(ROOT, "E-TOU-C")
     _require(
         etouc.compilation.compiler_content_sha256
-        == "1ee58b8ccbff4be24ca72e8b9ec47b54bbc8fb02f5ae4f7e37ca4886ee09e5de",
+        == "4514eb416fbc697835c29cc393767c932b5e184bbcd0cdfc52e0c058fed56a04",
         "ETOUC_COMPILER_HASH_MISMATCH",
     )
     etoud = load_admitted_tariff(ROOT, "E-TOU-D")

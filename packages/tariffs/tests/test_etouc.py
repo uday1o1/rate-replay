@@ -93,6 +93,8 @@ def test_etouc_complete_bill_matches_prefrozen_golden() -> None:
 
     assert [line.rounded_cents for line in result.line_items] == golden["expected"]["line_cents"]
     assert result.supported_calculated_cents == golden["expected"]["total_cents"]
+    assert result.line_items[2].line_item_key == "bundled_energy.baseline_credit"
+    assert result.line_items[2].charge_component_key == "baseline_adjustment"
     assert isinstance(result.manifest, IntervalCalculationManifest)
     assert result.manifest.period_energy_wh == {"OFF_PEAK": 589000, "PEAK": 155000}
     assert sum(line.rounded_cents for line in result.line_items) == (

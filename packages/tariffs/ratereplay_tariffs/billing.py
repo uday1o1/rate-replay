@@ -398,6 +398,7 @@ def _line(
     rate_unit: str,
     raw_microdollars: Fraction,
     service_window: DateRange,
+    charge_component_key: ChargeComponentKey | None = None,
 ) -> ChargeLineItem:
     return ChargeLineItem(
         rule_id=rule.rule_id,
@@ -405,7 +406,7 @@ def _line(
         source_id=rule.source.source_id,
         source_sheet_ids=rule.source.source_sheet_ids,
         line_item_key=line_item_key,
-        charge_component_key=rule.charge_component_key,
+        charge_component_key=charge_component_key or rule.charge_component_key,
         quantity_numerator=quantity,
         quantity_unit=quantity_unit,
         rate_numerator_microdollars=rate,
@@ -659,6 +660,7 @@ def replay_compiled_tariff(
                         rate_unit="microdollars/kWh",
                         raw_microdollars=raw,
                         service_window=service_window,
+                        charge_component_key=(operator.baseline_credit_charge_component_key),
                     )
                 )
         elif isinstance(operator, IRFixedDailyCharge):

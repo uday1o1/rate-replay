@@ -74,6 +74,10 @@ class IRTimeOfUseEnergyCharge(IRRuleBase):
     period_rates: tuple[IRTimeOfUsePeriodRate, ...]
     baseline_credit_microdollars_per_kwh: int | None
     baseline_rule_id: str | None
+    baseline_credit_charge_component_key: Literal["baseline_adjustment"] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
 
 class IRFixedDailyCharge(IRRuleBase):
