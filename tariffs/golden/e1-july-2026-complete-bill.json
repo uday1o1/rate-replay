@@ -3,9 +3,16 @@
   "case_id": "pge-e1-july-2026-territory-t-basic-310kwh",
   "author": "project-owner",
   "review_method": "hand-derived independent worksheet with a separate decimal check",
-  "review_status": "self-reviewed-frozen-before-production-evaluator",
+  "review_status": "self-reviewed-frozen-before-typed-production-evaluator",
   "source_ids": ["pge-advice-7921-e", "pge-advice-7846-e"],
   "source_sheets": ["61362-E", "61097-E", "61099-E"],
+  "rule_ids": [
+    "E1_APPLICABILITY_2026_03_01",
+    "E1_BASELINE_T_BASIC_SUMMER_2026_03_01",
+    "E1_TOTAL_ENERGY_2026_06_01",
+    "BSC_TIER3_2026_06_01",
+    "CALIFORNIA_CLIMATE_CREDIT_2026"
+  ],
   "derivation": [
     "July has 31 service days.",
     "Territory T basic summer baseline is 6.5 kWh/day, so Tier 1 is 201.5 kWh.",

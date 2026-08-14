@@ -1,0 +1,192 @@
+{
+  "schema_version": "golden-tariff-suite-v1",
+  "suite_id": "pge-e1-july-2026-rule-boundaries",
+  "author": "project-owner",
+  "review_method": "hand-derived arithmetic and applicability review independent of production tariff, compiler, and evaluator code",
+  "review_status": "self-reviewed-frozen-before-typed-production-evaluator",
+  "frozen_at": "2026-08-13T23:30:00Z",
+  "source_ids": ["pge-advice-7921-e", "pge-advice-7846-e"],
+  "cases": [
+    {
+      "case_id": "territory-t-basic-summer-baseline-31-days",
+      "rule_ids": ["E1_BASELINE_T_BASIC_SUMMER_2026_03_01"],
+      "source_id": "pge-advice-7846-e",
+      "source_sheets": ["61099-E"],
+      "derivation": [
+        "Territory T basic summer allowance is 6.5 kWh per day.",
+        "6,500 Wh per day multiplied by 31 service days is 201,500 Wh."
+      ],
+      "inputs": {
+        "baseline_territory": "T",
+        "baseline_quantity_code": "BASIC",
+        "season": "SUMMER",
+        "billing_days": 31
+      },
+      "expected": {
+        "daily_allowance_wh": 6500,
+        "billing_period_allowance_wh": 201500
+      }
+    },
+    {
+      "case_id": "tier-allocation-at-baseline",
+      "rule_ids": ["E1_TOTAL_ENERGY_2026_06_01", "E1_BASELINE_T_BASIC_SUMMER_2026_03_01"],
+      "source_id": "pge-advice-7921-e",
+      "source_sheets": ["61362-E", "61099-E"],
+      "derivation": [
+        "The first 201,500 Wh exactly fills Tier 1.",
+        "No energy remains for Tier 2."
+      ],
+      "inputs": {
+        "energy_wh": 201500,
+        "baseline_wh": 201500
+      },
+      "expected": {
+        "tier_1_wh": 201500,
+        "tier_2_wh": 0
+      }
+    },
+    {
+      "case_id": "tier-allocation-one-wh-over-baseline",
+      "rule_ids": ["E1_TOTAL_ENERGY_2026_06_01", "E1_BASELINE_T_BASIC_SUMMER_2026_03_01"],
+      "source_id": "pge-advice-7921-e",
+      "source_sheets": ["61362-E", "61099-E"],
+      "derivation": [
+        "The first 201,500 Wh fills Tier 1.",
+        "The final 1 Wh is allocated to Tier 2."
+      ],
+      "inputs": {
+        "energy_wh": 201501,
+        "baseline_wh": 201500
+      },
+      "expected": {
+        "tier_1_wh": 201500,
+        "tier_2_wh": 1
+      }
+    },
+    {
+      "case_id": "income-tier-3-base-service-applicability",
+      "rule_ids": ["BSC_TIER3_2026_06_01", "E1_APPLICABILITY_2026_03_01"],
+      "source_id": "pge-advice-7921-e",
+      "source_sheets": ["61362-E", "61097-E"],
+      "derivation": [
+        "The admitted account class requires income Tier 3.",
+        "Income Tier 3 selects the filed daily base-services charge of USD 0.79343."
+      ],
+      "inputs": {
+        "income_tier": "TIER_3"
+      },
+      "expected": {
+        "eligibility_status": "ELIGIBLE",
+        "rate_microdollars_per_day": 793430
+      }
+    },
+    {
+      "case_id": "unsupported-income-tier-remains-unknown",
+      "rule_ids": ["BSC_TIER3_2026_06_01", "E1_APPLICABILITY_2026_03_01"],
+      "source_id": "pge-advice-7921-e",
+      "source_sheets": ["61362-E", "61097-E"],
+      "derivation": [
+        "The locked E-1 slice contains only the income Tier 3 base-services rate.",
+        "A different income tier is outside the admitted account class and cannot inherit the Tier 3 rate."
+      ],
+      "inputs": {
+        "income_tier": "TIER_1"
+      },
+      "expected": {
+        "eligibility_status": "UNKNOWN",
+        "reason_code": "UNSUPPORTED_INCOME_TIER"
+      }
+    },
+    {
+      "case_id": "one-day-base-service-rounding",
+      "rule_ids": ["BSC_TIER3_2026_06_01"],
+      "source_id": "pge-advice-7921-e",
+      "source_sheets": ["61362-E"],
+      "derivation": [
+        "One day at USD 0.79343 is 793,430 microdollars.",
+        "Half-up rounding at the line item produces 79 cents."
+      ],
+      "inputs": {
+        "billing_days": 1,
+        "rate_microdollars_per_day": 793430
+      },
+      "expected": {
+        "pre_round_microdollars_numerator": 793430,
+        "pre_round_microdollars_denominator": 1,
+        "rounded_cents": 79
+      }
+    },
+    {
+      "case_id": "tier-1-rounds-down-below-half-cent",
+      "rule_ids": ["E1_TOTAL_ENERGY_2026_06_01"],
+      "source_id": "pge-advice-7921-e",
+      "source_sheets": ["61362-E"],
+      "derivation": [
+        "15 Wh at 325,610 microdollars per kWh is 4,884.15 microdollars.",
+        "The amount is below one half cent and rounds to zero cents."
+      ],
+      "inputs": {
+        "energy_wh": 15,
+        "rate_microdollars_per_kwh": 325610
+      },
+      "expected": {
+        "pre_round_microdollars_numerator": 4884150,
+        "pre_round_microdollars_denominator": 1000,
+        "rounded_cents": 0
+      }
+    },
+    {
+      "case_id": "tier-1-rounds-up-above-half-cent",
+      "rule_ids": ["E1_TOTAL_ENERGY_2026_06_01"],
+      "source_id": "pge-advice-7921-e",
+      "source_sheets": ["61362-E"],
+      "derivation": [
+        "16 Wh at 325,610 microdollars per kWh is 5,209.76 microdollars.",
+        "The amount is above one half cent and rounds to one cent."
+      ],
+      "inputs": {
+        "energy_wh": 16,
+        "rate_microdollars_per_kwh": 325610
+      },
+      "expected": {
+        "pre_round_microdollars_numerator": 5209760,
+        "pre_round_microdollars_denominator": 1000,
+        "rounded_cents": 1
+      }
+    },
+    {
+      "case_id": "august-bill-cycle-climate-credit-applies",
+      "rule_ids": ["CALIFORNIA_CLIMATE_CREDIT_2026"],
+      "source_id": "pge-advice-7921-e",
+      "source_sheets": ["61362-E"],
+      "derivation": [
+        "The locked source applies one USD 36.18 credit to the August bill cycle.",
+        "A credit is represented as negative 36,180,000 microdollars and negative 3,618 cents."
+      ],
+      "inputs": {
+        "bill_cycle_month": 8
+      },
+      "expected": {
+        "applies": true,
+        "amount_microdollars": -36180000,
+        "rounded_cents": -3618
+      }
+    },
+    {
+      "case_id": "july-bill-cycle-climate-credit-does-not-apply",
+      "rule_ids": ["CALIFORNIA_CLIMATE_CREDIT_2026"],
+      "source_id": "pge-advice-7921-e",
+      "source_sheets": ["61362-E"],
+      "derivation": [
+        "The locked credit rule applies to the August bill cycle.",
+        "A July bill cycle therefore emits no climate-credit line item."
+      ],
+      "inputs": {
+        "bill_cycle_month": 7
+      },
+      "expected": {
+        "applies": false
+      }
+    }
+  ]
+}
