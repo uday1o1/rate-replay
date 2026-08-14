@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "24.16.0"
+          package-manager-cache: false
+      - run: corepack enable
       - run: make bootstrap
       - run: corepack pnpm --filter @ratereplay/web exec playwright install --with-deps chromium
       - run: make check
