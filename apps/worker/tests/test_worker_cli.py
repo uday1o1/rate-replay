@@ -14,7 +14,9 @@ from ratereplay_persistence.deletions import _scope_token
 from ratereplay_persistence.keyrings import VersionedKeyring
 from ratereplay_persistence.models import JobRecord, UserRecord
 from ratereplay_persistence.object_store import FilesystemObjectStore
+from ratereplay_worker import cli as worker_cli
 from ratereplay_worker.cli import app
+from sqlalchemy import text
 from typer.testing import CliRunner
 
 
@@ -48,9 +50,11 @@ def test_worker_cli_exposes_one_shot_and_continuous_modes() -> None:
     assert "verify-backup" in result.output
     assert "expire-backups-once" in result.output
     assert "qualify-restore" in result.output
+    assert "restore-backup-to-quarantine" in result.output
     assert "rotate-deletion-keys" in result.output
     assert "migrate-deletion-ledger-v1" in result.output
     assert "verify-restore-qualification" in result.output
+    assert "verify-restore-exposure" in result.output
 
 
 def test_retention_cli_schedules_idempotently_and_runs_system_job(
@@ -212,6 +216,136 @@ def test_restore_qualification_cli_writes_and_self_verifies_artifact(
     )
     assert verified.exit_code == 0
     assert "exposure_allowed=true" in verified.output
+
+
+def test_quarantine_restore_cli_binds_backup_database_objects_and_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "source-objects"
+    backup_root = tmp_path / "backups"
+    FilesystemObjectStore(source_root).put_file(
+        "owners/private-user/input.xml",
+        BytesIO(b"restored private object"),
+        maximum_bytes=1024,
+    )
+    backup_keys = tmp_path / "backup-keys"
+    backup_keys.mkdir()
+    (backup_keys / "backup-key-v1").write_text("62" * 32, encoding="ascii")
+    dump_script = """
+import sys
+if "--version" in sys.argv:
+    sys.stdout.write("pg_dump (PostgreSQL) 16.10\\n")
+else:
+    sys.stdout.buffer.write(b"PGDMP verified quarantine dump")
+"""
+    restore_script = """
+import sys
+raise SystemExit(0 if sys.stdin.buffer.read(5) == b"PGDMP" else 1)
+"""
+    monkeypatch.setenv("RATEREPLAY_OBJECT_STORE_ROOT", str(source_root))
+    monkeypatch.setenv("RATEREPLAY_BACKUP_OBJECT_STORE_ROOT", str(backup_root))
+    monkeypatch.setenv("RATEREPLAY_BACKUP_OBJECT_ENCRYPTION_KEYS_DIR", str(backup_keys))
+    monkeypatch.setenv(
+        "RATEREPLAY_BACKUP_OBJECT_ENCRYPTION_CURRENT_KEY_VERSION",
+        "backup-key-v1",
+    )
+    monkeypatch.setenv(
+        "RATEREPLAY_BACKUP_PGDUMP_COMMAND_JSON",
+        json.dumps([sys.executable, "-c", dump_script]),
+    )
+    monkeypatch.setenv(
+        "RATEREPLAY_BACKUP_PGDUMP_VERSION_COMMAND_JSON",
+        json.dumps([sys.executable, "-c", dump_script]),
+    )
+    monkeypatch.setenv(
+        "RATEREPLAY_BACKUP_PGRESTORE_COMMAND_JSON",
+        json.dumps([sys.executable, "-c", restore_script]),
+    )
+    runner = CliRunner()
+    created = runner.invoke(app, ["create-backup"])
+    assert created.exit_code == 0, created.output
+    match = re.search(r"backup_id=([^ ]+)", created.output)
+    assert match is not None
+    backup_id = match.group(1)
+
+    database_path, _, _ = _configure_restore(
+        monkeypatch,
+        tmp_path,
+        initialize_ledger=True,
+    )
+    database = make_engine(f"sqlite+pysqlite:///{database_path}")
+    with database.begin() as connection:
+        connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(128))"))
+        connection.execute(
+            text("INSERT INTO alembic_version (version_num) VALUES ('0014_restore_controls')")
+        )
+    database.dispose()
+    qualification_artifact = tmp_path / "evidence" / "qualification.json"
+    exposure_artifact = tmp_path / "evidence" / "exposure.json"
+    result = runner.invoke(
+        app,
+        [
+            "restore-backup-to-quarantine",
+            backup_id,
+            "--materialization-directory",
+            str(tmp_path / "materialized"),
+            "--qualification-artifact-file",
+            str(qualification_artifact),
+            "--exposure-artifact-file",
+            str(exposure_artifact),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "exposure_allowed=true" in result.output
+    with FilesystemObjectStore(tmp_path / "objects").open_file(
+        "owners/private-user/input.xml",
+        maximum_bytes=1024,
+    ) as restored_object:
+        assert restored_object.read() == b"restored private object"
+    exposure_payload = json.loads(exposure_artifact.read_text(encoding="ascii"))
+    qualification_payload = json.loads(qualification_artifact.read_text(encoding="ascii"))
+    assert exposure_payload["backup_id"] == backup_id
+    assert exposure_payload["database_revision"] == "0014_restore_controls"
+    assert (
+        exposure_payload["qualification_artifact_sha256"]
+        == qualification_payload["artifact_sha256"]
+    )
+    assert exposure_payload["restored_object_count"] == 1
+    assert "private-user" not in exposure_artifact.read_text(encoding="ascii")
+    verified = runner.invoke(
+        app,
+        ["verify-restore-exposure", "--artifact-file", str(exposure_artifact)],
+    )
+    assert verified.exit_code == 0, verified.output
+    assert f"backup_id={backup_id}" in verified.output
+
+    class ChangedRestoreRunner:
+        def restore(self, dump_path: Path) -> str:
+            assert dump_path.is_file()
+            return "0" * 64
+
+    monkeypatch.setattr(
+        worker_cli,
+        "_configured_postgres_restore_runner",
+        lambda: ChangedRestoreRunner(),
+    )
+    changed = runner.invoke(
+        app,
+        [
+            "restore-backup-to-quarantine",
+            backup_id,
+            "--materialization-directory",
+            str(tmp_path / "materialized-changed"),
+            "--qualification-artifact-file",
+            str(tmp_path / "evidence" / "changed-qualification.json"),
+            "--exposure-artifact-file",
+            str(tmp_path / "evidence" / "changed-exposure.json"),
+        ],
+    )
+    assert changed.exit_code == 1
+    assert "PG_RESTORE_INPUT_CHANGED" in changed.output
 
 
 def test_restore_qualification_cli_accepts_versioned_key_directories(

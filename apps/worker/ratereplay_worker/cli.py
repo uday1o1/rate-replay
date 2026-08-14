@@ -20,6 +20,7 @@ from ratereplay_persistence.backups import (
     BackupRuntimeConfiguration,
     BackupService,
     PostgresDumpRunner,
+    PostgresRestoreRunner,
 )
 from ratereplay_persistence.database import (
     DatabaseAtRestConfiguration,
@@ -54,10 +55,17 @@ from ratereplay_persistence.restore import (
     verify_restore_qualification_artifact,
     write_restore_qualification_artifact,
 )
+from ratereplay_persistence.restore_evidence import (
+    bind_restore_exposure,
+    verify_restore_exposure_artifact,
+    write_restore_exposure_artifact,
+)
 from ratereplay_persistence.retention import DatabaseRetentionService, RetentionScheduler
 from ratereplay_tariffs.admission import load_all_admitted_tariffs
 from ratereplay_tariffs.comparison import load_required_component_keys
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from ratereplay_worker.comparison_worker import ComparisonWorker
 from ratereplay_worker.deletion_worker import DeletionWorker
@@ -132,6 +140,12 @@ def _configured_backup_service() -> BackupService:
         database_maximum_bytes=backup_configuration.postgres.maximum_bytes,
         source_object_maximum_bytes=backup_configuration.source_object_maximum_bytes,
     )
+
+
+def _configured_postgres_restore_runner() -> PostgresRestoreRunner:
+    primary_configuration = _object_store_configuration()
+    backup_configuration = _backup_runtime_configuration(primary_configuration)
+    return PostgresRestoreRunner(backup_configuration.postgres)
 
 
 def _configured_backup_retention(
@@ -326,6 +340,25 @@ def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
         ),
         engine,
     )
+
+
+def _restored_database_revision(engine: Engine) -> str:
+    try:
+        with engine.connect() as database:
+            revision = database.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one()
+    except (SQLAlchemyError, TypeError, ValueError) as error:
+        raise RestoreQualificationError(
+            "DATABASE_REVISION_UNVERIFIED",
+            "Restored database revision could not be verified",
+        ) from error
+    if not isinstance(revision, str) or not revision or len(revision) > 128:
+        raise RestoreQualificationError(
+            "DATABASE_REVISION_UNVERIFIED",
+            "Restored database revision is invalid",
+        )
+    return revision
 
 
 def _configured_report_worker(telemetry: Telemetry | None = None) -> tuple[ReportWorker, Engine]:
@@ -776,6 +809,120 @@ def qualify_restore(
             engine.dispose()
 
 
+@app.command("restore-backup-to-quarantine")
+def restore_backup_to_quarantine(
+    backup_id: Annotated[str, typer.Argument(help="Committed backup identifier to restore.")],
+    materialization_directory: Annotated[
+        Path,
+        typer.Option(
+            "--materialization-directory",
+            file_okay=False,
+            dir_okay=True,
+            writable=True,
+            resolve_path=True,
+            help="New private directory for verified backup materialization.",
+        ),
+    ],
+    qualification_artifact_file: Annotated[
+        Path,
+        typer.Option(
+            "--qualification-artifact-file",
+            file_okay=True,
+            dir_okay=False,
+            writable=True,
+            resolve_path=True,
+            help="Private path for the restore qualification artifact.",
+        ),
+    ],
+    exposure_artifact_file: Annotated[
+        Path,
+        typer.Option(
+            "--exposure-artifact-file",
+            file_okay=True,
+            dir_okay=False,
+            writable=True,
+            resolve_path=True,
+            help="Private path for the instance-bound exposure artifact.",
+        ),
+    ],
+    outcome_evidence_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--outcome-evidence-file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+            help="Optional signed authoritative outcomes for unresolved preparations.",
+        ),
+    ] = None,
+) -> None:
+    """Restore one verified backup into quarantine and bind its exposure decision."""
+
+    engine: Engine | None = None
+    try:
+        backups = _configured_backup_service()
+        materialized = backups.materialize_verified(backup_id, materialization_directory)
+        restored_database_hash = _configured_postgres_restore_runner().restore(
+            materialized.database_dump_path
+        )
+        if restored_database_hash != materialized.database_content_hash:
+            raise BackupError(
+                "PG_RESTORE_INPUT_CHANGED",
+                "PostgreSQL restore input changed after backup verification",
+            )
+        backups.restore_materialized_objects(materialized, _configured_object_store())
+        reconciler, engine = _configured_restore_reconciler()
+        database_revision = _restored_database_revision(engine)
+        qualification = reconciler.qualify(
+            now=datetime.now(UTC),
+            outcome_evidence=_read_outcome_evidence(outcome_evidence_file),
+        )
+        write_restore_qualification_artifact(qualification_artifact_file, qualification)
+        verified_qualification = verify_restore_qualification_artifact(
+            json.loads(qualification_artifact_file.read_text(encoding="ascii"))
+        )
+        exposure = bind_restore_exposure(
+            materialized,
+            verified_qualification,
+            deletion_ledger_root=Path(
+                os.getenv(
+                    "RATEREPLAY_DELETION_LEDGER_ROOT",
+                    "/var/lib/ratereplay/deletion-ledger",
+                )
+            ),
+            database_revision=database_revision,
+            bound_at=datetime.now(UTC),
+        )
+        write_restore_exposure_artifact(exposure_artifact_file, exposure)
+        verified_exposure = verify_restore_exposure_artifact(
+            json.loads(exposure_artifact_file.read_text(encoding="ascii"))
+        )
+        typer.echo(
+            f"backup_id={verified_exposure.backup_id} "
+            f"restore_instance_id={verified_exposure.restore_instance_id} "
+            f"exposure_allowed={str(verified_exposure.exposure_allowed).lower()} "
+            f"qualification_sha256={verified_exposure.qualification_artifact_sha256} "
+            f"artifact_sha256={verified_exposure.artifact_sha256}"
+        )
+        if not verified_exposure.exposure_allowed:
+            raise typer.Exit(code=3)
+    except (
+        BackupError,
+        DeletionLedgerError,
+        ObjectStoreError,
+        RestoreQualificationError,
+        RuntimeError,
+    ) as error:
+        code = getattr(error, "code", "RESTORE_CONFIGURATION_INVALID")
+        typer.echo(f"{code}: quarantine restore failed", err=True)
+        raise typer.Exit(code=1) from error
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+
 @app.command("rotate-deletion-keys")
 def rotate_deletion_keys(
     root: Annotated[
@@ -1007,6 +1154,47 @@ def verify_restore_qualification(
         typer.echo(f"{code}: restore qualification artifact verification failed", err=True)
         raise typer.Exit(code=1) from error
     typer.echo(
+        f"exposure_allowed={str(verified.exposure_allowed).lower()} "
+        f"artifact_sha256={verified.artifact_sha256}"
+    )
+    if not verified.exposure_allowed:
+        raise typer.Exit(code=3)
+
+
+@app.command("verify-restore-exposure")
+def verify_restore_exposure(
+    artifact_file: Annotated[
+        Path,
+        typer.Option(
+            "--artifact-file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    """Verify an instance-bound exposure artifact and reject a quarantined restore."""
+
+    try:
+        payload = json.loads(artifact_file.read_text(encoding="ascii"))
+        if not isinstance(payload, dict):
+            raise TypeError
+        verified = verify_restore_exposure_artifact(payload)
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        TypeError,
+        RestoreQualificationError,
+    ) as error:
+        code = getattr(error, "code", "RESTORE_EXPOSURE_ARTIFACT_INVALID")
+        typer.echo(f"{code}: restore exposure artifact verification failed", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(
+        f"backup_id={verified.backup_id} "
+        f"restore_instance_id={verified.restore_instance_id} "
         f"exposure_allowed={str(verified.exposure_allowed).lower()} "
         f"artifact_sha256={verified.artifact_sha256}"
     )

@@ -61,4 +61,5 @@ Account deletion also revokes sessions and safely subsumes any child deletion al
 Deleted data may remain only in separately encrypted backups until the backup reaches its fixed maximum age of 30 days.
 Individual backups are not rewritten after a deletion.
 Every restore remains quarantined until the separately protected deletion ledger is verified and suppressive deletion records have been reapplied.
+The complete backup, quarantine, and exposure-gate procedure is documented in [docs/operations/backup-restore.md](docs/operations/backup-restore.md).
 The repository currently claims only `LOCAL_REPRODUCIBLE`; hosted encryption, restore, and retention behavior remains unclaimed until an authorized hosted qualification passes.
