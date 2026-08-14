@@ -23,4 +23,7 @@ The browser security test records all requests and rejects any method other than
 The frozen generation entry point is `make demo-artifacts`.
 It runs the locked simulated profile through the production tariff compiler, billing engine, comparison engine, optimizer, independent verifier, and redacted-report builder.
 `make demo-artifacts-check` independently regenerates the release and rejects missing, extra, changed, or stale generated files.
+`make browser-test` runs the pinned Playwright release with its version-matched Chromium build against a production Vite preview.
+The suite exercises the complete public walkthrough, artifact corruption, request isolation, independent browser contexts, reload reset behavior, keyboard navigation, and the supported narrow viewport.
+It also exercises the private upload, replay, comparison, scenario, report, deletion, and session-expiry journeys against a strict in-browser API boundary that rejects unexpected requests.
 The repository makes no complete public-demo claim until the Milestone 6 browser walkthrough and its acceptance gates pass.

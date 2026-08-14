@@ -12,6 +12,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "test": "corepack pnpm --filter @ratereplay/web test",
+    "test:e2e": "corepack pnpm --filter @ratereplay/web test:e2e",
     "typecheck": "corepack pnpm --filter @ratereplay/web typecheck"
   },
   "devDependencies": {

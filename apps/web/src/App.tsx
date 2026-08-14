@@ -156,6 +156,7 @@ export function App() {
   const [pgeAttested, setPgeAttested] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const profileMutationVersion = useRef(0);
+  const sessionProfileBaselineVersion = useRef(0);
 
   useEffect(() => {
     if (workspaceMode === "demo") {
@@ -165,6 +166,7 @@ export function App() {
     setCheckingSession(true);
     void api<Session>("/v1/auth/session")
       .then((value) => {
+        sessionProfileBaselineVersion.current = profileMutationVersion.current;
         setSession(value);
         setCsrf(csrfCookie());
       })
@@ -186,7 +188,7 @@ export function App() {
   useEffect(() => {
     if (session === null) return;
     let ignore = false;
-    const expectedProfileVersion = profileMutationVersion.current;
+    const expectedProfileVersion = sessionProfileBaselineVersion.current;
     void Promise.all([
       api<{ items: Profile[] }>("/v1/profiles?page_size=1"),
       api<{ items: TariffSummary[] }>("/v1/tariffs"),
@@ -226,6 +228,7 @@ export function App() {
           password: data.get("password"),
         }),
       });
+      sessionProfileBaselineVersion.current = profileMutationVersion.current;
       setSession(value);
       setCsrf(value.csrf_token ?? csrfCookie());
     } catch (error) {
@@ -260,6 +263,7 @@ export function App() {
         },
       );
       const value = await api<ImportStatus>(operation.state_url);
+      profileMutationVersion.current += 1;
       setImportStatus(value);
       setProfile(null);
       setReplay(null);
@@ -295,6 +299,7 @@ export function App() {
           },
         },
       );
+      profileMutationVersion.current += 1;
       setImportStatus(null);
       setProfile(installed.profile);
       setReplay(null);
@@ -355,6 +360,7 @@ export function App() {
           }),
         },
       );
+      profileMutationVersion.current += 1;
       setProfile(confirmed);
       setMessage(
         "Profile confirmed. The raw upload has entered immediate deletion.",

@@ -24,6 +24,7 @@ jobs:
         with:
           node-version: "24.16.0"
       - run: make bootstrap
+      - run: corepack pnpm --filter @ratereplay/web exec playwright install --with-deps chromium
       - run: make check
       - run: make dependency-audit
 
