@@ -38,7 +38,8 @@ from ratereplay_tariffs.admission import AdmittedTariff
 from ratereplay_tariffs.billing import ReplayError
 from ratereplay_tariffs.hashing import canonical_content_sha256, canonical_json_bytes
 from ratereplay_tariffs.schema import AccountFacts, DatedEligibilityFacts, FrozenModel
-from sqlalchemy import select
+from sqlalchemy import BigInteger, select
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.orm import Session
 
 from ratereplay_api.auth import AuthenticatedSession
@@ -123,7 +124,7 @@ def _profile_slots(
                 ImportReadingRecord.import_id == profile.import_id,
                 ImportReadingRecord.start_utc_ns >= profile.billing_period_start_utc_ns,
                 ImportReadingRecord.start_utc_ns
-                + ImportReadingRecord.duration_seconds * 1_000_000_000
+                + sql_cast(ImportReadingRecord.duration_seconds, BigInteger) * 1_000_000_000
                 <= profile.billing_period_end_utc_ns,
             )
             .order_by(ImportReadingRecord.start_utc_ns)

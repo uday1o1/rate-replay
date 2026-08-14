@@ -8,19 +8,24 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from ratereplay_persistence.artifacts import ArtifactService
 from ratereplay_persistence.comparisons import ComparisonService
 from ratereplay_persistence.database import make_engine, make_session_factory
+from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.models import (
     CalculationManifestRecord,
     ComparisonResultRecord,
+    ImportReadingRecord,
     ImportRecord,
     JobAttemptRecord,
     JobRecord,
+    JobResultClaimRecord,
     OperationRequestRecord,
     ProfileVersionRecord,
     ReplayResultRecord,
     UserRecord,
 )
+from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_persistence.replays import ReplayService
 from ratereplay_tariffs.admission import load_admitted_e1, load_all_admitted_tariffs
 from ratereplay_tariffs.billing import (
@@ -32,6 +37,7 @@ from ratereplay_tariffs.billing import (
 from ratereplay_tariffs.comparison import compare_admitted_tariffs, load_required_component_keys
 from ratereplay_tariffs.hashing import canonical_content_sha256
 from ratereplay_tariffs.schema import AccountFacts, DatedEligibilityFacts
+from ratereplay_worker.comparison_worker import ComparisonWorker
 from sqlalchemy import delete
 from sqlalchemy.exc import StatementError
 
@@ -78,7 +84,7 @@ def _comparison_request() -> IntervalReplayRequest:
 
 
 @pytest.mark.postgres
-def test_migrated_postgres_publishes_immutable_comparison() -> None:
+def test_migrated_postgres_publishes_immutable_comparison(tmp_path: Path) -> None:
     database_url = os.getenv("RATEREPLAY_TEST_DATABASE_URL")
     if database_url is None:
         pytest.skip("RATEREPLAY_TEST_DATABASE_URL is not configured")
@@ -135,6 +141,32 @@ def test_migrated_postgres_publishes_immutable_comparison() -> None:
                 created_at=now,
             )
         )
+        database.flush()
+        database.add_all(
+            [
+                ImportReadingRecord(
+                    id=secrets.token_hex(16),
+                    import_id=import_id,
+                    start_utc_ns=interval.start_utc_ns,
+                    duration_seconds=interval.duration_seconds,
+                    energy_wh=interval.energy_wh,
+                    flow_direction="IMPORT",
+                    source_unit="Wh",
+                    source_multiplier=0,
+                    source_reading_type="SIMULATED_INTERVAL_ENERGY",
+                    source_service_category="ELECTRICITY",
+                    source_commodity="ELECTRICITY",
+                    source_accumulation_behavior="DELTA_DATA",
+                    source_data_qualifier="SIMULATED",
+                    source_time_attribute="NOT_APPLICABLE",
+                    source_local_time_parameters_hash=None,
+                    source_timezone_offset_seconds=None,
+                    source_dst_offset_seconds=None,
+                    quality_flags_json="[]",
+                )
+                for interval in request.intervals
+            ]
+        )
 
     replay_request = ReplayRequest(
         request_version="e1-replay-request-v1",
@@ -158,40 +190,55 @@ def test_migrated_postgres_publishes_immutable_comparison() -> None:
         result=replay_result,
         now=now,
     )
-    result = compare_admitted_tariffs(
-        load_all_admitted_tariffs(ROOT),
+    tariffs = load_all_admitted_tariffs(ROOT)
+    required_component_keys = load_required_component_keys(ROOT)
+    expected = compare_admitted_tariffs(
+        tariffs,
         request,
         current_tariff_version_id="pge-e1-2026-07",
-        required_component_keys=load_required_component_keys(ROOT),
-    )
-    comparison_operation_hash = canonical_content_sha256(
-        b"RateReplay.ComparisonOperationRequest.v1", request.model_dump(mode="json")
+        required_component_keys=required_component_keys,
     )
     comparison_service = ComparisonService(sessions)
-    stored = comparison_service.publish(
+    submitted = comparison_service.submit(
         owner_user_id=owner_id,
         profile_version_id=profile_id,
         current_replay_id=stored_replay.replay_id,
         idempotency_key="postgres-comparison-key",
-        operation_request_hash=comparison_operation_hash,
-        result=result,
+        tariffs=tariffs,
+        comparison_request=request,
+        required_component_keys=required_component_keys,
+        environment_lock_hash="e" * 64,
         now=now,
     )
-    repeated = comparison_service.publish(
+    worker = ComparisonWorker(
+        worker_id="postgres-comparison-worker",
+        session_factory=sessions,
+        jobs=JobService(sessions),
+        artifacts=ArtifactService(sessions, FilesystemObjectStore(tmp_path / "objects")),
+        admitted_tariffs={tariff.lock.tariff_version_id: tariff for tariff in tariffs},
+        required_component_keys=required_component_keys,
+        environment_lock_hash="e" * 64,
+    )
+    assert worker.run_once(now=now)
+    repeated = comparison_service.submit(
         owner_user_id=owner_id,
         profile_version_id=profile_id,
         current_replay_id=stored_replay.replay_id,
         idempotency_key="postgres-comparison-key",
-        operation_request_hash=comparison_operation_hash,
-        result=result,
+        tariffs=tariffs,
+        comparison_request=request,
+        required_component_keys=required_component_keys,
+        environment_lock_hash="e" * 64,
         now=now,
     )
-    assert repeated.repeated is True
-    assert repeated.comparison_id == stored.comparison_id
+    assert repeated.repeated_operation is True
+    assert repeated.job_id == submitted.job_id
+    assert repeated.result_id is not None
+    comparison_id = repeated.result_id
     with sessions() as database:
-        comparison = database.get(ComparisonResultRecord, stored.comparison_id)
-        job = database.get(JobRecord, stored.job_id)
-        assert comparison is not None and comparison.result_hash == result.comparison_sha256
+        comparison = database.get(ComparisonResultRecord, comparison_id)
+        job = database.get(JobRecord, submitted.job_id)
+        assert comparison is not None and comparison.result_hash == expected.comparison_sha256
         assert comparison.current_replay_id == stored_replay.replay_id
         assert job is not None and job.kind == "COMPARISON" and job.state == "SUCCEEDED"
         comparison.result_json = "{}"
@@ -201,7 +248,7 @@ def test_migrated_postgres_publishes_immutable_comparison() -> None:
 
     with sessions.begin() as database:
         database.execute(
-            delete(ComparisonResultRecord).where(ComparisonResultRecord.id == stored.comparison_id)
+            delete(ComparisonResultRecord).where(ComparisonResultRecord.id == comparison_id)
         )
         database.execute(
             delete(CalculationManifestRecord).where(
@@ -215,12 +262,20 @@ def test_migrated_postgres_publishes_immutable_comparison() -> None:
             delete(OperationRequestRecord).where(OperationRequestRecord.owner_user_id == owner_id)
         )
         database.execute(
-            delete(JobAttemptRecord).where(
-                JobAttemptRecord.job_id.in_([stored.job_id, stored_replay.job_id])
+            delete(JobResultClaimRecord).where(
+                JobResultClaimRecord.accepted_job_id == submitted.job_id
             )
         )
         database.execute(
-            delete(JobRecord).where(JobRecord.id.in_([stored.job_id, stored_replay.job_id]))
+            delete(JobAttemptRecord).where(
+                JobAttemptRecord.job_id.in_([submitted.job_id, stored_replay.job_id])
+            )
+        )
+        database.execute(
+            delete(JobRecord).where(JobRecord.id.in_([submitted.job_id, stored_replay.job_id]))
+        )
+        database.execute(
+            delete(ImportReadingRecord).where(ImportReadingRecord.import_id == import_id)
         )
         database.execute(delete(ProfileVersionRecord).where(ProfileVersionRecord.id == profile_id))
         database.execute(delete(ImportRecord).where(ImportRecord.id == import_id))

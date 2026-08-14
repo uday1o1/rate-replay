@@ -14,6 +14,8 @@ from ratereplay_api.main import create_app
 from ratereplay_optimizer.results import ScenarioOptimizationResult
 from ratereplay_persistence.artifacts import ArtifactService
 from ratereplay_reports.redacted import build_redacted_report
+from ratereplay_tariffs.comparison import load_required_component_keys
+from ratereplay_worker.comparison_worker import ComparisonWorker
 from ratereplay_worker.replay_worker import ReplayWorker
 from ratereplay_worker.report_worker import ReportWorker
 
@@ -140,8 +142,25 @@ async def test_private_account_completes_portfolio_core_through_public_api(
             "dated_eligibility_facts": facts["dated_eligibility_facts"],
         },
     )
-    assert compared.status_code == 201, compared.text
-    comparison = compared.json()["result"]
+    assert compared.status_code == 202, compared.text
+    comparison_worker = ComparisonWorker(
+        worker_id="portfolio-comparison-worker",
+        session_factory=state.session_factory,
+        jobs=state.job_service,
+        artifacts=ArtifactService(state.session_factory, state.object_store),
+        admitted_tariffs=state.admitted_tariffs,
+        required_component_keys=load_required_component_keys(ROOT),
+        environment_lock_hash=state.environment_lock_hash,
+    )
+    assert comparison_worker.run_once(now=datetime.now(UTC))
+    comparison_job = await client.get(f"/v1/jobs/{compared.json()['job_id']}")
+    assert comparison_job.status_code == 200
+    assert comparison_job.json()["state"] == "SUCCEEDED"
+    comparison_response = await client.get(
+        f"/v1/comparisons/{comparison_job.json()['terminal_result_id']}"
+    )
+    assert comparison_response.status_code == 200
+    comparison = comparison_response.json()["result"]
     assert comparison["rankable"] is True
     assert comparison["winner_tariff_version_ids"] == ["pge-etoud-2026-07"]
     assert comparison["savings_against_current_supported_cents"] == 1_707

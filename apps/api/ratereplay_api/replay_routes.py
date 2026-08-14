@@ -24,7 +24,8 @@ from ratereplay_tariffs.billing import (
 from ratereplay_tariffs.compiled import CompilationBundle
 from ratereplay_tariffs.hashing import canonical_json_bytes
 from ratereplay_tariffs.schema import AccountFacts, DateRange, FrozenModel
-from sqlalchemy import func, select
+from sqlalchemy import BigInteger, func, select
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.orm import Session
 
 from ratereplay_api.auth import AuthenticatedSession
@@ -160,12 +161,13 @@ def _profile_energy(database: Session, profile: ProfileVersionRecord) -> int:
             func.min(ImportReadingRecord.start_utc_ns),
             func.max(
                 ImportReadingRecord.start_utc_ns
-                + ImportReadingRecord.duration_seconds * 1_000_000_000
+                + sql_cast(ImportReadingRecord.duration_seconds, BigInteger) * 1_000_000_000
             ),
         ).where(
             ImportReadingRecord.import_id == profile.import_id,
             ImportReadingRecord.start_utc_ns >= profile.billing_period_start_utc_ns,
-            ImportReadingRecord.start_utc_ns + ImportReadingRecord.duration_seconds * 1_000_000_000
+            ImportReadingRecord.start_utc_ns
+            + sql_cast(ImportReadingRecord.duration_seconds, BigInteger) * 1_000_000_000
             <= profile.billing_period_end_utc_ns,
         )
     ).one()

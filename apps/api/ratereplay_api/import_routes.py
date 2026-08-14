@@ -22,7 +22,8 @@ from ratereplay_persistence.models import (
     ProfileVersionRecord,
 )
 from ratereplay_persistence.object_store import ObjectStoreError
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import BigInteger, and_, func, or_, select
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.orm import Session
 
 from ratereplay_api.auth import AuthenticatedSession, LoginRateLimiter
@@ -247,7 +248,7 @@ def get_import(
             func.min(ImportReadingRecord.start_utc_ns),
             func.max(
                 ImportReadingRecord.start_utc_ns
-                + ImportReadingRecord.duration_seconds * 1_000_000_000
+                + sql_cast(ImportReadingRecord.duration_seconds, BigInteger) * 1_000_000_000
             ),
             func.min(ImportReadingRecord.duration_seconds),
         ).where(ImportReadingRecord.import_id == import_id)

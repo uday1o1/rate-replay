@@ -381,58 +381,71 @@ describe("App", () => {
   });
 
   it("uses the public auth and upload workflow to render a quality report", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
-      .mockResolvedValueOnce(
-        response(201, {
-          user: { user_id: "owner", username: "owner_one" },
-          csrf_token: "csrf-token",
-        }),
-      )
-      .mockResolvedValueOnce(response(200, { items: [] }))
-      .mockResolvedValueOnce(response(200, tariffList))
-      .mockResolvedValueOnce(response(200, tariffDetail))
-      .mockResolvedValueOnce(
-        response(202, {
-          import_id: "import-one",
-          state_url: "/v1/imports/import-one",
-        }),
-      )
-      .mockResolvedValueOnce(
-        response(200, {
-          import_id: "import-one",
-          state: "READY",
-          job_state: "SUCCEEDED",
-          reading_count: 362,
-          interval_resolution_seconds: 3600,
-          coverage_start_utc_ns: 1,
-          coverage_end_utc_ns: 2,
-          findings: [
-            {
-              code: "INTERVAL_GAP",
-              severity: "WARNING",
-              field_path: "readings",
-              warning_id: "warning-one",
-            },
-          ],
-          failure_code: null,
-        }),
-      )
-      .mockResolvedValueOnce(response(200, profile))
-      .mockResolvedValueOnce(
-        response(200, {
-          import_id: "import-one",
-          state: "CONFIRMED",
-          job_state: "SUCCEEDED",
-          reading_count: 362,
-          interval_resolution_seconds: 3600,
-          coverage_start_utc_ns: 1,
-          coverage_end_utc_ns: 2,
-          findings: [],
-          failure_code: null,
-        }),
-      );
+    let importReadCount = 0;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        await Promise.resolve();
+        const path =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        const method = init?.method ?? "GET";
+        if (path === "/v1/auth/session" && method === "GET") {
+          return response(401, { message: "Sign in" });
+        }
+        if (path === "/v1/auth/register" && method === "POST") {
+          return response(201, {
+            user: { user_id: "owner", username: "owner_one" },
+            csrf_token: "csrf-token",
+          });
+        }
+        if (path === "/v1/profiles?page_size=1" && method === "GET") {
+          return response(200, { items: [] });
+        }
+        if (path === "/v1/tariffs" && method === "GET") {
+          return response(200, tariffList);
+        }
+        if (path === "/v1/tariffs/pge-e1-2026-07" && method === "GET") {
+          return response(200, tariffDetail);
+        }
+        if (path === "/v1/imports" && method === "POST") {
+          return response(202, {
+            import_id: "import-one",
+            state_url: "/v1/imports/import-one",
+          });
+        }
+        if (path === "/v1/imports/import-one" && method === "GET") {
+          importReadCount += 1;
+          return response(200, {
+            import_id: "import-one",
+            state: importReadCount === 1 ? "READY" : "CONFIRMED",
+            job_state: "SUCCEEDED",
+            reading_count: 362,
+            interval_resolution_seconds: 3600,
+            coverage_start_utc_ns: 1,
+            coverage_end_utc_ns: 2,
+            findings:
+              importReadCount === 1
+                ? [
+                    {
+                      code: "INTERVAL_GAP",
+                      severity: "WARNING",
+                      field_path: "readings",
+                      warning_id: "warning-one",
+                    },
+                  ]
+                : [],
+            failure_code: null,
+          });
+        }
+        if (path === "/v1/imports/import-one/confirm" && method === "POST") {
+          return response(200, profile);
+        }
+        throw new Error(`Unexpected request: ${method} ${path}`);
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("crypto", { randomUUID: () => "request-id" });
     render(<App />);

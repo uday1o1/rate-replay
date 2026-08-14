@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -20,7 +20,10 @@ from ratereplay_persistence.models import (
     JobAttemptRecord,
     JobRecord,
     ProfileVersionRecord,
+    UserRecord,
 )
+from ratereplay_tariffs.comparison import compare_admitted_tariffs, load_required_component_keys
+from ratereplay_worker.comparison_worker import ComparisonWorker
 from ratereplay_worker.replay_worker import ReplayWorker
 from sqlalchemy import func, select
 
@@ -219,6 +222,20 @@ async def _create_replay(
     return cast(str, job.json()["terminal_result_id"]), owner_id, csrf
 
 
+def _run_comparison_worker(test_app: FastAPI) -> None:
+    state = cast(Any, test_app.state)
+    worker = ComparisonWorker(
+        worker_id="api-comparison-test-worker",
+        session_factory=state.session_factory,
+        jobs=state.job_service,
+        artifacts=ArtifactService(state.session_factory, state.object_store),
+        admitted_tariffs=state.admitted_tariffs,
+        required_component_keys=load_required_component_keys(ROOT),
+        environment_lock_hash=state.environment_lock_hash,
+    )
+    assert worker.run_once(now=datetime.now(UTC))
+
+
 @pytest.mark.anyio
 async def test_rankable_comparison_is_immutable_idempotent_and_owner_scoped(
     client: httpx.AsyncClient, test_app: FastAPI
@@ -240,8 +257,21 @@ async def test_rankable_comparison_is_immutable_idempotent_and_owner_scoped(
         },
         json=_comparison_payload(replay_id),
     )
-    assert created.status_code == 201, created.text
-    body = created.json()
+    assert created.status_code == 202, created.text
+    submitted = created.json()
+    assert submitted["state"] == "QUEUED"
+    assert submitted["repeated"] is False
+    assert len(submitted["operation_request_hash"]) == 64
+    assert len(submitted["semantic_hash"]) == 64
+    _run_comparison_worker(test_app)
+    completed = await client.get(f"/v1/jobs/{submitted['job_id']}")
+    assert completed.status_code == 200
+    assert completed.json()["state"] == "SUCCEEDED"
+    assert completed.json()["terminal_result_type"] == "COMPARISON"
+    comparison_id = cast(str, completed.json()["terminal_result_id"])
+    fetched = await client.get(f"/v1/comparisons/{comparison_id}")
+    assert fetched.status_code == 200
+    body = fetched.json()
     result = body["result"]
     assert body["owner_user_id"] == owner_id
     assert body["current_replay_id"] == replay_id
@@ -280,12 +310,10 @@ async def test_rankable_comparison_is_immutable_idempotent_and_owner_scoped(
         },
         json=repeated_payload,
     )
-    assert repeated.status_code == 201, repeated.text
+    assert repeated.status_code == 202, repeated.text
     assert repeated.json()["repeated"] is True
-    assert repeated.json()["comparison_id"] == body["comparison_id"]
-    fetched = await client.get(f"/v1/comparisons/{body['comparison_id']}")
-    assert fetched.status_code == 200
-    assert fetched.json()["result"] == result
+    assert repeated.json()["job_id"] == submitted["job_id"]
+    assert repeated.json()["terminal_result_id"] == comparison_id
 
     changed = _comparison_payload(replay_id)
     changed["candidate_tariff_version_ids"] = ["pge-e1-2026-07", "pge-etouc-2026-07"]
@@ -306,10 +334,10 @@ async def test_rankable_comparison_is_immutable_idempotent_and_owner_scoped(
         assert database.scalar(select(func.count()).select_from(ComparisonResultRecord)) == 1
         record = database.get(ComparisonResultRecord, body["comparison_id"])
         assert record is not None and record.result_hash == result["comparison_sha256"]
-        job = database.get(JobRecord, body["job_id"])
+        job = database.get(JobRecord, submitted["job_id"])
         assert job is not None and job.kind == "COMPARISON" and job.state == "SUCCEEDED"
         attempt = database.scalar(
-            select(JobAttemptRecord).where(JobAttemptRecord.job_id == body["job_id"])
+            select(JobAttemptRecord).where(JobAttemptRecord.job_id == submitted["job_id"])
         )
         assert attempt is not None and attempt.state == "SUCCEEDED"
 
@@ -348,8 +376,13 @@ async def test_unknown_eligibility_blocks_ranking_and_account_mutation_is_reject
         },
         json=blocked_payload,
     )
-    assert blocked.status_code == 201, blocked.text
-    result = blocked.json()["result"]
+    assert blocked.status_code == 202, blocked.text
+    _run_comparison_worker(test_app)
+    completed = await client.get(f"/v1/jobs/{blocked.json()['job_id']}")
+    assert completed.json()["state"] == "SUCCEEDED"
+    fetched = await client.get(f"/v1/comparisons/{completed.json()['terminal_result_id']}")
+    assert fetched.status_code == 200
+    result = fetched.json()["result"]
     assert result["rankable"] is False
     assert result["ranked_tariff_version_ids"] == []
     assert result["winner_tariff_version_ids"] == []
@@ -370,3 +403,75 @@ async def test_unknown_eligibility_blocks_ranking_and_account_mutation_is_reject
     )
     assert rejected.status_code == 409
     assert rejected.json()["code"] == "CURRENT_REPLAY_ACCOUNT_MISMATCH"
+
+
+@pytest.mark.anyio
+async def test_comparison_worker_rejects_tampered_durable_request(
+    client: httpx.AsyncClient,
+    test_app: FastAPI,
+) -> None:
+    replay_id, _, csrf = await _create_replay(client, test_app, "tampered_comparison_owner")
+    submitted = await client.post(
+        "/v1/comparisons",
+        headers={
+            "Origin": ORIGIN,
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": "tampered-comparison-one",
+        },
+        json=_comparison_payload(replay_id),
+    )
+    assert submitted.status_code == 202
+    state = cast(Any, test_app.state)
+    with state.session_factory.begin() as database:
+        job = database.get(JobRecord, submitted.json()["job_id"])
+        assert job is not None
+        job.request_json = "{}"
+
+    _run_comparison_worker(test_app)
+
+    completed = await client.get(f"/v1/jobs/{submitted.json()['job_id']}")
+    assert completed.json()["state"] == "FAILED"
+    assert completed.json()["failure_code"] == "COMPARISON_REQUEST_INVALID"
+    with state.session_factory() as database:
+        assert database.scalar(select(func.count()).select_from(ComparisonResultRecord)) == 0
+
+
+@pytest.mark.anyio
+async def test_comparison_finalizer_loses_fence_after_account_generation_change(
+    client: httpx.AsyncClient,
+    test_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    replay_id, owner_id, csrf = await _create_replay(client, test_app, "fenced_comparison_owner")
+    submitted = await client.post(
+        "/v1/comparisons",
+        headers={
+            "Origin": ORIGIN,
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": "fenced-comparison-one",
+        },
+        json=_comparison_payload(replay_id),
+    )
+    assert submitted.status_code == 202
+    state = cast(Any, test_app.state)
+    original = cast(Callable[..., Any], compare_admitted_tariffs)
+
+    def fence_during_calculation(*args: Any, **kwargs: Any) -> Any:
+        with state.session_factory.begin() as database:
+            owner = database.get(UserRecord, owner_id)
+            assert owner is not None
+            owner.lifecycle_generation += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "ratereplay_worker.comparison_worker.compare_admitted_tariffs",
+        fence_during_calculation,
+    )
+
+    _run_comparison_worker(test_app)
+
+    completed = await client.get(f"/v1/jobs/{submitted.json()['job_id']}")
+    assert completed.json()["state"] == "CANCELLED"
+    assert completed.json()["failure_code"] == "SCOPE_FENCED"
+    with state.session_factory() as database:
+        assert database.scalar(select(func.count()).select_from(ComparisonResultRecord)) == 0

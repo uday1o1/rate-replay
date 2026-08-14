@@ -26,12 +26,12 @@ from ratereplay_tariffs.billing import (
 from ratereplay_tariffs.comparison import (
     ComparisonError,
     ComparisonResult,
-    compare_admitted_tariffs,
     load_required_component_keys,
 )
-from ratereplay_tariffs.hashing import canonical_content_sha256, canonical_json_bytes
+from ratereplay_tariffs.hashing import canonical_json_bytes
 from ratereplay_tariffs.schema import AccountFacts, DatedEligibilityFacts, FrozenModel
-from sqlalchemy import select
+from sqlalchemy import BigInteger, select
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.orm import Session
 
 from ratereplay_api.auth import AuthenticatedSession
@@ -43,6 +43,7 @@ from ratereplay_api.auth_routes import (
 from ratereplay_api.config import AppSettings
 from ratereplay_api.problems import ApiProblem, problem_openapi_responses
 from ratereplay_api.replay_routes import profile_window
+from ratereplay_api.resource_routes import JobResourceResponse, job_resource, owned_job
 
 
 class CreateComparisonRequest(BaseModel):
@@ -106,7 +107,7 @@ def _profile_intervals(
                 ImportReadingRecord.import_id == profile.import_id,
                 ImportReadingRecord.start_utc_ns >= profile.billing_period_start_utc_ns,
                 ImportReadingRecord.start_utc_ns
-                + ImportReadingRecord.duration_seconds * 1_000_000_000
+                + sql_cast(ImportReadingRecord.duration_seconds, BigInteger) * 1_000_000_000
                 <= profile.billing_period_end_utc_ns,
             )
             .order_by(ImportReadingRecord.start_utc_ns)
@@ -163,8 +164,8 @@ router = APIRouter(tags=["comparisons"])
 
 @router.post(
     "/v1/comparisons",
-    response_model=ComparisonResourceResponse,
-    status_code=status.HTTP_201_CREATED,
+    response_model=JobResourceResponse,
+    status_code=status.HTTP_202_ACCEPTED,
     responses=problem_openapi_responses(401, 403, 404, 409, 422),
 )
 def create_comparison(
@@ -173,7 +174,7 @@ def create_comparison(
     authenticated: Annotated[AuthenticatedSession, Depends(require_csrf_session)],
     database: Annotated[Session, Depends(get_database)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> ComparisonResourceResponse:
+) -> JobResourceResponse:
     current_replay = database.scalar(
         select(ReplayResultRecord).where(
             ReplayResultRecord.id == payload.replay_id,
@@ -264,42 +265,26 @@ def create_comparison(
             dated_eligibility_facts=dated_facts,
         )
         sorted_candidate_ids = tuple(sorted(candidate_ids))
-        result = compare_admitted_tariffs(
-            tuple(admitted_by_id[candidate_id] for candidate_id in sorted_candidate_ids),
-            comparison_request,
-            current_tariff_version_id=current_replay.tariff_version_id,
-            required_component_keys=load_required_component_keys(
-                cast(AppSettings, request.app.state.settings).repository_root
-            ),
+        required_component_keys = load_required_component_keys(
+            cast(AppSettings, request.app.state.settings).repository_root
         )
-        operation_hash = canonical_content_sha256(
-            b"RateReplay.ComparisonOperationRequest.v1",
-            {
-                "replay_id": current_replay.id,
-                "profile_version_id": profile.id,
-                "candidate_tariff_version_ids": sorted_candidate_ids,
-                "comparison_request": comparison_request.model_dump(mode="json"),
-            },
-        )
-        stored = _comparisons(request).publish(
+        submission = _comparisons(request).submit(
             owner_user_id=authenticated.user_id,
             profile_version_id=profile.id,
             current_replay_id=current_replay.id,
             idempotency_key=idempotency_key,
-            operation_request_hash=operation_hash,
-            result=result,
+            tariffs=tuple(admitted_by_id[candidate_id] for candidate_id in sorted_candidate_ids),
+            comparison_request=comparison_request,
+            required_component_keys=required_component_keys,
+            environment_lock_hash=cast(str, request.app.state.environment_lock_hash),
             now=datetime.now(UTC),
         )
     except (ComparisonError, ComparisonServiceError, ReplayError) as error:
         raise _problem(error) from error
-    record = database.get(ComparisonResultRecord, stored.comparison_id)
-    if record is None or record.owner_user_id != authenticated.user_id:
-        raise ApiProblem(
-            status_code=409,
-            code="COMPARISON_PUBLICATION_INCOMPLETE",
-            message="Comparison publication is incomplete",
-        )
-    return _resource(record, repeated=stored.repeated)
+    return job_resource(
+        owned_job(database, authenticated.user_id, submission.job_id),
+        repeated=submission.repeated_operation,
+    )
 
 
 @router.get(
