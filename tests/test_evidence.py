@@ -7,6 +7,7 @@ from scripts.validate_evidence import (
     _validate_m3_evidence,
     _validate_m4_correctness_evidence,
     _validate_m4_performance_charter,
+    _validate_m7_evidence,
     _validate_synthetic_study_qa,
     _validate_tariffs,
 )
@@ -31,6 +32,10 @@ def test_generated_evidence_is_content_addressed() -> None:
 
 def test_synthetic_study_qa_cannot_claim_human_evidence() -> None:
     _validate_synthetic_study_qa()
+
+
+def test_milestone_seven_local_evidence_is_self_hashed_and_fail_closed() -> None:
+    _validate_m7_evidence()
 
 
 def test_milestone_one_recovery_evidence_matches_frozen_charter() -> None:

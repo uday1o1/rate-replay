@@ -1,0 +1,161 @@
+{
+  "artifact_sha256": "5a00ba8b9a1a5e3d35ec46ed1ed5cb23540b871fee85f101194aa275936e3b3b",
+  "claims_withheld": [
+    "HOSTED_VALIDATED",
+    "MANAGED_VOLUME_ENCRYPTION",
+    "PRODUCTION_ACME_TLS",
+    "PRODUCTION_NETWORK_ISOLATION",
+    "PRODUCTION_ORCHESTRATOR_ROLLBACK"
+  ],
+  "environment": {
+    "architecture": "arm64",
+    "docker_compose": "5.4.0",
+    "docker_engine": "29.5.2",
+    "operating_system": "Darwin",
+    "python": "3.12.13",
+    "source_branch": "main",
+    "trivy_image": "aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969"
+  },
+  "evidence_level": "LOCAL_REPRODUCIBLE",
+  "failure_injections": [
+    {
+      "expected_code": "DEPENDENCY_UNAVAILABLE",
+      "id": "OBJECT_STORE_UNAVAILABLE",
+      "passed": true,
+      "web_remained_available": true
+    },
+    {
+      "expected_code": "DEPENDENCY_UNAVAILABLE",
+      "id": "POSTGRES_UNAVAILABLE",
+      "passed": true,
+      "web_remained_available": true
+    },
+    {
+      "api_remained_ready": true,
+      "id": "WORKER_SIGKILL",
+      "injection_method": "WORKLOAD_CHILD_SIGKILL_FROM_CONTAINER",
+      "passed": true,
+      "restart_policy_recovered": true
+    }
+  ],
+  "gate_result": "PASS",
+  "generated_at": "2026-08-14T19:58:01.182921+00:00",
+  "images": {
+    "app_candidate": "sha256:da908bb1c8971e2c389a948e29d2108672c9ade1b8b89277c73dd8b99eaadb90",
+    "app_stable": "sha256:ba3985a269b470a8c2ea402303e4ec1e88b3b300f47839682b4704584db1603d",
+    "object_store": "sha256:1230345dae75d8b47208b42d7e106cba0f5dc4a48ac0b4c57b9f821c48a1e12b",
+    "postgres": "sha256:50761850ba2d1f514fe9f6b37d93d67e52353b179f9253e9f5af164527ea0fd0",
+    "proxy": "sha256:9f74ed42722a171acb7e15e85bababb23b39ee1e4743b21deb57cc5a5a3832cd",
+    "web": "sha256:adabfe11df8450256344cf628722fd70ce7e6ff518c8b093ac7453b2275f5351"
+  },
+  "inputs": {
+    "compose_release_sha256": "765ac0e2d9959413e333360744d66d4371fa6caf80f32fdcc6ae601da041b9a5",
+    "migration_head": "20260814_0015",
+    "operations_contract_sha256": "1329302b3d43692d185be04a5f5d5328da264a59893006ce11cfb2f6ace8f3cb",
+    "uv_lock_sha256": "3cd113307fefd018828604cb2b6ebcee05d3e60c97e68380e88f1c4637b29263"
+  },
+  "observability": {
+    "api_metrics_observed": true,
+    "structured_events_observed": true,
+    "telemetry_sensitive_value_probe_passed": true,
+    "traces_observed": [
+      "http.server.request",
+      "worker.poll"
+    ],
+    "unready_dependency_metric_observed": true,
+    "worker_metrics_observed": true
+  },
+  "rollback": {
+    "candidate_image_id": "sha256:da908bb1c8971e2c389a948e29d2108672c9ade1b8b89277c73dd8b99eaadb90",
+    "fresh_login_succeeded": true,
+    "persistent_session_survived": true,
+    "rollback_duration_ms": 6392.609,
+    "same_schema": true,
+    "stable_image_id": "sha256:ba3985a269b470a8c2ea402303e4ec1e88b3b300f47839682b4704584db1603d",
+    "stable_ready_after_candidate_replacement": true
+  },
+  "schema_version": "m7-local-deployment-evidence-v1",
+  "security": {
+    "container_scans": {
+      "app_candidate": {
+        "critical_findings": 0,
+        "detector_types": [
+          "debian",
+          "python-pkg"
+        ],
+        "targets_scanned": 2
+      },
+      "app_stable": {
+        "critical_findings": 0,
+        "detector_types": [
+          "debian",
+          "node-pkg",
+          "python-pkg"
+        ],
+        "targets_scanned": 3
+      },
+      "object_store": {
+        "critical_findings": 0,
+        "detector_types": [
+          "alpine",
+          "gobinary"
+        ],
+        "targets_scanned": 2
+      },
+      "postgres": {
+        "critical_findings": 0,
+        "detector_types": [
+          "alpine"
+        ],
+        "targets_scanned": 1
+      },
+      "proxy": {
+        "critical_findings": 0,
+        "detector_types": [
+          "alpine",
+          "gobinary"
+        ],
+        "targets_scanned": 2
+      },
+      "web": {
+        "critical_findings": 0,
+        "detector_types": [
+          "alpine",
+          "gobinary"
+        ],
+        "targets_scanned": 2
+      }
+    },
+    "credential_pattern_scan_passed": true,
+    "critical_findings": 0,
+    "dependency_audit_passed": true,
+    "ephemeral_build_images_removed": 0,
+    "ignored_critical_findings": 0,
+    "static_analysis_passed": true
+  },
+  "source_commit": "7539819b64bf40778a2453e1d48a3971a20ed893",
+  "stable_commit": "0bf962848c206c96920eae71aa1a5c666fb0f23a",
+  "topology": {
+    "backend_network_internal": true,
+    "http_redirect_status": 308,
+    "https_ready": true,
+    "local_ca_trusted_by_test_client": true,
+    "published_services": [
+      "proxy"
+    ],
+    "security_headers_present": [
+      "content-security-policy",
+      "permissions-policy",
+      "referrer-policy",
+      "strict-transport-security",
+      "x-content-type-options",
+      "x-frame-options"
+    ],
+    "service_count": 8
+  },
+  "user_path": {
+    "account_registered_over_https": true,
+    "session_read_over_https": true,
+    "simulated_static_web_loaded": true
+  }
+}

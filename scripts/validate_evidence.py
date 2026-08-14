@@ -37,6 +37,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _artifact_self_hash(payload: dict[str, Any]) -> str:
+    content = {key: value for key, value in payload.items() if key != "artifact_sha256"}
+    encoded = json.dumps(content, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _validate_external_sources() -> None:
     source_lock = _json("data/sources.lock.json")
     for source in source_lock["sources"]:
@@ -232,6 +238,110 @@ def _validate_synthetic_study_qa() -> None:
             "may_count_toward_milestone_acceptance": False,
         },
         "SYNTHETIC_STUDY_DISPOSITION_INVALID",
+    )
+
+
+def _validate_m7_evidence() -> None:
+    restore = _json("evidence/reliability/m7-local-restore-rollback.json")
+    _require(
+        restore["schema_version"] == "m7-local-restore-rollback-evidence-v1",
+        "M7_RESTORE_SCHEMA_DRIFT",
+    )
+    _require(restore["evidence_level"] == "LOCAL_REPRODUCIBLE", "M7_RESTORE_LEVEL_DRIFT")
+    _require(restore["gate_result"] == "PASS", "M7_RESTORE_FAILED")
+    _require(
+        restore["source_commit"] == "36fd8742a090cbbc270f010e5c4d0965d1b3794c",
+        "M7_RESTORE_SOURCE_COMMIT_DRIFT",
+    )
+    _require(
+        restore["artifact_sha256"] == _artifact_self_hash(restore),
+        "M7_RESTORE_ARTIFACT_HASH_MISMATCH",
+    )
+    _require(restore["backup"]["created_before_deletion"] is True, "M7_BACKUP_AFTER_DELETION")
+    _require(
+        restore["backup"]["created_before_raw_expiry"] is True,
+        "M7_BACKUP_AFTER_RETENTION",
+    )
+    _require(
+        restore["backup"]["encrypted_at_rest_probe_passed"] is True,
+        "M7_BACKUP_ENCRYPTION_PROBE_FAILED",
+    )
+    _require(
+        restore["backup_retention"]["expired_at_deadline"] is True
+        and restore["backup_retention"]["remaining_backup_object_count"] == 0,
+        "M7_BACKUP_RETENTION_FAILED",
+    )
+    restore_faults = {item["id"]: item["passed"] for item in restore["failure_injections"]}
+    _require(
+        restore_faults
+        == {
+            "MISSING_LEDGER": True,
+            "PRIMARY_LOSS_AFTER_FENCE": True,
+            "PRIMARY_LOSS_AFTER_PREPARED": True,
+            "PRIMARY_LOSS_AFTER_REQUESTED": True,
+            "TAMPERED_LEDGER": True,
+            "UNRESOLVED_PREPARED": True,
+        },
+        "M7_RESTORE_FAILURE_COVERAGE_DRIFT",
+    )
+    _require(
+        restore["reconciliation"]["exposure_allowed"] is True
+        and restore["reconciliation"]["quarantine_hold_count"] == 0
+        and restore["reconciliation"]["no_suppressive_scope_remains"] is True,
+        "M7_RESTORE_RECONCILIATION_FAILED",
+    )
+    _require("HOSTED_VALIDATED" in restore["claims_withheld"], "M7_RESTORE_HOSTED_OVERCLAIM")
+
+    deployment = _json("evidence/reliability/m7-local-deployment.json")
+    _require(
+        deployment["schema_version"] == "m7-local-deployment-evidence-v1",
+        "M7_DEPLOYMENT_SCHEMA_DRIFT",
+    )
+    _require(
+        deployment["evidence_level"] == "LOCAL_REPRODUCIBLE",
+        "M7_DEPLOYMENT_LEVEL_DRIFT",
+    )
+    _require(deployment["gate_result"] == "PASS", "M7_DEPLOYMENT_FAILED")
+    _require(
+        deployment["source_commit"] == "7539819b64bf40778a2453e1d48a3971a20ed893",
+        "M7_DEPLOYMENT_SOURCE_COMMIT_DRIFT",
+    )
+    _require(
+        deployment["stable_commit"] == "0bf962848c206c96920eae71aa1a5c666fb0f23a",
+        "M7_DEPLOYMENT_STABLE_COMMIT_DRIFT",
+    )
+    _require(
+        deployment["artifact_sha256"] == _artifact_self_hash(deployment),
+        "M7_DEPLOYMENT_ARTIFACT_HASH_MISMATCH",
+    )
+    security = deployment["security"]
+    _require(security["critical_findings"] == 0, "M7_CRITICAL_CONTAINER_FINDING")
+    _require(security["ignored_critical_findings"] == 0, "M7_IGNORED_CRITICAL_FINDING")
+    _require(security["dependency_audit_passed"] is True, "M7_DEPENDENCY_AUDIT_FAILED")
+    _require(
+        deployment["topology"]["published_services"] == ["proxy"]
+        and deployment["topology"]["https_ready"] is True,
+        "M7_DEPLOYMENT_TOPOLOGY_FAILED",
+    )
+    deployment_faults = {item["id"]: item["passed"] for item in deployment["failure_injections"]}
+    _require(
+        deployment_faults
+        == {
+            "OBJECT_STORE_UNAVAILABLE": True,
+            "POSTGRES_UNAVAILABLE": True,
+            "WORKER_SIGKILL": True,
+        },
+        "M7_DEPLOYMENT_FAILURE_COVERAGE_DRIFT",
+    )
+    _require(
+        deployment["rollback"]["persistent_session_survived"] is True
+        and deployment["rollback"]["fresh_login_succeeded"] is True
+        and deployment["rollback"]["same_schema"] is True,
+        "M7_DEPLOYMENT_ROLLBACK_FAILED",
+    )
+    _require(
+        "HOSTED_VALIDATED" in deployment["claims_withheld"],
+        "M7_DEPLOYMENT_HOSTED_OVERCLAIM",
     )
 
 
@@ -630,6 +740,7 @@ def main() -> None:
     _validate_tariffs()
     _validate_generated_evidence()
     _validate_synthetic_study_qa()
+    _validate_m7_evidence()
     _validate_m1_evidence()
     _validate_m4_performance_charter()
     _validate_m4_correctness_evidence()

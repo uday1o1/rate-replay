@@ -6,6 +6,7 @@ data/demo/source
 data/demo/*.json
 data/golden/*.json
 evidence/performance/*.json
+evidence/reliability/*.json
 artifacts/demo/*.json
 artifacts/demo/objects/*.json
 .env.example
