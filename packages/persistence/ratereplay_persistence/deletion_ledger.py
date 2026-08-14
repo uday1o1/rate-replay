@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,15 +61,29 @@ class LedgerEvent:
 class FilesystemDeletionLedger:
     """Local reproducible ledger kept outside the primary database backup scope."""
 
-    def __init__(self, root: Path, *, integrity_key: bytes) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        integrity_key: bytes,
+        require_existing: bool = False,
+    ) -> None:
         if len(integrity_key) < 32:
             raise ValueError("Deletion ledger integrity key must contain at least 32 bytes")
         self._root = root.resolve()
-        self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(self._root, 0o700)
         self._ledger_path = self._root / "deletion-ledger-v1.jsonl"
+        self._genesis_path = self._root / "deletion-ledger-genesis-v1.json"
         self._lock_path = self._root / ".deletion-ledger.lock"
         self._integrity_key = bytes(integrity_key)
+        if require_existing and not (self._ledger_path.is_file() and self._genesis_path.is_file()):
+            raise DeletionLedgerError(
+                "LEDGER_MISSING",
+                "Deletion ledger or its keyed genesis record is missing",
+            )
+        self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self._root, 0o700)
+        if not require_existing:
+            self._initialize()
 
     def append(
         self,
@@ -210,8 +225,7 @@ class FilesystemDeletionLedger:
         return LedgerEvent(**{**asdict(unsigned), "receipt": receipt})
 
     def _read_events(self) -> list[LedgerEvent]:
-        if not self._ledger_path.exists():
-            return []
+        self._validate_genesis()
         events: list[LedgerEvent] = []
         try:
             lines = self._ledger_path.read_text(encoding="ascii").splitlines()
@@ -255,6 +269,72 @@ class FilesystemDeletionLedger:
                 "Deletion ledger contains an illegal phase chain",
             )
         return events
+
+    def _initialize(self) -> None:
+        ledger_descriptor = os.open(
+            self._ledger_path,
+            os.O_CREAT | os.O_APPEND | os.O_WRONLY,
+            0o600,
+        )
+        try:
+            os.fsync(ledger_descriptor)
+        finally:
+            os.close(ledger_descriptor)
+        if not self._genesis_path.exists():
+            receipt = hmac.new(
+                self._integrity_key,
+                b"RateReplay.DeletionLedgerGenesis.v1\x00",
+                hashlib.sha256,
+            ).hexdigest()
+            payload = json.dumps(
+                {
+                    "schema_version": "deletion-ledger-genesis-v1",
+                    "receipt": receipt,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
+            temporary = self._root / f".genesis.{secrets.token_hex(8)}.tmp"
+            descriptor = os.open(
+                temporary,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+            try:
+                os.write(descriptor, payload + b"\n")
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.replace(temporary, self._genesis_path)
+        directory = os.open(self._root, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
+    def _validate_genesis(self) -> None:
+        try:
+            payload = json.loads(self._genesis_path.read_text(encoding="ascii"))
+            receipt = payload["receipt"]
+        except (OSError, UnicodeError, ValueError, TypeError, KeyError) as error:
+            raise DeletionLedgerError(
+                "LEDGER_UNREADABLE",
+                "Deletion ledger genesis record cannot be verified",
+            ) from error
+        expected = hmac.new(
+            self._integrity_key,
+            b"RateReplay.DeletionLedgerGenesis.v1\x00",
+            hashlib.sha256,
+        ).hexdigest()
+        if (
+            payload.get("schema_version") != "deletion-ledger-genesis-v1"
+            or not isinstance(receipt, str)
+            or not hmac.compare_digest(receipt, expected)
+        ):
+            raise DeletionLedgerError(
+                "LEDGER_RECEIPT_INVALID",
+                "Deletion ledger genesis integrity receipt is invalid",
+            )
 
     def _append_line(self, event: LedgerEvent) -> None:
         payload = (

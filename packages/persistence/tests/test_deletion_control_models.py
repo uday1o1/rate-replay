@@ -56,7 +56,7 @@ def test_database_enforces_one_intent_and_one_control_scope_per_target() -> None
                 created_at=NOW,
                 lifecycle_state="ACTIVE",
                 lifecycle_generation=3,
-                deletion_scope_id=None,
+                deletion_scope_id="0" * 32,
             )
         )
         database.add(
@@ -67,6 +67,7 @@ def test_database_enforces_one_intent_and_one_control_scope_per_target() -> None
                 request_schema_version="deletion-intent-v1",
                 canonical_payload_hash="a" * 64,
                 receipt_digest="b" * 64,
+                target_scope_id="0" * 32,
                 original_generation=3,
                 proposed_generation=4,
                 state="INTENT_CREATED",
@@ -84,6 +85,7 @@ def test_database_enforces_one_intent_and_one_control_scope_per_target() -> None
                 request_schema_version="deletion-intent-v1",
                 canonical_payload_hash="c" * 64,
                 receipt_digest="d" * 64,
+                target_scope_id="0" * 32,
                 original_generation=3,
                 proposed_generation=4,
                 state="INTENT_CREATED",
@@ -153,6 +155,6 @@ def test_invalid_user_lifecycle_is_rejected_by_database() -> None:
                 created_at=NOW,
                 lifecycle_state="RESTORED",
                 lifecycle_generation=0,
-                deletion_scope_id=None,
+                deletion_scope_id="f" * 32,
             )
         )

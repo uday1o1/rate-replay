@@ -2,20 +2,29 @@
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from ratereplay_persistence.database import make_engine, make_session_factory
-from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
+from ratereplay_persistence.deletion_ledger import DeletionLedgerError, FilesystemDeletionLedger
 from ratereplay_persistence.deletion_sweep import DeletionSweepService
 from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.object_store import FilesystemObjectStore
+from ratereplay_persistence.restore import (
+    RestoreQualificationError,
+    RestoreReconciler,
+    TransactionOutcomeEvidence,
+    verify_restore_qualification_artifact,
+    write_restore_qualification_artifact,
+)
 from sqlalchemy.engine import Engine
 
 from ratereplay_worker.deletion_worker import DeletionWorker
@@ -101,16 +110,67 @@ def _configured_deletion_worker() -> tuple[DeletionWorker, Engine]:
     return worker, engine
 
 
+def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
+    database_url = os.getenv("RATEREPLAY_DATABASE_URL")
+    if database_url is None:
+        typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
+        raise typer.Exit(code=2)
+    ledger_root = Path(
+        os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
+    )
+    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
+    ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
+    restore_key = _required_key_file("RATEREPLAY_RESTORE_KEY_FILE")
+    outcome_key = _required_key_file("RATEREPLAY_TRANSACTION_OUTCOME_KEY_FILE")
+    ledger = FilesystemDeletionLedger(
+        ledger_root,
+        integrity_key=ledger_key,
+        require_existing=True,
+    )
+    engine = make_engine(database_url)
+    sessions = make_session_factory(engine)
+    return (
+        RestoreReconciler(
+            sessions,
+            FilesystemObjectStore(object_root),
+            ledger,
+            restore_key=restore_key,
+            restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+            outcome_evidence_key=outcome_key,
+        ),
+        engine,
+    )
+
+
 def _required_key_file(variable: str) -> bytes:
     path = os.getenv(variable)
     if path is None:
         typer.echo(f"{variable} is required", err=True)
         raise typer.Exit(code=2)
-    value = Path(path).read_bytes().strip()
+    try:
+        value = Path(path).read_bytes().strip()
+    except OSError:
+        typer.echo(f"{variable} cannot be read", err=True)
+        raise typer.Exit(code=2) from None
     if len(value) < 32:
         typer.echo(f"{variable} must reference at least 32 bytes", err=True)
         raise typer.Exit(code=2)
     return value
+
+
+def _read_outcome_evidence(path: Path | None) -> tuple[TransactionOutcomeEvidence, ...]:
+    if path is None:
+        return ()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
+            raise TypeError
+        return tuple(TransactionOutcomeEvidence.from_dict(item) for item in payload)
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as error:
+        raise RestoreQualificationError(
+            "OUTCOME_EVIDENCE_INVALID",
+            "Transaction outcome evidence file is unreadable or invalid",
+        ) from error
 
 
 @app.command("run-once")
@@ -195,6 +255,99 @@ def run_deletions() -> None:
         typer.echo("stopped")
     finally:
         engine.dispose()
+
+
+@app.command("qualify-restore")
+def qualify_restore(
+    artifact_file: Annotated[
+        Path,
+        typer.Option(
+            "--artifact-file",
+            file_okay=True,
+            dir_okay=False,
+            writable=True,
+            resolve_path=True,
+            help="Private path for the complete restore qualification artifact.",
+        ),
+    ],
+    outcome_evidence_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--outcome-evidence-file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+            help="Optional signed authoritative outcomes for unresolved preparations.",
+        ),
+    ] = None,
+) -> None:
+    """Suppress restored data and fail closed until network exposure is safe."""
+
+    engine: Engine | None = None
+    try:
+        reconciler, engine = _configured_restore_reconciler()
+        qualification = reconciler.qualify(
+            now=datetime.now(UTC),
+            outcome_evidence=_read_outcome_evidence(outcome_evidence_file),
+        )
+        write_restore_qualification_artifact(artifact_file, qualification)
+        verified = verify_restore_qualification_artifact(
+            json.loads(artifact_file.read_text(encoding="ascii"))
+        )
+        typer.echo(
+            f"exposure_allowed={str(verified.exposure_allowed).lower()} "
+            f"holds={len(verified.quarantine_holds)} "
+            f"artifact_sha256={verified.artifact_sha256}"
+        )
+        if not verified.exposure_allowed:
+            raise typer.Exit(code=3)
+    except (DeletionLedgerError, RestoreQualificationError) as error:
+        typer.echo(f"{error.code}: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+
+@app.command("verify-restore-qualification")
+def verify_restore_qualification(
+    artifact_file: Annotated[
+        Path,
+        typer.Option(
+            "--artifact-file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    """Verify an exposure-gate artifact and reject a quarantined restore."""
+
+    try:
+        payload = json.loads(artifact_file.read_text(encoding="ascii"))
+        if not isinstance(payload, dict):
+            raise TypeError
+        verified = verify_restore_qualification_artifact(payload)
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        TypeError,
+        RestoreQualificationError,
+    ) as error:
+        code = getattr(error, "code", "QUALIFICATION_ARTIFACT_INVALID")
+        typer.echo(f"{code}: restore qualification artifact verification failed", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(
+        f"exposure_allowed={str(verified.exposure_allowed).lower()} "
+        f"artifact_sha256={verified.artifact_sha256}"
+    )
+    if not verified.exposure_allowed:
+        raise typer.Exit(code=3)
 
 
 if __name__ == "__main__":

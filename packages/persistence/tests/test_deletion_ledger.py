@@ -102,3 +102,31 @@ def test_tampering_or_wrong_key_fails_closed(tmp_path: Path) -> None:
     with pytest.raises(DeletionLedgerError) as wrong_key:
         FilesystemDeletionLedger(ledger_root, integrity_key=b"x" * 32).validate()
     assert wrong_key.value.code == "LEDGER_RECEIPT_INVALID"
+
+
+def test_restore_mode_requires_preexisting_keyed_ledger(tmp_path: Path) -> None:
+    ledger_root = tmp_path / "ledger"
+    with pytest.raises(DeletionLedgerError) as missing:
+        FilesystemDeletionLedger(
+            ledger_root,
+            integrity_key=b"k" * 32,
+            require_existing=True,
+        )
+    assert missing.value.code == "LEDGER_MISSING"
+    assert not ledger_root.exists()
+
+    initialized = FilesystemDeletionLedger(ledger_root, integrity_key=b"k" * 32)
+    initialized.validate()
+    reopened = FilesystemDeletionLedger(
+        ledger_root,
+        integrity_key=b"k" * 32,
+        require_existing=True,
+    )
+    reopened.validate()
+    with pytest.raises(DeletionLedgerError) as wrong_empty_key:
+        FilesystemDeletionLedger(
+            ledger_root,
+            integrity_key=b"x" * 32,
+            require_existing=True,
+        ).validate()
+    assert wrong_empty_key.value.code == "LEDGER_RECEIPT_INVALID"

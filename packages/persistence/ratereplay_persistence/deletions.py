@@ -184,6 +184,7 @@ class DeletionCoordinator:
                     request_schema_version=INTENT_SCHEMA,
                     canonical_payload_hash=payload_hash,
                     receipt_digest=receipt_digest,
+                    target_scope_id=user.deletion_scope_id,
                     original_generation=user.lifecycle_generation,
                     proposed_generation=user.lifecycle_generation + 1,
                     state="INTENT_CREATED",
@@ -358,7 +359,7 @@ class DeletionCoordinator:
                 and user is not None
                 and user.lifecycle_state == "ACTIVE"
                 and user.lifecycle_generation == intent.original_generation
-                and user.deletion_scope_id is None
+                and user.deletion_scope_id == intent.target_scope_id
             ):
                 raise DeletionServiceError(
                     "ABORT_NOT_PROVABLE",
@@ -408,7 +409,7 @@ class DeletionCoordinator:
                 and user is not None
                 and user.lifecycle_state == "ACTIVE"
                 and user.lifecycle_generation == intent.original_generation
-                and user.deletion_scope_id is None
+                and user.deletion_scope_id == intent.target_scope_id
             )
 
     def _authorized_intent(
@@ -493,7 +494,7 @@ class DeletionCoordinator:
             )
             self._validate_event(prepared, intent)
             self._store_ledger_receipt(database, prepared)
-            target_scope_id = _target_scope_id(self._restore_key, prepared.deletion_id)
+            target_scope_id = intent.target_scope_id
             control = database.get(DeletionControlOperationRecord, prepared.deletion_id)
             if control is not None:
                 if not (
@@ -516,7 +517,7 @@ class DeletionCoordinator:
                 user is not None
                 and user.lifecycle_state == "ACTIVE"
                 and user.lifecycle_generation == prepared.original_generation
-                and user.deletion_scope_id is None
+                and user.deletion_scope_id == target_scope_id
                 and intent.state in {"INTENT_CREATED", "PREPARED"}
                 and intent.consumed_at is None
             ):
@@ -526,7 +527,6 @@ class DeletionCoordinator:
                 )
             user.lifecycle_state = "DELETION_PENDING_LEDGER"
             user.lifecycle_generation = prepared.proposed_generation
-            user.deletion_scope_id = target_scope_id
             intent.state = "CONSUMED"
             intent.prepared_at = datetime.fromisoformat(prepared.occurred_at)
             intent.preparation_digest = prepared.preparation_digest
@@ -687,7 +687,7 @@ class DeletionCoordinator:
         *,
         occurred_at: datetime,
     ) -> LedgerAppendArguments:
-        target_scope_id = _target_scope_id(self._restore_key, intent.deletion_id)
+        target_scope_id = intent.target_scope_id
         scope_token = _scope_token(self._restore_key, target_scope_id)
         proof_digest = _intent_proof_digest(intent)
         preparation_digest = _preparation_digest(
@@ -814,6 +814,7 @@ def _intent_proof_digest(intent: DeletionIntentRecord) -> str:
             "original_generation": intent.original_generation,
             "owner_user_id": intent.owner_user_id,
             "receipt_digest": intent.receipt_digest,
+            "target_scope_id": intent.target_scope_id,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -843,14 +844,6 @@ def _preparation_digest(
         separators=(",", ":"),
     ).encode("ascii")
     return hashlib.sha256(b"RateReplay.DeletionPreparation.v1\x00" + payload).hexdigest()
-
-
-def _target_scope_id(restore_key: bytes, deletion_id: str) -> str:
-    return hmac.new(
-        restore_key,
-        b"RateReplay.DeletionTargetScope.v1\x00" + deletion_id.encode("ascii"),
-        hashlib.sha256,
-    ).hexdigest()[:32]
 
 
 def _scope_token(restore_key: bytes, target_scope_id: str) -> str:

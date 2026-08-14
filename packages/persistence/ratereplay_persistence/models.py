@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import datetime
 
 from sqlalchemy import (
@@ -39,7 +40,12 @@ class UserRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
     lifecycle_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    deletion_scope_id: Mapped[str | None] = mapped_column(String(32), unique=True)
+    deletion_scope_id: Mapped[str] = mapped_column(
+        String(32),
+        unique=True,
+        nullable=False,
+        default=lambda: secrets.token_hex(16),
+    )
 
     sessions: Mapped[list[SessionRecord]] = relationship(
         back_populates="user",
@@ -518,6 +524,7 @@ class DeletionIntentRecord(Base):
     request_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
     canonical_payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     receipt_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_scope_id: Mapped[str] = mapped_column(String(32), nullable=False)
     original_generation: Mapped[int] = mapped_column(Integer, nullable=False)
     proposed_generation: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(32), nullable=False)
