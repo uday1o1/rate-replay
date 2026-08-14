@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="530" viewBox="0 0 980 530" role="img" aria-labelledby="title description">
+  <title id="title">Milestone 8 local p95 measurements against frozen thresholds</title>
+  <desc id="description">Six horizontal bars show each measured p95 as a fraction of its frozen acceptance threshold. All are below threshold. Human validation remains deferred.</desc>
+  <style>
+    .background { fill: #f8fafc; }
+    .track { fill: #dbe4f0; }
+    .title { fill: #0f172a; font: 700 22px system-ui, sans-serif; }
+    .subtitle { fill: #475569; font: 14px system-ui, sans-serif; }
+    .label { fill: #0f172a; font: 600 14px system-ui, sans-serif; }
+    .value { fill: #334155; font: 13px ui-monospace, monospace; }
+    .note { fill: #7c2d12; font: 600 13px system-ui, sans-serif; }
+  </style>
+  <rect width="980" height="530" class="background"/>
+  <text x="28" y="36" class="title">Local p95 performance and recovery</text>
+  <text x="28" y="59" class="subtitle">Bar length is p95 divided by the pre-frozen threshold. Exact values are shown at right.</text>
+  <text x="28" y="90" class="label">1-year import, warm follow-up</text>
+  <rect x="28" y="102" width="460" height="18" rx="4" class="track"/>
+  <rect x="28" y="102" width="13.12" height="18" rx="4" fill="#2563eb"/>
+  <text x="508" y="117" class="value">427.88 ms / 15,000 ms</text>
+  <text x="28" y="156" class="label">5-load optimization, warm</text>
+  <rect x="28" y="168" width="460" height="18" rx="4" class="track"/>
+  <rect x="28" y="168" width="39.39" height="18" rx="4" fill="#2563eb"/>
+  <text x="508" y="183" class="value">2,568.95 ms / 30,000 ms</text>
+  <text x="28" y="222" class="label">Comparison API GET, warm</text>
+  <rect x="28" y="234" width="460" height="18" rx="4" class="track"/>
+  <rect x="28" y="234" width="29.64" height="18" rx="4" fill="#2563eb"/>
+  <text x="508" y="249" class="value">64.43 ms / 1,000 ms</text>
+  <text x="28" y="288" class="label">Scenario API GET, warm</text>
+  <rect x="28" y="300" width="460" height="18" rx="4" class="track"/>
+  <rect x="28" y="300" width="153.19" height="18" rx="4" fill="#2563eb"/>
+  <text x="508" y="315" class="value">333.02 ms / 1,000 ms</text>
+  <text x="28" y="354" class="label">Import recovery after SIGKILL</text>
+  <rect x="28" y="366" width="460" height="18" rx="4" class="track"/>
+  <rect x="28" y="366" width="361.71" height="18" rx="4" fill="#c2410c"/>
+  <text x="508" y="381" class="value">23,589.76 ms / 30,000 ms</text>
+  <text x="28" y="420" class="label">Scenario recovery after SIGKILL</text>
+  <rect x="28" y="432" width="460" height="18" rx="4" class="track"/>
+  <rect x="28" y="432" width="418.25" height="18" rx="4" fill="#c2410c"/>
+  <text x="508" y="447" class="value">27,277.06 ms / 30,000 ms</text>
+  <text x="28" y="507" class="note">Automated evidence only. The genuine five-person comprehension gate is deferred.</text>
+</svg>

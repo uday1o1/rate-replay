@@ -384,6 +384,74 @@ def _validate_m1_evidence() -> None:
     _require(recovery["duplicate_terminal_results"] == 0, "M1_DUPLICATE_TERMINAL")
 
 
+def _validate_m8_evidence() -> None:
+    summary = _json("evidence/evaluation/m8-summary.json")
+    _require(
+        summary["schema_version"] == "m8-evaluation-summary-v1",
+        "M8_SUMMARY_SCHEMA_DRIFT",
+    )
+    _require(
+        summary["artifact_sha256"] == _artifact_self_hash(summary),
+        "M8_SUMMARY_ARTIFACT_HASH_MISMATCH",
+    )
+    _require(summary["automated_gate_result"] == "PASS", "M8_AUTOMATED_GATE_FAILED")
+    _require(
+        summary["implementation_status"] == "IMPLEMENTED_PENDING_GATE"
+        and summary["acceptance_gate_result"] == "DEFERRED",
+        "M8_DEFERRED_GATE_MISREPRESENTED",
+    )
+    human = summary["human_validation"]
+    _require(
+        human["state"] == "HUMAN_VALIDATION_DEFERRED"
+        and human["genuine_participant_count"] == 0
+        and human["synthetic_sessions_counted"] == 0
+        and human["synthetic_personas_are_development_only"] is True,
+        "M8_HUMAN_GATE_MISREPRESENTED",
+    )
+    _require(
+        human["qualification_command"] == "make qualification-m6-study",
+        "M8_HUMAN_QUALIFICATION_COMMAND_DRIFT",
+    )
+    _require(
+        summary["public_claim_boundary"]["private_customer_data_used"] is False
+        and summary["public_claim_boundary"]["genuine_human_comprehension_claim"] is False,
+        "M8_PUBLIC_CLAIM_BOUNDARY_DRIFT",
+    )
+    for source in summary["source_evidence"]:
+        source_path = ROOT / source["path"]
+        payload = cast(dict[str, Any], json.loads(source_path.read_text(encoding="utf-8")))
+        _require(source["file_sha256"] == _sha256(source_path), "M8_SOURCE_FILE_HASH_DRIFT")
+        _require(
+            source["artifact_sha256"] == payload["artifact_sha256"],
+            "M8_SOURCE_ARTIFACT_HASH_DRIFT",
+        )
+        _require(source["gate_result"] == payload["gate_result"] == "PASS", "M8_SOURCE_FAILED")
+
+    performance = _json("evidence/evaluation/m8-performance.json")
+    _require(
+        performance["schema_version"] == "m8-performance-aggregate-v1",
+        "M8_PERFORMANCE_SCHEMA_DRIFT",
+    )
+    _require(
+        performance["artifact_sha256"] == _artifact_self_hash(performance),
+        "M8_PERFORMANCE_ARTIFACT_HASH_MISMATCH",
+    )
+    _require(
+        performance["gate_result"] == "PASS"
+        and performance["all_thresholded_measurements_passed"] is True,
+        "M8_PERFORMANCE_GATE_FAILED",
+    )
+    _require(performance["measurement_count"] == 25, "M8_MEASUREMENT_COUNT_DRIFT")
+    _require(
+        performance["original_high_variance_measurements_preserved"] is True,
+        "M8_HIGH_VARIANCE_RESULT_REPLACED",
+    )
+    _require(
+        performance["duplicate_successful_results"] == 0,
+        "M8_DUPLICATE_SUCCESSFUL_RESULT",
+    )
+
+
 def _validate_m4_performance_charter() -> None:
     charter = _json("benchmarks/charters/performance-v2.json")
     workload = _json("benchmarks/workloads/m4-july-optimization.json")
@@ -742,6 +810,7 @@ def main() -> None:
     _validate_synthetic_study_qa()
     _validate_m7_evidence()
     _validate_m1_evidence()
+    _validate_m8_evidence()
     _validate_m4_performance_charter()
     _validate_m4_correctness_evidence()
     _validate_m2_evidence()

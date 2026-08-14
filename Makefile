@@ -3,7 +3,7 @@ UV_CACHE_DIR ?= /private/tmp/rate-replay-uv-cache
 PNPM_STORE_DIR ?= /private/tmp/rate-replay-pnpm-store
 COMPOSE ?= $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: bootstrap browser-bootstrap browser-test check format format-check lint typecheck test security dependency-audit web-build compose-config operations-config-check release-config-check clean-checkout-check integration-auth integration-backup integration-object-store integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization benchmark-m8-performance qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4 qualification-m6-study qualification-m7-restore qualification-m7-deployment qualification-m8 qualification-m8-correctness qualification-m8-release m8-correctness-check m8-performance-check m8-manifest-check demo-artifacts demo-artifacts-check user-study-protocol-check
+.PHONY: bootstrap browser-bootstrap browser-test check format format-check lint typecheck test security dependency-audit web-build compose-config operations-config-check release-config-check clean-checkout-check integration-auth integration-backup integration-object-store integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization benchmark-m8-performance finalize-m8-evaluation qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4 qualification-m6-study qualification-m7-restore qualification-m7-deployment qualification-m8 qualification-m8-correctness qualification-m8-release m8-correctness-check m8-performance-check m8-evaluation-check m8-manifest-check demo-artifacts demo-artifacts-check user-study-protocol-check
 
 bootstrap:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync --frozen --all-groups
@@ -54,7 +54,7 @@ compose-config:
 	RATEREPLAY_PROXY_IMAGE=ratereplay-proxy:config \
 	$(COMPOSE) -f compose.release.yaml config --quiet
 
-check: format-check lint typecheck test browser-test security web-build compose-config operations-config-check release-config-check m8-manifest-check m8-correctness-check m8-performance-check demo-artifacts-check user-study-protocol-check
+check: format-check lint typecheck test browser-test security web-build compose-config operations-config-check release-config-check m8-manifest-check m8-correctness-check m8-performance-check m8-evaluation-check demo-artifacts-check user-study-protocol-check
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_evidence.py
 
 operations-config-check:
@@ -102,6 +102,15 @@ m8-performance-check:
 
 qualification-m8-release: m8-manifest-check
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.qualify_m8_release
+
+finalize-m8-evaluation:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.finalize_m8_evaluation
+
+m8-evaluation-check:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m scripts.finalize_m8_evaluation --check
+
+qualification-m8: m8-manifest-check m8-correctness-check m8-performance-check m8-evaluation-check demo-artifacts-check user-study-protocol-check
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/user_comprehension_study.py validate --results-dir evidence/user-study
 
 clean-checkout-check:
 	./scripts/clean-checkout-check.sh

@@ -1,0 +1,113 @@
+{
+  "acceptance_blocker": "GENUINE_FIVE_PERSON_HUMAN_STUDY_NOT_RECORDED",
+  "acceptance_gate_result": "DEFERRED",
+  "artifact_sha256": "3933ea0d6e55912d548a743787053a10f6193b35187513663d946d51cbdc2399",
+  "automated_gate_result": "PASS",
+  "generated_views": {
+    "csv": "docs/results/m8-performance.csv",
+    "performance_json": "evidence/evaluation/m8-performance.json",
+    "svg": "docs/results/m8-performance.svg"
+  },
+  "human_validation": {
+    "after_human_qualification_command": "make qualification-m8",
+    "genuine_participant_count": 0,
+    "qualification_command": "make qualification-m6-study",
+    "state": "HUMAN_VALIDATION_DEFERRED",
+    "synthetic_personas_are_development_only": true,
+    "synthetic_sessions_counted": 0
+  },
+  "implementation_status": "IMPLEMENTED_PENDING_GATE",
+  "limitations": [
+    "The genuine five-person comprehension gate has not run, so Milestone 8 is not accepted.",
+    "Synthetic persona sessions are development-only and do not count toward the human gate.",
+    "Performance evidence is local and supports no hosted, customer-workload, or multi-host claim.",
+    "Fast-operation variance is preserved in the original artifact and investigated separately.",
+    "Tariff, parser, ranking, and optimizer conclusions apply only to their locked public or synthetic inputs."
+  ],
+  "manifest": {
+    "file_sha256": "104e89dbe2f418171356178b6fdf9553661b88ae12686646af4220bfd8739419",
+    "manifest_sha256": "06186b97f28994d05144175d9b7b574ac441bbc2949524c2898d2c27984d0cf9",
+    "path": "benchmarks/manifests/m8-evaluation-v1.json"
+  },
+  "measured_results": {
+    "all_automated_source_gates_passed": true,
+    "all_thresholded_rows_passed": true,
+    "all_worker_restarts_observed": true,
+    "duplicate_successful_results": 0,
+    "high_variance_rows_preserved": [
+      "import:one-year-15-minute:warm",
+      "replay:scale-1:cold",
+      "replay:scale-1:warm",
+      "release-api:warm_cached_comparison_get",
+      "release-api:warm_scenario_get"
+    ],
+    "measurement_row_count": 25,
+    "release_application_source_commit": "62e11d207bb19a275cf653633292fb10ad5903de",
+    "release_evaluation_source_commit": "62e11d207bb19a275cf653633292fb10ad5903de",
+    "release_source_remote_confirmed": true,
+    "variance_followup_artifact": "evidence/evaluation/m8-performance-variance-followup.json"
+  },
+  "public_claim_boundary": {
+    "data_scope": "PUBLIC_SIMULATED_AND_SYNTHETIC_ENGINEERING_ONLY",
+    "evidence_level": "LOCAL_REPRODUCIBLE",
+    "genuine_human_comprehension_claim": false,
+    "private_customer_data_used": false,
+    "withheld_claims": [
+      "HOSTED_VALIDATED",
+      "CUSTOMER_WORKLOAD_PERFORMANCE",
+      "MULTI_HOST_SCALING",
+      "PRODUCTION_ACME_TLS"
+    ]
+  },
+  "schema_version": "m8-evaluation-summary-v1",
+  "source_evidence": [
+    {
+      "artifact_sha256": "9d341d5777603ee2923acdf2739c2076458033fe720033a226d0a0d124807149",
+      "file_sha256": "f94de02b44fffa4f737911662d4b7ce3f8dfff0846566100be9ce71e351f4cef",
+      "gate_result": "PASS",
+      "path": "evidence/correctness/m8-independent-golden-derivations.json"
+    },
+    {
+      "artifact_sha256": "c9960f638d071c6e4bde8bebea8cdf7a3e5424aad9f1810fcb17838dc8a3ffed",
+      "file_sha256": "9eef110177f9c19c944f7f1968c2b8c35d44ddf1d0b1fd3edfd4c8bbb501c742",
+      "gate_result": "PASS",
+      "path": "evidence/evaluation/m8-parser-correctness.json"
+    },
+    {
+      "artifact_sha256": "03ff3771b86562adf76d1aab95e02ba7ad8171c041654e6b7f0daf7686bfbf3a",
+      "file_sha256": "2293925466c48a8d30d477cdaa1c708e114213a8700cc8f4bb4a40e4b38e1d83",
+      "gate_result": "PASS",
+      "path": "evidence/evaluation/m8-comparison-coverage.json"
+    },
+    {
+      "artifact_sha256": "213e57691239b5c4d7857c9d1b6dbbcbcf27bdf398158485f072ca55e9e63f4b",
+      "file_sha256": "4f14d521c07ffa90d8430e33a0585dd825156203069c339ae29d83488bcbf256",
+      "gate_result": "PASS",
+      "path": "evidence/evaluation/m8-optimizer-oracle.json"
+    },
+    {
+      "artifact_sha256": "3dcab0571c821f7eda3cb2f4d683df58d7bfa5871e5b1d446ebbd464688a9082",
+      "file_sha256": "26ff3a4aa0f63804b881f9892f4ab5979533bcd0c8e99da016b226edd6447c34",
+      "gate_result": "PASS",
+      "path": "evidence/evaluation/m8-performance-local-core.json"
+    },
+    {
+      "artifact_sha256": "5e36d039ef4be1b49d20535acd7d0d30a3e797133b9966b69526f7e02e5baebb",
+      "file_sha256": "9dd95f5171fbcbfde2d3a707339b0aadf5facea0b72d33dbcb12a7fc6b8f34ed",
+      "gate_result": "PASS",
+      "path": "evidence/evaluation/m8-performance-variance-followup.json"
+    },
+    {
+      "artifact_sha256": "598756a43ffb4b021014711fa90b406ec701056fa1deb4d0878c208e354d1f79",
+      "file_sha256": "4cc0b61b8c05d64c9d903ca006120a1f67898d0aad7b4d7d6e8ab697e82ac1a3",
+      "gate_result": "PASS",
+      "path": "evidence/evaluation/m8-release-topology.json"
+    },
+    {
+      "artifact_sha256": "41af6f197f5c19ecba97f2e570b5b1e69fb155d0d754b2b7125463a397f8ef31",
+      "file_sha256": "1f7fb75aa401ac4776dbff1cc006fdaef26f3b061f5b31cd8de15ba1cc661462",
+      "gate_result": "PASS",
+      "path": "evidence/evaluation/m8-crash-recovery.json"
+    }
+  ]
+}

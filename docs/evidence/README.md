@@ -8,3 +8,4 @@
 - [Milestone 5](milestone-5.md): durable production jobs, owner-scoped artifacts, authorization, deletion and restore safety, encrypted storage and backups, retention, audit, and sanitized telemetry, `ACCEPTED`.
 - Milestone 6: complete public and private consumer workflow, automated browser qualification, accessibility, and synthetic protocol QA are implemented, while the required genuine study is `HUMAN_VALIDATION_DEFERRED`.
 - [Milestone 7](milestone-7.md): reliability, abuse controls, encrypted restore suppression, observability, local deployment, fault recovery, and rollback are `IMPLEMENTED_PENDING_GATE` because sequential acceptance waits for Milestone 6.
+- [Milestone 8](milestone-8.md): frozen correctness, performance, crash-recovery, result-table, and chart evidence are `IMPLEMENTED_PENDING_GATE`, while the required genuine study remains `HUMAN_VALIDATION_DEFERRED`.
