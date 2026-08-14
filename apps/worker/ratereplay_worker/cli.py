@@ -26,7 +26,12 @@ from ratereplay_persistence.database import (
     make_engine,
     make_session_factory,
 )
-from ratereplay_persistence.deletion_ledger import DeletionLedgerError, FilesystemDeletionLedger
+from ratereplay_persistence.deletion_ledger import (
+    DeletionLedgerError,
+    FilesystemDeletionLedger,
+    verify_rotation_artifact,
+    write_rotation_artifact,
+)
 from ratereplay_persistence.deletion_sweep import DeletionSweepService
 from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
@@ -764,6 +769,95 @@ def qualify_restore(
     finally:
         if engine is not None:
             engine.dispose()
+
+
+@app.command("rotate-deletion-keys")
+def rotate_deletion_keys(
+    root: Annotated[
+        Path,
+        typer.Option(
+            "--root",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+            writable=True,
+            resolve_path=True,
+        ),
+    ],
+    keys_dir: Annotated[
+        Path,
+        typer.Option(
+            "--keys-dir",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    restore_keys_dir: Annotated[
+        Path,
+        typer.Option(
+            "--restore-keys-dir",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    expected_ledger_key_version: Annotated[str, typer.Option()],
+    new_ledger_key_version: Annotated[str, typer.Option()],
+    expected_restore_key_version: Annotated[str, typer.Option()],
+    new_restore_key_version: Annotated[str, typer.Option()],
+    expected_head_sha256: Annotated[str, typer.Option()],
+    artifact_file: Annotated[
+        Path,
+        typer.Option(
+            "--artifact-file",
+            file_okay=True,
+            dir_okay=False,
+            writable=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    """Rotate pre-staged deletion ledger and restore keys without rewriting history."""
+
+    try:
+        ledger_keyring = load_keyring(keys_dir, current_version=new_ledger_key_version)
+        restore_keyring = load_keyring(
+            restore_keys_dir,
+            current_version=new_restore_key_version,
+        )
+        artifact = FilesystemDeletionLedger.rotate_keys(
+            root,
+            ledger_keyring=ledger_keyring,
+            restore_keyring=restore_keyring,
+            expected_ledger_key_version=expected_ledger_key_version,
+            expected_restore_key_version=expected_restore_key_version,
+            expected_head_sha256=expected_head_sha256,
+            rotated_at=datetime.now(UTC),
+        )
+        write_rotation_artifact(artifact_file, artifact)
+        verified = verify_rotation_artifact(json.loads(artifact_file.read_text(encoding="ascii")))
+    except (
+        DeletionLedgerError,
+        KeyringError,
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+    ) as error:
+        code = getattr(error, "code", "KEY_ROTATION_FAILED")
+        typer.echo(f"{code}: deletion key rotation failed", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(
+        f"rotation_sequence={verified.rotation_sequence} "
+        f"ledger_key_version={verified.current_ledger_key_version} "
+        f"restore_key_version={verified.current_restore_key_version} "
+        f"artifact_sha256={verified.artifact_sha256}"
+    )
 
 
 @app.command("verify-restore-qualification")

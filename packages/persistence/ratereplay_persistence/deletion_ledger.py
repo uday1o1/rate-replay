@@ -44,7 +44,7 @@ LedgerOperation = Literal[
     "ENUMERATE_UNRESOLVED",
     "VALIDATE",
 ]
-RecordType = Literal["LEDGER_EVENT", "ACCESS_AUDIT"]
+RecordType = Literal["LEDGER_EVENT", "ACCESS_AUDIT", "KEY_ROTATION"]
 
 LEGAL_CHAINS: Final = {
     ("PREPARED",),
@@ -126,10 +126,42 @@ class LedgerEvent:
         return hashlib.sha256(self.canonical_without_receipt()).hexdigest()
 
 
+@dataclass(frozen=True, slots=True)
+class LedgerRotationArtifact:
+    schema_version: Literal["deletion-key-rotation-artifact-v1"]
+    ledger_id: str
+    previous_head_sha256: str
+    rotated_head_sha256: str
+    rotation_record_sha256: str
+    rotation_sequence: int
+    previous_ledger_key_version: str
+    current_ledger_key_version: str
+    previous_restore_key_version: str
+    current_restore_key_version: str
+    rotated_at: str
+    artifact_sha256: str
+
+    def artifact_json(self) -> str:
+        return json.dumps(asdict(self), sort_keys=True, separators=(",", ":")) + "\n"
+
+
+@dataclass(frozen=True, slots=True)
+class _KeyRotation:
+    sequence: int
+    record_sha256: str
+    previous_head_sha256: str
+    previous_ledger_key_version: str
+    current_ledger_key_version: str
+    previous_restore_key_version: str
+    current_restore_key_version: str
+    occurred_at: str
+
+
 @dataclass(slots=True)
 class _LedgerState:
     ledger_id: str
     events: list[LedgerEvent]
+    rotations: list[_KeyRotation]
     last_sequence: int
     last_record_sha256: str | None
     nonces: set[tuple[str, str]]
@@ -147,6 +179,8 @@ class FilesystemDeletionLedger:
         restore_key_version: str = "restore-v1",
         actor: LedgerActor = "TEST",
         require_existing: bool = False,
+        _expected_ledger_key_version: str | None = None,
+        _expected_restore_key_version: str | None = None,
     ) -> None:
         if (integrity_key is None) == (keyring is None):
             raise ValueError("Provide exactly one deletion ledger key source")
@@ -171,6 +205,8 @@ class FilesystemDeletionLedger:
         self._legacy_genesis_path = self._root / "deletion-ledger-genesis-v1.json"
         self._keyring = keyring
         self._restore_key_version = restore_key_version
+        self._expected_ledger_key_version = _expected_ledger_key_version or keyring.current_version
+        self._expected_restore_key_version = _expected_restore_key_version or restore_key_version
         self._actor = actor
 
         if not self._active_path.is_file() and (
@@ -202,6 +238,124 @@ class FilesystemDeletionLedger:
                             "Deletion ledger has incomplete v2 control files",
                         )
                     self._initialize()
+
+    @classmethod
+    def rotate_keys(
+        cls,
+        root: Path,
+        *,
+        ledger_keyring: VersionedKeyring,
+        restore_keyring: VersionedKeyring,
+        expected_ledger_key_version: str,
+        expected_restore_key_version: str,
+        expected_head_sha256: str,
+        rotated_at: datetime,
+    ) -> LedgerRotationArtifact:
+        """Atomically rotate staged ledger and restore write keys under the ledger lock."""
+
+        if rotated_at.tzinfo is None:
+            raise TypeError("Key rotation timestamp must be timezone-aware")
+        if len(expected_head_sha256) != 64:
+            raise ValueError("Expected ledger head hash must contain 64 hexadecimal characters")
+        try:
+            bytes.fromhex(expected_head_sha256)
+            old_ledger_key = ledger_keyring.require(expected_ledger_key_version)
+            new_ledger_key = ledger_keyring.current_key()
+            old_restore_key = restore_keyring.require(expected_restore_key_version)
+            new_restore_key = restore_keyring.current_key()
+        except (ValueError, KeyringError) as error:
+            raise DeletionLedgerError(
+                "KEY_ROTATION_CONFIGURATION_INVALID",
+                "Key rotation requires every exact old and new key version",
+            ) from error
+        if (
+            expected_ledger_key_version == ledger_keyring.current_version
+            or expected_restore_key_version == restore_keyring.current_version
+            or hmac.compare_digest(old_ledger_key, new_ledger_key)
+            or hmac.compare_digest(old_restore_key, new_restore_key)
+        ):
+            raise DeletionLedgerError(
+                "KEY_ROTATION_CONFIGURATION_INVALID",
+                "Key rotation requires distinct old and new versions and key material",
+            )
+        ledger = cls(
+            root,
+            keyring=ledger_keyring,
+            restore_key_version=restore_keyring.current_version,
+            actor="ROTATION_CLI",
+            require_existing=True,
+            _expected_ledger_key_version=expected_ledger_key_version,
+            _expected_restore_key_version=expected_restore_key_version,
+        )
+        return ledger._rotate(
+            expected_head_sha256=expected_head_sha256,
+            rotated_at=rotated_at,
+        )
+
+    def _rotate(
+        self,
+        *,
+        expected_head_sha256: str,
+        rotated_at: datetime,
+    ) -> LedgerRotationArtifact:
+        with self._locked():
+            actual_head_sha256 = _file_sha256(self._head_path)
+            if not hmac.compare_digest(expected_head_sha256, actual_head_sha256):
+                raise DeletionLedgerError(
+                    "LEDGER_ROTATION_CONFLICT",
+                    "Signed ledger head changed before key rotation",
+                )
+            state = self._read_state(recover_head=True)
+            matching = next(
+                (
+                    rotation
+                    for rotation in state.rotations
+                    if rotation.previous_head_sha256 == expected_head_sha256
+                    and rotation.previous_ledger_key_version == self._expected_ledger_key_version
+                    and rotation.current_ledger_key_version == self._keyring.current_version
+                    and rotation.previous_restore_key_version == self._expected_restore_key_version
+                    and rotation.current_restore_key_version == self._restore_key_version
+                ),
+                None,
+            )
+            if matching is None:
+                payload = {
+                    "schema_version": "deletion-ledger-key-rotation-v1",
+                    "operation_id": secrets.token_hex(16),
+                    "actor": "ROTATION_CLI",
+                    "outcome": "AUTHORIZED",
+                    "previous_head_sha256": expected_head_sha256,
+                    "previous_ledger_key_version": self._expected_ledger_key_version,
+                    "current_ledger_key_version": self._keyring.current_version,
+                    "previous_restore_key_version": self._expected_restore_key_version,
+                    "current_restore_key_version": self._restore_key_version,
+                    "occurred_at": rotated_at.astimezone(UTC).isoformat(),
+                }
+                sequence = state.last_sequence + 1
+                record_sha256 = self._append_record(state, "KEY_ROTATION", payload)
+                matching = _rotation_from_payload(
+                    payload,
+                    sequence=sequence,
+                    record_sha256=record_sha256,
+                    envelope_key_version=self._keyring.current_version,
+                )
+            self._expected_ledger_key_version = self._keyring.current_version
+            self._expected_restore_key_version = self._restore_key_version
+            verified = self._read_state(recover_head=False)
+            if not any(
+                item.sequence == matching.sequence
+                and hmac.compare_digest(item.record_sha256, matching.record_sha256)
+                for item in verified.rotations
+            ):
+                raise DeletionLedgerError(
+                    "LEDGER_ROTATION_VERIFICATION_FAILED",
+                    "Key rotation record could not be verified after commit",
+                )
+            return _rotation_artifact(
+                ledger_id=verified.ledger_id,
+                rotation=matching,
+                rotated_head_sha256=_file_sha256(self._head_path),
+            )
 
     def append(
         self,
@@ -393,7 +547,7 @@ class FilesystemDeletionLedger:
         state: _LedgerState,
         record_type: RecordType,
         payload: Mapping[str, object],
-    ) -> None:
+    ) -> str:
         key_version = self._keyring.current_version
         nonce = self._unique_nonce(state, key_version)
         header: dict[str, object] = {
@@ -433,6 +587,7 @@ class FilesystemDeletionLedger:
         state.last_record_sha256 = record_sha256
         state.nonces.add((key_version, nonce.hex()))
         self._write_head(state)
+        return record_sha256
 
     def _unique_nonce(self, state: _LedgerState, key_version: str) -> bytes:
         for _ in range(MAXIMUM_NONCE_ATTEMPTS):
@@ -460,18 +615,19 @@ class FilesystemDeletionLedger:
                 "LEDGER_CONTROL_MISMATCH",
                 "Deletion ledger control files do not identify the same ledger",
             )
-        if head.get("current_ledger_key_version") != self._keyring.current_version:
+        if head.get("current_ledger_key_version") != self._expected_ledger_key_version:
             raise DeletionLedgerError(
                 "LEDGER_KEY_CONFIGURATION_MISMATCH",
                 "Configured current ledger key does not match the signed head",
             )
-        if head.get("current_restore_key_version") != self._restore_key_version:
+        if head.get("current_restore_key_version") != self._expected_restore_key_version:
             raise DeletionLedgerError(
                 "RESTORE_KEY_CONFIGURATION_MISMATCH",
                 "Configured current restore key does not match the signed head",
             )
 
         events: list[LedgerEvent] = []
+        rotations: list[_KeyRotation] = []
         nonces: set[tuple[str, str]] = set()
         record_hashes: list[str] = []
         previous_record_sha256: str | None = None
@@ -500,7 +656,7 @@ class FilesystemDeletionLedger:
                         envelope_key_version=cast(str, record["key_version"]),
                     )
                 )
-            else:
+            elif record["record_type"] == "ACCESS_AUDIT":
                 self._validate_audit(
                     payload,
                     expected_previous_sequence=cast(int, record["sequence"]) - 1,
@@ -508,6 +664,15 @@ class FilesystemDeletionLedger:
                         str | None,
                         record["previous_record_sha256"],
                     ),
+                )
+            else:
+                rotations.append(
+                    _rotation_from_payload(
+                        payload,
+                        sequence=cast(int, record["sequence"]),
+                        record_sha256=cast(str, record["record_sha256"]),
+                        envelope_key_version=cast(str, record["key_version"]),
+                    )
                 )
         self._validate_event_chains(events)
 
@@ -524,9 +689,18 @@ class FilesystemDeletionLedger:
                 "LEDGER_HEAD_MISMATCH",
                 "Signed ledger head does not match the encrypted stream",
             )
+        self._validate_rotation_chain(
+            rotations,
+            genesis_ledger_key_version=_required_text(genesis, "ledger_key_version"),
+            head_sequence=head_sequence,
+            head_ledger_key_version=_required_text(head, "current_ledger_key_version"),
+            head_restore_key_version=_required_text(head, "current_restore_key_version"),
+            has_tail=len(record_hashes) > head_sequence,
+        )
         state = _LedgerState(
             ledger_id=ledger_id,
             events=events,
+            rotations=rotations,
             last_sequence=len(record_hashes),
             last_record_sha256=record_hashes[-1] if record_hashes else None,
             nonces=nonces,
@@ -576,7 +750,7 @@ class FilesystemDeletionLedger:
                     "Encrypted ledger global record chain is broken",
                 )
             record_type = record["record_type"]
-            if record_type not in {"LEDGER_EVENT", "ACCESS_AUDIT"}:
+            if record_type not in {"LEDGER_EVENT", "ACCESS_AUDIT", "KEY_ROTATION"}:
                 raise TypeError
             key_version = _required_text(record, "key_version")
             nonce_text = _required_text(record, "nonce")
@@ -729,6 +903,57 @@ class FilesystemDeletionLedger:
                 "Deletion ledger contains an illegal event chain",
             )
 
+    def _validate_rotation_chain(
+        self,
+        rotations: list[_KeyRotation],
+        *,
+        genesis_ledger_key_version: str,
+        head_sequence: int,
+        head_ledger_key_version: str,
+        head_restore_key_version: str,
+        has_tail: bool,
+    ) -> None:
+        previous_ledger_version = genesis_ledger_key_version
+        previous_restore_version: str | None = None
+        committed_ledger_version = genesis_ledger_key_version
+        committed_restore_version: str | None = None
+        for rotation in rotations:
+            if rotation.previous_ledger_key_version != previous_ledger_version or (
+                previous_restore_version is not None
+                and rotation.previous_restore_key_version != previous_restore_version
+            ):
+                raise DeletionLedgerError(
+                    "LEDGER_ROTATION_CHAIN_BROKEN",
+                    "Deletion ledger key-rotation chain is not contiguous",
+                )
+            previous_ledger_version = rotation.current_ledger_key_version
+            previous_restore_version = rotation.current_restore_key_version
+            if rotation.sequence <= head_sequence:
+                committed_ledger_version = rotation.current_ledger_key_version
+                committed_restore_version = rotation.current_restore_key_version
+        if committed_ledger_version != head_ledger_key_version or (
+            committed_restore_version is not None
+            and committed_restore_version != head_restore_key_version
+        ):
+            raise DeletionLedgerError(
+                "LEDGER_ROTATION_HEAD_MISMATCH",
+                "Signed ledger head does not match its committed key-rotation chain",
+            )
+        if has_tail and rotations and rotations[-1].sequence > head_sequence:
+            first_tail = next(
+                rotation for rotation in rotations if rotation.sequence > head_sequence
+            )
+            if (
+                first_tail.previous_ledger_key_version != head_ledger_key_version
+                or first_tail.previous_restore_key_version != head_restore_key_version
+                or rotations[-1].current_ledger_key_version != self._keyring.current_version
+                or rotations[-1].current_restore_key_version != self._restore_key_version
+            ):
+                raise DeletionLedgerError(
+                    "LEDGER_ROTATION_TAIL_INVALID",
+                    "Uncommitted key-rotation tail does not match configured staged keys",
+                )
+
     def _initialize(self) -> None:
         ledger_id = secrets.token_hex(16)
         key_version = self._keyring.current_version
@@ -748,7 +973,7 @@ class FilesystemDeletionLedger:
             },
             "genesis",
         )
-        state = _LedgerState(ledger_id, [], 0, None, set())
+        state = _LedgerState(ledger_id, [], [], 0, None, set())
         self._write_head(state)
         self._write_signed(
             self._active_path,
@@ -849,6 +1074,171 @@ class FilesystemDeletionLedger:
                 lock.close()
 
 
+def _rotation_from_payload(
+    payload: Mapping[str, object],
+    *,
+    sequence: int,
+    record_sha256: str,
+    envelope_key_version: str,
+) -> _KeyRotation:
+    expected_keys = {
+        "schema_version",
+        "operation_id",
+        "actor",
+        "outcome",
+        "previous_head_sha256",
+        "previous_ledger_key_version",
+        "current_ledger_key_version",
+        "previous_restore_key_version",
+        "current_restore_key_version",
+        "occurred_at",
+    }
+    try:
+        previous_head = _required_text(payload, "previous_head_sha256")
+        previous_ledger = _required_text(payload, "previous_ledger_key_version")
+        current_ledger = _required_text(payload, "current_ledger_key_version")
+        previous_restore = _required_text(payload, "previous_restore_key_version")
+        current_restore = _required_text(payload, "current_restore_key_version")
+        occurred_at = _required_text(payload, "occurred_at")
+        parsed_time = datetime.fromisoformat(occurred_at)
+        bytes.fromhex(previous_head)
+        if (
+            set(payload) != expected_keys
+            or payload["schema_version"] != "deletion-ledger-key-rotation-v1"
+            or payload["actor"] != "ROTATION_CLI"
+            or payload["outcome"] != "AUTHORIZED"
+            or len(_required_text(payload, "operation_id")) != 32
+            or len(previous_head) != 64
+            or previous_ledger == current_ledger
+            or previous_restore == current_restore
+            or current_ledger != envelope_key_version
+            or parsed_time.tzinfo is None
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError) as error:
+        raise DeletionLedgerError(
+            "LEDGER_ROTATION_RECORD_INVALID",
+            "Deletion ledger key-rotation record is invalid",
+        ) from error
+    return _KeyRotation(
+        sequence=sequence,
+        record_sha256=record_sha256,
+        previous_head_sha256=previous_head,
+        previous_ledger_key_version=previous_ledger,
+        current_ledger_key_version=current_ledger,
+        previous_restore_key_version=previous_restore,
+        current_restore_key_version=current_restore,
+        occurred_at=occurred_at,
+    )
+
+
+def _rotation_artifact(
+    *,
+    ledger_id: str,
+    rotation: _KeyRotation,
+    rotated_head_sha256: str,
+) -> LedgerRotationArtifact:
+    payload: dict[str, object] = {
+        "schema_version": "deletion-key-rotation-artifact-v1",
+        "ledger_id": ledger_id,
+        "previous_head_sha256": rotation.previous_head_sha256,
+        "rotated_head_sha256": rotated_head_sha256,
+        "rotation_record_sha256": rotation.record_sha256,
+        "rotation_sequence": rotation.sequence,
+        "previous_ledger_key_version": rotation.previous_ledger_key_version,
+        "current_ledger_key_version": rotation.current_ledger_key_version,
+        "previous_restore_key_version": rotation.previous_restore_key_version,
+        "current_restore_key_version": rotation.current_restore_key_version,
+        "rotated_at": rotation.occurred_at,
+    }
+    return LedgerRotationArtifact(
+        schema_version="deletion-key-rotation-artifact-v1",
+        ledger_id=ledger_id,
+        previous_head_sha256=rotation.previous_head_sha256,
+        rotated_head_sha256=rotated_head_sha256,
+        rotation_record_sha256=rotation.record_sha256,
+        rotation_sequence=rotation.sequence,
+        previous_ledger_key_version=rotation.previous_ledger_key_version,
+        current_ledger_key_version=rotation.current_ledger_key_version,
+        previous_restore_key_version=rotation.previous_restore_key_version,
+        current_restore_key_version=rotation.current_restore_key_version,
+        rotated_at=rotation.occurred_at,
+        artifact_sha256=hashlib.sha256(
+            b"RateReplay.DeletionKeyRotationArtifact.v1\x00" + _canonical(payload)
+        ).hexdigest(),
+    )
+
+
+def verify_rotation_artifact(payload: Mapping[str, object]) -> LedgerRotationArtifact:
+    try:
+        if (
+            set(payload)
+            != {
+                "schema_version",
+                "ledger_id",
+                "previous_head_sha256",
+                "rotated_head_sha256",
+                "rotation_record_sha256",
+                "rotation_sequence",
+                "previous_ledger_key_version",
+                "current_ledger_key_version",
+                "previous_restore_key_version",
+                "current_restore_key_version",
+                "rotated_at",
+                "artifact_sha256",
+            }
+            or payload.get("schema_version") != "deletion-key-rotation-artifact-v1"
+        ):
+            raise ValueError
+        artifact = LedgerRotationArtifact(
+            schema_version="deletion-key-rotation-artifact-v1",
+            ledger_id=_required_text(payload, "ledger_id"),
+            previous_head_sha256=_required_text(payload, "previous_head_sha256"),
+            rotated_head_sha256=_required_text(payload, "rotated_head_sha256"),
+            rotation_record_sha256=_required_text(payload, "rotation_record_sha256"),
+            rotation_sequence=_required_integer(payload, "rotation_sequence"),
+            previous_ledger_key_version=_required_text(payload, "previous_ledger_key_version"),
+            current_ledger_key_version=_required_text(payload, "current_ledger_key_version"),
+            previous_restore_key_version=_required_text(payload, "previous_restore_key_version"),
+            current_restore_key_version=_required_text(payload, "current_restore_key_version"),
+            rotated_at=_required_text(payload, "rotated_at"),
+            artifact_sha256=_required_text(payload, "artifact_sha256"),
+        )
+        unsigned = asdict(artifact)
+        digest = _required_text(unsigned, "artifact_sha256")
+        unsigned.pop("artifact_sha256")
+        expected = hashlib.sha256(
+            b"RateReplay.DeletionKeyRotationArtifact.v1\x00" + _canonical(unsigned)
+        ).hexdigest()
+        if (
+            artifact.schema_version != "deletion-key-rotation-artifact-v1"
+            or artifact.rotation_sequence <= 0
+            or len(artifact.previous_head_sha256) != 64
+            or len(artifact.rotated_head_sha256) != 64
+            or len(artifact.rotation_record_sha256) != 64
+            or datetime.fromisoformat(artifact.rotated_at).tzinfo is None
+            or not hmac.compare_digest(digest, expected)
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError) as error:
+        raise DeletionLedgerError(
+            "KEY_ROTATION_ARTIFACT_INVALID",
+            "Deletion key-rotation artifact is invalid",
+        ) from error
+    return artifact
+
+
+def write_rotation_artifact(path: Path, artifact: LedgerRotationArtifact) -> None:
+    verified = verify_rotation_artifact(asdict(artifact))
+    try:
+        _atomic_write(path, verified.artifact_json().encode("ascii"))
+    except OSError as error:
+        raise DeletionLedgerError(
+            "KEY_ROTATION_ARTIFACT_WRITE_FAILED",
+            "Deletion key-rotation artifact could not be persisted",
+        ) from error
+
+
 def _validate_event(event: LedgerEvent) -> None:
     if (
         event.schema_version != "deletion-ledger-event-v2"
@@ -889,6 +1279,16 @@ def _required_integer(payload: Mapping[str, object], key: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"{key} must be an integer")
     return value
+
+
+def _file_sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as error:
+        raise DeletionLedgerError(
+            "LEDGER_UNREADABLE",
+            "Deletion ledger control file cannot be read",
+        ) from error
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import sys
@@ -9,6 +10,7 @@ import pytest
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
 from ratereplay_persistence.deletions import _scope_token
+from ratereplay_persistence.keyrings import VersionedKeyring
 from ratereplay_persistence.models import JobRecord, UserRecord
 from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_worker.cli import app
@@ -45,6 +47,7 @@ def test_worker_cli_exposes_one_shot_and_continuous_modes() -> None:
     assert "verify-backup" in result.output
     assert "expire-backups-once" in result.output
     assert "qualify-restore" in result.output
+    assert "rotate-deletion-keys" in result.output
     assert "verify-restore-qualification" in result.output
 
 
@@ -234,6 +237,68 @@ def test_restore_qualification_cli_accepts_versioned_key_directories(
 
     assert result.exit_code == 0, result.output
     assert "exposure_allowed=true" in result.output
+
+
+def test_deletion_key_rotation_cli_writes_verified_redacted_artifact(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "ledger"
+    FilesystemDeletionLedger(
+        root,
+        integrity_key=b"l" * 32,
+        restore_key_version="restore-v1",
+    )
+    ledger_keys = tmp_path / "ledger-keys"
+    restore_keys = tmp_path / "restore-keys"
+    ledger_keys.mkdir()
+    restore_keys.mkdir()
+    (ledger_keys / "ledger-v1").write_bytes(b"l" * 32)
+    (ledger_keys / "ledger-v2").write_bytes(b"n" * 32)
+    (restore_keys / "restore-v1").write_bytes(b"r" * 32)
+    (restore_keys / "restore-v2").write_bytes(b"s" * 32)
+    expected_head = hashlib.sha256((root / "deletion-ledger-head-v2.json").read_bytes()).hexdigest()
+    artifact = tmp_path / "rotation.json"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "rotate-deletion-keys",
+            "--root",
+            str(root),
+            "--keys-dir",
+            str(ledger_keys),
+            "--restore-keys-dir",
+            str(restore_keys),
+            "--expected-ledger-key-version",
+            "ledger-v1",
+            "--new-ledger-key-version",
+            "ledger-v2",
+            "--expected-restore-key-version",
+            "restore-v1",
+            "--new-restore-key-version",
+            "restore-v2",
+            "--expected-head-sha256",
+            expected_head,
+            "--artifact-file",
+            str(artifact),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "ledger_key_version=ledger-v2" in result.output
+    assert "restore_key_version=restore-v2" in result.output
+    payload = json.loads(artifact.read_text(encoding="ascii"))
+    assert payload["previous_head_sha256"] == expected_head
+    assert b"r" * 32 not in artifact.read_bytes()
+    FilesystemDeletionLedger(
+        root,
+        keyring=VersionedKeyring(
+            current_version="ledger-v2",
+            keys={"ledger-v1": b"l" * 32, "ledger-v2": b"n" * 32},
+        ),
+        restore_key_version="restore-v2",
+        require_existing=True,
+    ).validate()
 
 
 def test_restore_qualification_cli_writes_hold_and_exits_nonzero(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -16,6 +17,8 @@ from ratereplay_persistence.deletion_ledger import (
     FilesystemDeletionLedger,
     LedgerEvent,
     LedgerPhase,
+    verify_rotation_artifact,
+    write_rotation_artifact,
 )
 from ratereplay_persistence.keyrings import VersionedKeyring
 
@@ -45,6 +48,10 @@ def _append(
 
 def _stream(root: Path) -> Path:
     return root / "deletion-ledger-v2.jsonl"
+
+
+def _head_sha256(root: Path) -> str:
+    return hashlib.sha256((root / "deletion-ledger-head-v2.json").read_bytes()).hexdigest()
 
 
 def _records(root: Path) -> list[dict[str, Any]]:
@@ -347,6 +354,204 @@ def test_missing_historical_key_and_old_writer_configuration_fail_closed(tmp_pat
     with pytest.raises(DeletionLedgerError) as old_writer:
         FilesystemDeletionLedger(root, keyring=mixed, require_existing=True).validate()
     assert old_writer.value.code == "LEDGER_KEY_CONFIGURATION_MISMATCH"
+
+
+def test_key_rotation_preserves_history_and_rejects_old_writers(tmp_path: Path) -> None:
+    root = tmp_path / "ledger"
+    old_ledger_keyring = VersionedKeyring.single("ledger-v1", b"l" * 32)
+    ledger = FilesystemDeletionLedger(
+        root,
+        keyring=old_ledger_keyring,
+        restore_key_version="restore-v1",
+    )
+    prepared = _append(ledger, "PREPARED")
+    previous_head = _head_sha256(root)
+    ledger_keyring = VersionedKeyring(
+        current_version="ledger-v2",
+        keys={"ledger-v1": b"l" * 32, "ledger-v2": b"n" * 32},
+    )
+    restore_keyring = VersionedKeyring(
+        current_version="restore-v2",
+        keys={"restore-v1": b"r" * 32, "restore-v2": b"s" * 32},
+    )
+
+    artifact = FilesystemDeletionLedger.rotate_keys(
+        root,
+        ledger_keyring=ledger_keyring,
+        restore_keyring=restore_keyring,
+        expected_ledger_key_version="ledger-v1",
+        expected_restore_key_version="restore-v1",
+        expected_head_sha256=previous_head,
+        rotated_at=NOW + timedelta(seconds=1),
+    )
+
+    assert verify_rotation_artifact(asdict(artifact)) == artifact
+    assert artifact.previous_head_sha256 == previous_head
+    assert artifact.current_ledger_key_version == "ledger-v2"
+    assert artifact.current_restore_key_version == "restore-v2"
+    artifact_path = tmp_path / "rotation.json"
+    write_rotation_artifact(artifact_path, artifact)
+    assert artifact_path.stat().st_mode & 0o777 == 0o600
+    assert SCOPE_TOKEN not in artifact.artifact_json()
+    tampered_artifact = asdict(artifact)
+    tampered_artifact["current_ledger_key_version"] = "ledger-attacker"
+    with pytest.raises(DeletionLedgerError) as tampered:
+        verify_rotation_artifact(tampered_artifact)
+    assert tampered.value.code == "KEY_ROTATION_ARTIFACT_INVALID"
+    reopened = FilesystemDeletionLedger(
+        root,
+        keyring=ledger_keyring,
+        restore_key_version="restore-v2",
+        require_existing=True,
+    )
+    reopened.validate()
+    requested = reopened.append(
+        deletion_id=prepared.deletion_id,
+        phase="REQUESTED",
+        scope_token=prepared.scope_token,
+        restore_key_version=prepared.restore_key_version,
+        original_generation=prepared.original_generation,
+        proposed_generation=prepared.proposed_generation,
+        preparation_digest=prepared.preparation_digest,
+        intent_proof_digest=prepared.intent_proof_digest,
+        occurred_at=NOW + timedelta(seconds=2),
+    )
+    assert requested.previous_receipt == prepared.receipt
+    assert {record["key_version"] for record in _records(root)} == {
+        "ledger-v1",
+        "ledger-v2",
+    }
+
+    with pytest.raises(DeletionLedgerError) as missing_new_key:
+        FilesystemDeletionLedger(
+            root,
+            keyring=old_ledger_keyring,
+            restore_key_version="restore-v1",
+            require_existing=True,
+        ).validate()
+    assert missing_new_key.value.code == "LEDGER_KEY_VERSION_UNAVAILABLE"
+    old_current = VersionedKeyring(
+        current_version="ledger-v1",
+        keys=ledger_keyring.keys,
+    )
+    with pytest.raises(DeletionLedgerError) as stale_writer:
+        FilesystemDeletionLedger(
+            root,
+            keyring=old_current,
+            restore_key_version="restore-v1",
+            require_existing=True,
+        ).validate()
+    assert stale_writer.value.code == "LEDGER_KEY_CONFIGURATION_MISMATCH"
+
+
+def test_key_rotation_conflicts_and_missing_staged_keys_fail_without_mutation(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "ledger"
+    FilesystemDeletionLedger(
+        root,
+        keyring=VersionedKeyring.single("ledger-v1", b"l" * 32),
+        restore_key_version="restore-v1",
+    )
+    records_before = _records(root)
+    keyring = VersionedKeyring(
+        current_version="ledger-v2",
+        keys={"ledger-v1": b"l" * 32, "ledger-v2": b"n" * 32},
+    )
+    restore_keyring = VersionedKeyring(
+        current_version="restore-v2",
+        keys={"restore-v1": b"r" * 32, "restore-v2": b"s" * 32},
+    )
+    with pytest.raises(DeletionLedgerError) as conflict:
+        FilesystemDeletionLedger.rotate_keys(
+            root,
+            ledger_keyring=keyring,
+            restore_keyring=restore_keyring,
+            expected_ledger_key_version="ledger-v1",
+            expected_restore_key_version="restore-v1",
+            expected_head_sha256="0" * 64,
+            rotated_at=NOW,
+        )
+    assert conflict.value.code == "LEDGER_ROTATION_CONFLICT"
+    assert _records(root) == records_before
+
+    with pytest.raises(DeletionLedgerError) as missing:
+        FilesystemDeletionLedger.rotate_keys(
+            root,
+            ledger_keyring=VersionedKeyring.single("ledger-v2", b"n" * 32),
+            restore_keyring=restore_keyring,
+            expected_ledger_key_version="ledger-v1",
+            expected_restore_key_version="restore-v1",
+            expected_head_sha256=_head_sha256(root),
+            rotated_at=NOW,
+        )
+    assert missing.value.code == "KEY_ROTATION_CONFIGURATION_INVALID"
+    assert _records(root) == records_before
+
+
+def test_key_rotation_retry_recovers_authenticated_tail_after_head_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "ledger"
+    FilesystemDeletionLedger(
+        root,
+        keyring=VersionedKeyring.single("ledger-v1", b"l" * 32),
+        restore_key_version="restore-v1",
+    )
+    expected_head = _head_sha256(root)
+    ledger_keyring = VersionedKeyring(
+        current_version="ledger-v2",
+        keys={"ledger-v1": b"l" * 32, "ledger-v2": b"n" * 32},
+    )
+    restore_keyring = VersionedKeyring(
+        current_version="restore-v2",
+        keys={"restore-v1": b"r" * 32, "restore-v2": b"s" * 32},
+    )
+    original_write_head = FilesystemDeletionLedger._write_head
+    failed = False
+
+    def fail_rotation_head_once(
+        ledger: FilesystemDeletionLedger,
+        state: ledger_module._LedgerState,
+    ) -> None:
+        nonlocal failed
+        if ledger._actor == "ROTATION_CLI" and not failed:
+            failed = True
+            raise DeletionLedgerError("SEEDED_HEAD_FAILURE", "seeded rotation head failure")
+        original_write_head(ledger, state)
+
+    monkeypatch.setattr(FilesystemDeletionLedger, "_write_head", fail_rotation_head_once)
+    with pytest.raises(DeletionLedgerError, match="seeded rotation head failure"):
+        FilesystemDeletionLedger.rotate_keys(
+            root,
+            ledger_keyring=ledger_keyring,
+            restore_keyring=restore_keyring,
+            expected_ledger_key_version="ledger-v1",
+            expected_restore_key_version="restore-v1",
+            expected_head_sha256=expected_head,
+            rotated_at=NOW,
+        )
+    assert [record["record_type"] for record in _records(root)] == ["KEY_ROTATION"]
+
+    artifact = FilesystemDeletionLedger.rotate_keys(
+        root,
+        ledger_keyring=ledger_keyring,
+        restore_keyring=restore_keyring,
+        expected_ledger_key_version="ledger-v1",
+        expected_restore_key_version="restore-v1",
+        expected_head_sha256=expected_head,
+        rotated_at=NOW,
+    )
+
+    assert artifact.rotation_sequence == 1
+    assert [record["record_type"] for record in _records(root)] == ["KEY_ROTATION"]
+    FilesystemDeletionLedger(
+        root,
+        keyring=ledger_keyring,
+        restore_key_version="restore-v2",
+        require_existing=True,
+    ).validate()
 
 
 def test_restore_mode_requires_preexisting_encrypted_ledger(tmp_path: Path) -> None:

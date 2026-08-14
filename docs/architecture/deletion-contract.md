@@ -57,6 +57,32 @@ Missing historical keys fail closed with `RESTORE_KEY_VERSION_UNAVAILABLE` and l
 V1 retains all historical ledger and restore read keys indefinitely because retained backups and unresolved preparations can reference them.
 Key retirement is therefore report-only until backup retention and ledger state prove a version unnecessary.
 
+### Rotation procedure
+
+The operator first stages distinct exact 32-byte old and new key files in both versioned directories while every historical file remains present.
+The operator records the SHA-256 digest of `deletion-ledger-head-v2.json` and invokes the following command from a trusted host with local access to the ledger volume.
+
+```console
+ratereplay-worker rotate-deletion-keys \
+  --root /var/lib/ratereplay/deletion-ledger \
+  --keys-dir /run/secrets/deletion-ledger-keys \
+  --restore-keys-dir /run/secrets/restore-keys \
+  --expected-ledger-key-version ledger-v1 \
+  --new-ledger-key-version ledger-v2 \
+  --expected-restore-key-version restore-v1 \
+  --new-restore-key-version restore-v2 \
+  --expected-head-sha256 HEAD_SHA256 \
+  --artifact-file /var/lib/ratereplay/private-evidence/deletion-key-rotation.json
+```
+
+The command takes the ledger lock, validates the complete old history, requires all four staged key versions, rejects reused key material, and compares the signed head with the operator's expected digest.
+It then appends one encrypted `KEY_ROTATION` control record under the new ledger key and atomically updates the signed head to both new write versions without rewriting earlier records.
+An authenticated rotation tail left by a crash before the head update is completed by retrying the same command with the original expected head digest.
+The command writes and rereads a content-addressed redacted artifact before reporting success.
+After success, every API and worker process is restarted with the new current-version settings.
+A process that still selects either old write version fails closed before another ledger operation.
+The old ledger and restore keys remain read-only members of their keyrings under the V1 indefinite-retention policy.
+
 Every successful read or mutation first validates the entire chain and durably appends an encrypted access-audit record with a fixed actor, fixed operation, random operation ID, timestamp, and prior chain position.
 Access-audit records never contain deletion IDs, scope tokens, user IDs, paths, secrets, or free text.
 If the audit cannot be persisted, the requested read or mutation does not proceed.
