@@ -1,0 +1,97 @@
+{
+  "aggregation_rules": {
+    "deterministic_operations": "maximum for exact invariants and nearest-rank p95 for latency",
+    "nondeterministic_operations": "at least 10 measured repetitions, nearest-rank p50, p95, and p99 plus maximum",
+    "rounding": "six decimal places for milliseconds"
+  },
+  "cache_policy": {
+    "cold": "new application process, empty application caches, persistent services already healthy",
+    "warm": "declared warmups completed in the same process and no input or contract changes"
+  },
+  "charter_version": "performance-acceptance-v3",
+  "supersedes": "benchmarks/charters/performance-v2.json",
+  "change_justification": "The frozen v2 SHIFT_EXISTING reference failed exact decomposition because the simulated measured profile does not contain that declared load. V3 preserves every numeric threshold and changes only the workload mode to the already admitted historical-addition contract.",
+  "prior_failed_charters": [
+    {
+      "charter_path": "benchmarks/charters/performance-v2.json",
+      "charter_sha256": "22cc48f589e5c565d4974331c88b7b020dd8715137e992d23562e062ef569630",
+      "evidence_path": "evidence/performance/m4-performance-v2-failed.json",
+      "evidence_sha256": "a92fba21148c5f538381c63daee5e8833e039e437851c8289cae58c674db83f5",
+      "failure_code": "NEGATIVE_FIXED_BACKGROUND"
+    }
+  ],
+  "duplicate_result_threshold": 0,
+  "frozen_before_milestone": 4,
+  "hardware": {
+    "architecture": "arm64",
+    "logical_cpu_count": 10,
+    "machine": "Apple M5 developer laptop",
+    "memory_gib": 24,
+    "operating_system": "macOS 26.5"
+  },
+  "lease_and_heartbeat": {
+    "heartbeat_seconds": 5,
+    "lease_seconds": 20,
+    "recovery_deadline_seconds": 30,
+    "scenario_attempt_limit": 3
+  },
+  "process_topology": {
+    "api_processes": 1,
+    "database": "PostgreSQL 16.10 container",
+    "object_store": "MinIO RELEASE.2025-09-07T16-13-09Z container",
+    "web_processes": 1,
+    "worker_processes": 1,
+    "solver_search_workers": 1
+  },
+  "repetitions": {
+    "api_latency": 30,
+    "deterministic_recovery_cases": 10,
+    "import_and_replay": 10,
+    "optimization": 10,
+    "scenario_worker_recovery": 10,
+    "warmups": 3
+  },
+  "solver_limits": {
+    "configuration_version": "deterministic-cp-sat-v1",
+    "exact_objective_stages": 4,
+    "heuristic_objective_stages": 2,
+    "max_deterministic_time_per_stage": 5.0,
+    "num_search_workers": 1,
+    "random_seed": 20260813,
+    "randomize_search": false,
+    "log_search_progress": false,
+    "wall_clock_limit": null
+  },
+  "thresholds": {
+    "api_scenario_warm_get_p95_ms": 1000,
+    "api_warm_cached_comparison_p95_ms": 1000,
+    "duplicate_successful_results": 0,
+    "import_peak_rss_one_month_bytes": 268435456,
+    "import_peak_rss_one_year_bytes": 536870912,
+    "import_wall_one_month_p95_ms": 3000,
+    "import_wall_one_year_p95_ms": 15000,
+    "july_comparison_uncached_p95_ms": 3000,
+    "july_optimization_five_load_p95_ms": 30000,
+    "july_optimization_one_load_p95_ms": 10000,
+    "july_replay_p95_ms": 1000,
+    "report_generation_p95_ms": 2000,
+    "scenario_worker_recovery_maximum_ms": 30000,
+    "worker_recovery_maximum_ms": 30000
+  },
+  "variance_policy": "No published run may omit a failed repetition. A coefficient of variation above 0.20 requires investigation and a new run without deleting the original result.",
+  "workload_manifest": {
+    "api_concurrency": 8,
+    "calculation_time_mode": "HISTORICAL_REPLAY",
+    "import_profiles": [
+      "one-month-15-minute",
+      "six-month-15-minute",
+      "one-year-15-minute"
+    ],
+    "july_optimization_path": "benchmarks/workloads/m4-july-optimization-v2.json",
+    "july_optimization_sha256": "9f9b0b1cef2a8d3b86037e12dec41575ada69d2dc4642cf6b56d390e9108494b",
+    "july_profile_sha256": "47b449f47039960cde24666a5ed2723781b7773d624dbdd2b74de78e02da19ce",
+    "july_service_window": ["2026-07-01", "2026-08-01"],
+    "optimization_load_counts": [0, 1, 5],
+    "tariff_candidate_counts": [1, 3]
+  }
+}

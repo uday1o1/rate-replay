@@ -3,7 +3,7 @@ UV_CACHE_DIR ?= /private/tmp/rate-replay-uv-cache
 PNPM_STORE_DIR ?= /private/tmp/rate-replay-pnpm-store
 COMPOSE ?= $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-m1 integration-m2 integration-m3 benchmark-m1-recovery qualification-m2 qualification-m3-goldens qualification-m3
+.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-m1 integration-m2 integration-m3 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3
 
 bootstrap:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync --frozen --all-groups
@@ -75,6 +75,12 @@ integration-m3:
 
 benchmark-m1-recovery:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python benchmarks/scripts/m1_recovery.py
+
+benchmark-m4-v2-failure:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m benchmarks.scripts.m4_performance record-v2-failure
+
+benchmark-m4-optimization:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python -m benchmarks.scripts.m4_performance run-v3
 
 qualification-m2:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/qualify_m2.py

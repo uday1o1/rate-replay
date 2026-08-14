@@ -1,0 +1,16 @@
+{
+  "schema_version": "performance-charter-failure-v1",
+  "charter_version": "performance-acceptance-v2",
+  "charter_sha256": "22cc48f589e5c565d4974331c88b7b020dd8715137e992d23562e062ef569630",
+  "workload_version": "m4-july-optimization-v1",
+  "workload_sha256": "a139008cb272efbccb361a81ff6236c77561441bfeb0b8962da6d95bd567abf8",
+  "gate_result": "FAIL",
+  "failed_phase": "PRE_SOLVE_REFERENCE_VALIDATION",
+  "failure_code": "NEGATIVE_FIXED_BACKGROUND",
+  "failure_message": "Existing flexible references exceed measured profile energy",
+  "witness": {
+    "slot_index": 548
+  },
+  "reason": "The frozen SHIFT_EXISTING reference declares energy that is not present in the measured simulated profile, so exact decomposition would create negative fixed background.",
+  "thresholds_changed_in_successor": false
+}

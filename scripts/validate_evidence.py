@@ -283,6 +283,60 @@ def _validate_m4_performance_charter() -> None:
         charter["thresholds"]["scenario_worker_recovery_maximum_ms"] == 30_000,
         "M4_SCENARIO_RECOVERY_THRESHOLD_DRIFT",
     )
+    failure = _json("evidence/performance/m4-performance-v2-failed.json")
+    _require(failure["gate_result"] == "FAIL", "M4_V2_FAILURE_NOT_PRESERVED")
+    _require(
+        failure["charter_sha256"] == _sha256(ROOT / "benchmarks/charters/performance-v2.json"),
+        "M4_V2_FAILURE_CHARTER_HASH_MISMATCH",
+    )
+    _require(
+        failure["workload_sha256"]
+        == _sha256(ROOT / "benchmarks/workloads/m4-july-optimization.json"),
+        "M4_V2_FAILURE_WORKLOAD_HASH_MISMATCH",
+    )
+    _require(
+        failure["failure_code"] == "NEGATIVE_FIXED_BACKGROUND",
+        "M4_V2_FAILURE_CODE_DRIFT",
+    )
+    _require(
+        failure["thresholds_changed_in_successor"] is False,
+        "M4_V2_THRESHOLDS_RELABELED",
+    )
+    successor = _json("benchmarks/charters/performance-v3.json")
+    successor_workload = _json("benchmarks/workloads/m4-july-optimization-v2.json")
+    _require(
+        successor["charter_version"] == "performance-acceptance-v3",
+        "M4_V3_CHARTER_VERSION_DRIFT",
+    )
+    _require(
+        successor["supersedes"] == "benchmarks/charters/performance-v2.json",
+        "M4_V3_CHARTER_HISTORY_MISSING",
+    )
+    _require(
+        successor["thresholds"] == charter["thresholds"],
+        "M4_V3_THRESHOLD_CHANGED",
+    )
+    _require(
+        successor["workload_manifest"]["july_optimization_sha256"]
+        == _sha256(ROOT / successor["workload_manifest"]["july_optimization_path"]),
+        "M4_V3_WORKLOAD_HASH_MISMATCH",
+    )
+    prior = successor["prior_failed_charters"]
+    _require(len(prior) == 1, "M4_V3_PRIOR_FAILURE_COUNT_MISMATCH")
+    _require(
+        prior[0]["evidence_sha256"]
+        == _sha256(ROOT / "evidence/performance/m4-performance-v2-failed.json"),
+        "M4_V3_PRIOR_FAILURE_HASH_MISMATCH",
+    )
+    _require(
+        successor_workload["load_template"]["mode"] == "HISTORICAL_ADDITION",
+        "M4_V3_WORKLOAD_MODE_DRIFT",
+    )
+    _require(
+        successor_workload["load_template"]["historical_addition_label"]
+        == "HISTORICAL_COUNTERFACTUAL_NOT_FORECAST",
+        "M4_V3_COUNTERFACTUAL_LABEL_MISSING",
+    )
 
 
 def _validate_m2_evidence() -> None:
