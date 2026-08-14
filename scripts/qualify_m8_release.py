@@ -13,6 +13,7 @@ import secrets
 import shutil
 import ssl
 import statistics
+import subprocess  # nosec B404
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -606,8 +607,15 @@ def _restart_count(container: str) -> int:
 def _sql(
     deployment: ComposeDeployment,
     statement: str,
+    *,
+    variables: dict[str, str] | None = None,
 ) -> str:
-    return deployment.run(
+    variable_arguments: list[str] = []
+    for key, value in sorted((variables or {}).items()):
+        _require(key in {"import_id", "job_id", "owner_id"}, "SQL_VARIABLE_NAME_INVALID")
+        _require(HEX_IDENTIFIER.fullmatch(value) is not None, "SQL_VARIABLE_VALUE_INVALID")
+        variable_arguments.extend(("-v", f"{key}={value}"))
+    command = deployment.command(
         "exec",
         "-T",
         "postgres",
@@ -615,13 +623,31 @@ def _sql(
         "-X",
         "-v",
         "ON_ERROR_STOP=1",
+        *variable_arguments,
         "-U",
         "ratereplay",
         "-d",
         "ratereplay",
-        "-Atc",
-        statement,
-    ).stdout.strip()
+        "-At",
+        "--file=-",
+    )
+    completed = subprocess.run(  # noqa: S603  # nosec B603
+        command,
+        cwd=ROOT,
+        env=deployment.environment,
+        input=statement + "\n",
+        text=True,
+        capture_output=True,
+        timeout=300,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ReleaseQualificationError(
+            "SQL_COMMAND_FAILED\n"
+            f"stdout={completed.stdout[-4000:]}\n"
+            f"stderr={completed.stderr[-4000:]}"
+        )
+    return completed.stdout.strip()
 
 
 def _job_database_result(
@@ -636,32 +662,31 @@ def _job_database_result(
         _require(HEX_IDENTIFIER.fullmatch(identifier) is not None, "DATABASE_IDENTIFIER_INVALID")
     _require(result_table in {"imports", "scenario_results"}, "RESULT_TABLE_INVALID")
     _require(result_owner_column in {"id", "scenario_id"}, "RESULT_COLUMN_INVALID")
-    job_literal = f"'{job_id}'"
-    result_owner_literal = f"'{result_owner_id}'"
     attempt_count = int(
         _sql(
             deployment,
-            f"SELECT attempt_count FROM jobs WHERE id={job_literal}",  # noqa: S608
+            "SELECT attempt_count FROM jobs WHERE id=:'job_id'",
+            variables={"job_id": job_id},
         )
     )
     result_statements = {
-        ("imports", "id"): f"SELECT COUNT(*) FROM imports WHERE id={result_owner_literal}",  # noqa: S608
+        ("imports", "id"): "SELECT COUNT(*) FROM imports WHERE id=:'owner_id'",
         (
             "scenario_results",
             "scenario_id",
-        ): (
-            f"SELECT COUNT(*) FROM scenario_results WHERE scenario_id={result_owner_literal}"  # noqa: S608
-        ),
+        ): "SELECT COUNT(*) FROM scenario_results WHERE scenario_id=:'owner_id'",
     }
     result_count = int(
         _sql(
             deployment,
             result_statements[(result_table, result_owner_column)],
+            variables={"owner_id": result_owner_id},
         )
     )
     attempt_states = _sql(
         deployment,
-        f"SELECT state FROM job_attempts WHERE job_id={job_literal} ORDER BY attempt_number",  # noqa: S608
+        "SELECT state FROM job_attempts WHERE job_id=:'job_id' ORDER BY attempt_number",
+        variables={"job_id": job_id},
     ).splitlines()
     return attempt_count, result_count, attempt_states
 
@@ -671,7 +696,8 @@ def _import_reading_count(deployment: ComposeDeployment, *, import_id: str) -> i
     return int(
         _sql(
             deployment,
-            f"SELECT COUNT(*) FROM interval_readings WHERE import_id='{import_id}'",  # noqa: S608
+            "SELECT COUNT(*) FROM interval_readings WHERE import_id=:'import_id'",
+            variables={"import_id": import_id},
         )
     )
 

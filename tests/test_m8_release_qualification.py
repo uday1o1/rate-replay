@@ -11,6 +11,7 @@ from scripts.qualify_m8_release import (
     _import_reading_count,
     _job_database_result,
     _major_minor_version,
+    _sql,
     _wait_job,
     latency_statistics,
 )
@@ -19,19 +20,31 @@ from scripts.qualify_m8_release import (
 class RecordingDeployment:
     def __init__(self) -> None:
         self.statements: list[str] = []
+        self.commands: list[tuple[str, ...]] = []
         self.outputs = iter(("2", "1", "EXPIRED\nSUCCEEDED"))
+        self.environment: dict[str, str] = {}
 
-    def run(self, *arguments: str, **_kwargs: Any) -> SimpleNamespace:
-        self.statements.append(arguments[-1])
-        return SimpleNamespace(stdout=next(self.outputs))
+    def command(self, *arguments: str) -> tuple[str, ...]:
+        self.commands.append(arguments)
+        return ("docker-compose", *arguments)
+
+    def install_subprocess(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def run(_command: tuple[str, ...], **kwargs: Any) -> SimpleNamespace:
+            self.statements.append(kwargs["input"].rstrip("\n"))
+            return SimpleNamespace(stdout=next(self.outputs), stderr="", returncode=0)
+
+        monkeypatch.setattr(release_qualification.subprocess, "run", run)
 
 
 def test_hardware_manifest_os_version_uses_frozen_major_minor() -> None:
     assert _major_minor_version("26.5.2") == "26.5"
 
 
-def test_database_evidence_queries_use_validated_sql_literals() -> None:
+def test_database_evidence_queries_use_psql_literal_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     deployment = RecordingDeployment()
+    deployment.install_subprocess(monkeypatch)
     job_id = "a" * 32
     owner_id = "b" * 32
 
@@ -45,17 +58,21 @@ def test_database_evidence_queries_use_validated_sql_literals() -> None:
 
     assert result == (2, 1, ["EXPIRED", "SUCCEEDED"])
     assert deployment.statements == [
-        "SELECT attempt_count FROM jobs WHERE id='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
-        "SELECT COUNT(*) FROM scenario_results "
-        "WHERE scenario_id='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'",
-        "SELECT state FROM job_attempts "
-        "WHERE job_id='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ORDER BY attempt_number",
+        "SELECT attempt_count FROM jobs WHERE id=:'job_id'",
+        "SELECT COUNT(*) FROM scenario_results WHERE scenario_id=:'owner_id'",
+        "SELECT state FROM job_attempts WHERE job_id=:'job_id' ORDER BY attempt_number",
     ]
+    assert all("--file=-" in command for command in deployment.commands)
+    assert "job_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" in deployment.commands[0]
+    assert "owner_id=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" in deployment.commands[1]
 
 
-def test_import_evidence_counts_the_persisted_interval_readings() -> None:
+def test_import_evidence_counts_the_persisted_interval_readings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     deployment = RecordingDeployment()
     deployment.outputs = iter(("35040",))
+    deployment.install_subprocess(monkeypatch)
 
     result = _import_reading_count(
         deployment,  # type: ignore[arg-type]
@@ -64,8 +81,18 @@ def test_import_evidence_counts_the_persisted_interval_readings() -> None:
 
     assert result == 35_040
     assert deployment.statements == [
-        "SELECT COUNT(*) FROM interval_readings WHERE import_id='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'"
+        "SELECT COUNT(*) FROM interval_readings WHERE import_id=:'import_id'"
     ]
+    assert "import_id=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" in deployment.commands[0]
+
+
+def test_sql_binding_rejects_non_hex_values() -> None:
+    with pytest.raises(ReleaseQualificationError, match="SQL_VARIABLE_VALUE_INVALID"):
+        _sql(
+            RecordingDeployment(),  # type: ignore[arg-type]
+            "SELECT :'job_id'",
+            variables={"job_id": "a' OR TRUE --"},
+        )
 
 
 def test_job_wait_reports_terminal_failure_code(monkeypatch: pytest.MonkeyPatch) -> None:
