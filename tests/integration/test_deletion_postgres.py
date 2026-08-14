@@ -9,8 +9,11 @@ from pathlib import Path
 import pytest
 from ratereplay_persistence.database import make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
+from ratereplay_persistence.deletion_sweep import DeletionSweepService
 from ratereplay_persistence.deletions import DeletionCoordinator
+from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.models import (
+    DeletionAuditRecord,
     DeletionControlOperationRecord,
     DeletionIntentRecord,
     DeletionLedgerReceiptRecord,
@@ -20,6 +23,8 @@ from ratereplay_persistence.models import (
     SessionRecord,
     UserRecord,
 )
+from ratereplay_persistence.object_store import FilesystemObjectStore
+from ratereplay_worker.deletion_worker import DeletionWorker
 from sqlalchemy import delete, func, select
 
 pytestmark = pytest.mark.postgres
@@ -95,6 +100,32 @@ def test_postgres_serializes_intent_and_deletion_start_races(tmp_path: Path) -> 
             assert control is not None and control.deletion_job_id is not None
             assert user is not None
             assert (user.lifecycle_state, user.lifecycle_generation) == ("DELETING", 1)
+        worker = DeletionWorker(
+            worker_id="postgres-deletion-worker",
+            jobs=JobService(sessions),
+            sweeps=DeletionSweepService(
+                sessions,
+                FilesystemObjectStore(tmp_path / "objects"),
+                ledger,
+            ),
+        )
+        assert worker.run_once(now=now)
+        assert tuple(event.phase for event in ledger.chain(deletion_id)) == (
+            "PREPARED",
+            "REQUESTED",
+            "COMPLETED",
+        )
+        assert (
+            coordinator.status(
+                deletion_id=deletion_id,
+                receipt_secret=secret,
+                now=now,
+            ).status
+            == "DELETED"
+        )
+        with sessions() as database:
+            assert database.get(UserRecord, owner_id) is None
+            assert database.get(DeletionAuditRecord, deletion_id) is not None
     finally:
         with sessions.begin() as database:
             database.execute(
@@ -122,6 +153,9 @@ def test_postgres_serializes_intent_and_deletion_start_races(tmp_path: Path) -> 
                 delete(DeletionReceiptRecord).where(
                     DeletionReceiptRecord.deletion_id == deletion_id
                 )
+            )
+            database.execute(
+                delete(DeletionAuditRecord).where(DeletionAuditRecord.deletion_id == deletion_id)
             )
             database.execute(delete(SessionRecord).where(SessionRecord.user_id == owner_id))
             database.execute(delete(UserRecord).where(UserRecord.id == owner_id))

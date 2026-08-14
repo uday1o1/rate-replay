@@ -10,12 +10,15 @@ import pytest
 from fastapi import FastAPI
 from ratereplay_api.config import AppSettings
 from ratereplay_api.main import create_app
+from ratereplay_persistence.deletion_sweep import DeletionSweepService
 from ratereplay_persistence.models import (
+    DeletionAuditRecord,
     DeletionControlOperationRecord,
     DeletionReceiptRecord,
     SessionRecord,
     UserRecord,
 )
+from ratereplay_worker.deletion_worker import DeletionWorker
 from sqlalchemy import select
 
 ORIGIN = "https://app.ratereplay.test"
@@ -102,6 +105,19 @@ async def test_user_path_prepares_deletes_and_polls_without_session(
     assert accepted.json()["status"] == "DELETING"
     assert (await client.get("/v1/auth/session")).status_code == 401
 
+    app = cast(Any, test_app)
+    worker = DeletionWorker(
+        worker_id="api-test-deletion-worker",
+        jobs=app.state.job_service,
+        sweeps=DeletionSweepService(
+            app.state.session_factory,
+            app.state.object_store,
+            app.state.deletion_ledger,
+        ),
+    )
+    worker_now = app.state.auth_service.now
+    assert worker.run_once(now=worker_now)
+
     client.cookies.clear()
     receipt = await client.get(
         f"/v1/deletions/{deletion_id}",
@@ -109,28 +125,27 @@ async def test_user_path_prepares_deletes_and_polls_without_session(
     )
     assert receipt.status_code == 200, receipt.text
     assert receipt.headers["cache-control"] == "no-store"
-    assert receipt.json() == {
-        "schema_version": "deletion-status-v1",
-        "deletion_id": deletion_id,
-        "status": "DELETING",
-        "artifact_counts": {},
-        "completed_at": None,
-    }
+    receipt_body = receipt.json()
+    assert receipt_body["schema_version"] == "deletion-status-v1"
+    assert receipt_body["deletion_id"] == deletion_id
+    assert receipt_body["status"] == "DELETED"
+    assert receipt_body["artifact_counts"]["sessions"] == 1
+    assert receipt_body["completed_at"] == worker_now.isoformat()
 
-    app = cast(Any, test_app)
     assert tuple(event.phase for event in app.state.deletion_ledger.chain(deletion_id)) == (
         "PREPARED",
         "REQUESTED",
+        "COMPLETED",
     )
     with app.state.session_factory() as database:
         user = database.scalar(select(UserRecord))
         session = database.scalar(select(SessionRecord))
         control = database.get(DeletionControlOperationRecord, deletion_id)
         stored_receipt = database.get(DeletionReceiptRecord, deletion_id)
-        assert user is not None and user.lifecycle_state == "DELETING"
-        assert session is not None and session.revoked_at is not None
-        assert control is not None and control.deletion_job_id is not None
-        assert stored_receipt is not None
+        audit = database.get(DeletionAuditRecord, deletion_id)
+        assert user is None and session is None and control is None
+        assert stored_receipt is not None and stored_receipt.status == "DELETED"
+        assert audit is not None and audit.status_code == "VERIFIED_COMPLETE"
         assert _encoded(SECRET) not in stored_receipt.receipt_verifier
 
 

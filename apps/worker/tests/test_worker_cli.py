@@ -17,6 +17,8 @@ def test_worker_cli_exposes_one_shot_and_continuous_modes() -> None:
     assert "run" in result.output
     assert "reconcile-deletions-once" in result.output
     assert "reconcile-deletions" in result.output
+    assert "run-deletion-once" in result.output
+    assert "run-deletions" in result.output
 
 
 def test_deletion_reconciler_requires_separate_control_keys(

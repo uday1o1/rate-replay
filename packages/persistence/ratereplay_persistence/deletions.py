@@ -23,6 +23,7 @@ from ratereplay_persistence.deletion_ledger import (
     LedgerPhase,
 )
 from ratereplay_persistence.models import (
+    DeletionAuditRecord,
     DeletionControlOperationRecord,
     DeletionIntentRecord,
     DeletionLedgerReceiptRecord,
@@ -237,7 +238,18 @@ class DeletionCoordinator:
         _validate_receipt_secret(receipt_secret)
         with self._session_factory() as database:
             receipt = database.get(DeletionReceiptRecord, deletion_id)
-            if receipt is None or not _verify_receipt(receipt.receipt_verifier, receipt_secret):
+            if receipt is None:
+                audit = database.get(DeletionAuditRecord, deletion_id)
+                if audit is not None and now >= _aware(audit.verifier_expires_at):
+                    raise DeletionServiceError(
+                        "DELETION_RECEIPT_EXPIRED",
+                        "The deletion receipt has expired",
+                    )
+                raise DeletionServiceError(
+                    "INVALID_DELETION_PROOF",
+                    "Deletion receipt authorization failed",
+                )
+            if not _verify_receipt(receipt.receipt_verifier, receipt_secret):
                 raise DeletionServiceError(
                     "INVALID_DELETION_PROOF",
                     "Deletion receipt authorization failed",
@@ -649,7 +661,7 @@ class DeletionCoordinator:
                 captured_account_generation=control.deletion_generation,
                 state="QUEUED",
                 attempt_count=0,
-                max_attempts=10,
+                max_attempts=100,
                 fencing_generation=0,
                 not_before=now,
                 cancel_requested=False,

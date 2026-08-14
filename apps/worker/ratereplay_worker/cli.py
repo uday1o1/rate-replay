@@ -11,12 +11,14 @@ from pathlib import Path
 import typer
 from ratereplay_persistence.database import make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
+from ratereplay_persistence.deletion_sweep import DeletionSweepService
 from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.object_store import FilesystemObjectStore
 from sqlalchemy.engine import Engine
 
+from ratereplay_worker.deletion_worker import DeletionWorker
 from ratereplay_worker.import_worker import ImportWorker
 
 app = typer.Typer(no_args_is_help=True)
@@ -71,6 +73,32 @@ def _configured_deletion_reconciler() -> tuple[DeletionCoordinator, Engine]:
         restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
     )
     return coordinator, engine
+
+
+def _configured_deletion_worker() -> tuple[DeletionWorker, Engine]:
+    database_url = os.getenv("RATEREPLAY_DATABASE_URL")
+    if database_url is None:
+        typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
+        raise typer.Exit(code=2)
+    ledger_root = Path(
+        os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
+    )
+    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
+    ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
+    engine = make_engine(database_url)
+    sessions = make_session_factory(engine)
+    jobs = JobService(sessions)
+    ledger = FilesystemDeletionLedger(ledger_root, integrity_key=ledger_key)
+    worker = DeletionWorker(
+        worker_id=f"{socket.gethostname()}-{os.getpid()}",
+        jobs=jobs,
+        sweeps=DeletionSweepService(
+            sessions,
+            FilesystemObjectStore(object_root),
+            ledger,
+        ),
+    )
+    return worker, engine
 
 
 def _required_key_file(variable: str) -> bytes:
@@ -135,6 +163,34 @@ def reconcile_deletions() -> None:
         while True:
             coordinator.reconcile(now=datetime.now(UTC))
             time.sleep(WORKER_POLL_SECONDS)
+    except KeyboardInterrupt:
+        typer.echo("stopped")
+    finally:
+        engine.dispose()
+
+
+@app.command("run-deletion-once")
+def run_deletion_once() -> None:
+    """Lease and advance at most one durable account deletion."""
+
+    worker, engine = _configured_deletion_worker()
+    try:
+        processed = worker.run_once(now=datetime.now(UTC))
+        typer.echo("processed" if processed else "idle")
+    finally:
+        engine.dispose()
+
+
+@app.command("run-deletions")
+def run_deletions() -> None:
+    """Poll continuously for durable account deletions."""
+
+    worker, engine = _configured_deletion_worker()
+    try:
+        while True:
+            processed = worker.run_once(now=datetime.now(UTC))
+            if not processed:
+                time.sleep(WORKER_POLL_SECONDS)
     except KeyboardInterrupt:
         typer.echo("stopped")
     finally:

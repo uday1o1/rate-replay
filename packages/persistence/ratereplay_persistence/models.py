@@ -602,6 +602,34 @@ class DeletionLedgerReceiptRecord(Base):
     acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class DeletionFenceTargetRecord(Base):
+    """Sweep-exempt snapshot of every older writer and registered upload."""
+
+    __tablename__ = "deletion_fence_targets"
+    __table_args__ = (
+        CheckConstraint(
+            "target_kind IN ('JOB_ATTEMPT', 'UPLOAD')",
+            name="ck_deletion_fence_target_kind",
+        ),
+        UniqueConstraint(
+            "deletion_id",
+            "target_kind",
+            "target_id",
+            name="uq_deletion_fence_target",
+        ),
+        Index("ix_deletion_fence_unresolved", "deletion_id", "resolved_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    deletion_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    observed_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    observed_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class DeletionAuditRecord(Base):
     """Minimum non-user-derived tombstone retained after verified completion."""
 
@@ -612,7 +640,7 @@ class DeletionAuditRecord(Base):
     )
 
     deletion_id: Mapped[str] = mapped_column(String(32), primary_key=True)
-    receipt_verifier: Mapped[str] = mapped_column(String(255), nullable=False)
+    receipt_verifier: Mapped[str | None] = mapped_column(String(255))
     verifier_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     scope_token: Mapped[str] = mapped_column(String(64), nullable=False)
     restore_key_version: Mapped[str] = mapped_column(String(32), nullable=False)

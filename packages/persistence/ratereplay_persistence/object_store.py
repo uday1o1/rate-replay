@@ -89,3 +89,19 @@ class FilesystemObjectStore:
 
     def exists(self, key: str) -> bool:
         return self._path(key).is_file()
+
+    def list_prefix(self, prefix: str) -> tuple[str, ...]:
+        """Return a strongly consistent snapshot of every file below a key prefix."""
+
+        root = self._path(prefix)
+        if root.is_file():
+            return (prefix,)
+        if not root.exists():
+            return ()
+        return tuple(
+            sorted(
+                path.relative_to(self._root).as_posix()
+                for path in root.rglob("*")
+                if path.is_file()
+            )
+        )
