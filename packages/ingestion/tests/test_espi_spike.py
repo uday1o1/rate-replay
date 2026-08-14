@@ -1,3 +1,5 @@
+import hashlib
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,18 @@ def test_independently_sourced_pacific_fixture_is_accepted() -> None:
     assert document.timezone_offset_seconds == -28_800
     assert len(document.readings) > 24
     assert all(reading.energy_wh >= 0 for reading in document.readings)
+
+
+def test_espi_parser_consumes_a_bounded_binary_stream() -> None:
+    payload = _payload()
+
+    class GuardedStream(BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            assert size is not None and 0 < size <= 64 * 1024
+            return super().read(size)
+
+    document = parse_espi(GuardedStream(payload), schema_path=SCHEMA)
+    assert document.source_hash == hashlib.sha256(payload).hexdigest()
 
 
 @pytest.mark.parametrize(

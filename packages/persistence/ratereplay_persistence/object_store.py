@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
@@ -60,7 +62,15 @@ class FilesystemObjectStore:
             raise
         return StoredObject(digest.hexdigest(), size)
 
-    def read(self, key: str, *, maximum_bytes: int) -> bytes:
+    def content_hash(self, key: str, *, maximum_bytes: int) -> str:
+        digest = hashlib.sha256()
+        with self.open_file(key, maximum_bytes=maximum_bytes) as source:
+            while chunk := source.read(64 * 1024):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @contextmanager
+    def open_file(self, key: str, *, maximum_bytes: int) -> Iterator[BinaryIO]:
         path = self._path(key)
         try:
             size = path.stat().st_size
@@ -68,7 +78,8 @@ class FilesystemObjectStore:
             raise ObjectStoreError("RAW_OBJECT_MISSING", "Raw object is unavailable") from error
         if size > maximum_bytes:
             raise ObjectStoreError("OVERSIZED_FILE", "Stored object exceeds the adapter limit")
-        return path.read_bytes()
+        with path.open("rb") as source:
+            yield source
 
     def delete(self, key: str) -> None:
         try:

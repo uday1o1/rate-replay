@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -28,6 +30,18 @@ def test_locked_provider_fixture_is_accepted_exactly() -> None:
     assert document.interval_seconds == 900
     assert len(document.readings) == 5_664
     assert all(reading.energy_wh >= 0 for reading in document.readings)
+
+
+def test_csv_parser_consumes_a_bounded_binary_stream() -> None:
+    payload = FIXTURE.read_bytes()
+
+    class GuardedStream(BytesIO):
+        def readline(self, size: int | None = -1) -> bytes:
+            assert size is not None and 0 < size <= 64 * 1024 + 1
+            return super().readline(size)
+
+    document = parse_pge_csv(GuardedStream(payload))
+    assert document.source_hash == hashlib.sha256(payload).hexdigest()
 
 
 @pytest.mark.parametrize(

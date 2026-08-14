@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import io
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from itertools import pairwise
-from typing import Final
+from typing import BinaryIO, Final
 from zoneinfo import ZoneInfo
 
 from ratereplay_domain.energy import EnergyAdmissionError, exact_watt_hours
@@ -28,6 +29,7 @@ EXPECTED_HEADER: Final = (
 EXPECTED_PROLOGUE_KEYS: Final = ("Name", "Address", "Account Number", "Service")
 MAX_CSV_BYTES: Final = 20 * 1024 * 1024
 MAX_CSV_ROWS: Final = 100_000
+MAX_CSV_LINE_BYTES: Final = 64 * 1024
 PACIFIC: Final = ZoneInfo("America/Los_Angeles")
 
 
@@ -79,81 +81,116 @@ def _parse_local(date_text: str, time_text: str) -> datetime:
         raise PgeCsvError("INVALID_LOCAL_TIMESTAMP", "Invalid provider timestamp") from error
 
 
-def _parse_rows(payload: bytes) -> list[list[str]]:
-    if not payload:
-        raise PgeCsvError("EMPTY_FILE", "CSV payload is empty")
-    if len(payload) > MAX_CSV_BYTES:
-        raise PgeCsvError("OVERSIZED_FILE", "CSV payload exceeds the locked size limit")
-    if not payload.startswith(b"\xef\xbb\xbf"):
-        raise PgeCsvError("UNKNOWN_CSV_FINGERPRINT", "Expected provider UTF-8 byte-order mark")
-    try:
-        text = payload.decode("utf-8-sig")
-    except UnicodeDecodeError as error:
-        raise PgeCsvError("INVALID_CSV_ENCODING", "CSV is not valid UTF-8") from error
-    reader = csv.reader(io.StringIO(text, newline=""), strict=True)
-    try:
-        rows = list(reader)
-    except csv.Error as error:
-        raise PgeCsvError("MALFORMED_CSV", "CSV structure is malformed") from error
-    if len(rows) > MAX_CSV_ROWS + 6:
-        raise PgeCsvError("TOO_MANY_ROWS", "CSV exceeds the locked row limit")
-    return rows
+class _DecodedCsvLines:
+    def __init__(self, source: BinaryIO) -> None:
+        self._source = source
+        self._digest = hashlib.sha256()
+        self._byte_count = 0
+
+    def __iter__(self) -> Iterator[str]:
+        first = True
+        while binary_line := self._source.readline(MAX_CSV_LINE_BYTES + 1):
+            if len(binary_line) > MAX_CSV_LINE_BYTES:
+                raise PgeCsvError("MALFORMED_CSV", "CSV row exceeds the locked line limit")
+            self._byte_count += len(binary_line)
+            if self._byte_count > MAX_CSV_BYTES:
+                raise PgeCsvError("OVERSIZED_FILE", "CSV payload exceeds the locked size limit")
+            self._digest.update(binary_line)
+            if first:
+                first = False
+                if not binary_line.startswith(b"\xef\xbb\xbf"):
+                    raise PgeCsvError(
+                        "UNKNOWN_CSV_FINGERPRINT",
+                        "Expected provider UTF-8 byte-order mark",
+                    )
+                binary_line = binary_line[3:]
+            yield binary_line.decode("utf-8")
+
+    @property
+    def source_hash(self) -> str:
+        return self._digest.hexdigest()
+
+    @property
+    def empty(self) -> bool:
+        return self._byte_count == 0
 
 
-def parse_pge_csv(payload: bytes) -> PgeCsvDocument:
+def parse_pge_csv(payload: bytes | BinaryIO) -> PgeCsvDocument:
     """Parse the provider fingerprint into exact UTC interval energy."""
 
-    rows = _parse_rows(payload)
-    if len(rows) < 7:
-        raise PgeCsvError("UNKNOWN_CSV_FINGERPRINT", "Provider prologue or header is missing")
+    decoded_lines = _DecodedCsvLines(BytesIO(payload) if isinstance(payload, bytes) else payload)
+    reader = csv.reader(decoded_lines, strict=True)
+    try:
+        locked_rows = [next(reader) for _ in range(6)]
+    except StopIteration as error:
+        if decoded_lines.empty:
+            raise PgeCsvError("EMPTY_FILE", "CSV payload is empty") from error
+        raise PgeCsvError(
+            "UNKNOWN_CSV_FINGERPRINT", "Provider prologue or header is missing"
+        ) from error
+    except UnicodeDecodeError as error:
+        raise PgeCsvError("INVALID_CSV_ENCODING", "CSV is not valid UTF-8") from error
+    except csv.Error as error:
+        raise PgeCsvError("MALFORMED_CSV", "CSV structure is malformed") from error
     for index, expected_key in enumerate(EXPECTED_PROLOGUE_KEYS):
-        row = rows[index]
+        row = locked_rows[index]
         if len(row) != 2 or row[0] != expected_key or not row[1].strip():
             raise PgeCsvError("UNKNOWN_CSV_FINGERPRINT", "Provider prologue does not match")
-    if rows[4] != [] or tuple(rows[5]) != EXPECTED_HEADER:
+    if locked_rows[4] != [] or tuple(locked_rows[5]) != EXPECTED_HEADER:
         raise PgeCsvError("UNKNOWN_CSV_FINGERPRINT", "Provider header does not match")
 
     readings: list[CsvReading] = []
     ambiguous_counts: Counter[datetime] = Counter()
     findings: list[CsvFinding] = []
     interval_seconds: int | None = None
-    for row in rows[6:]:
-        if len(row) != len(EXPECTED_HEADER):
-            raise PgeCsvError("MALFORMED_CSV", "CSV row has an unexpected field count")
-        usage_type, date_text, start_text, end_text, usage, unit, _, _ = row
-        if usage_type != "Electric usage":
-            raise PgeCsvError("UNSUPPORTED_READING_SEMANTICS", "Row is not imported electricity")
-        if unit != "kWh":
-            raise PgeCsvError("UNKNOWN_ENERGY_UNIT", "Row unit is not kilowatt-hours")
-        local_start = _parse_local(date_text, start_text)
-        local_end_label = _parse_local(date_text, end_text)
-        if local_end_label < local_start:
-            local_end_label += timedelta(days=1)
-        nominal_duration = local_end_label + timedelta(minutes=1) - local_start
-        duration = int(nominal_duration.total_seconds())
-        if duration not in {900, 3600}:
-            raise PgeCsvError("UNSUPPORTED_INTERVAL_DURATION", "Row duration is not admitted")
-        if interval_seconds is None:
-            interval_seconds = duration
-        elif interval_seconds != duration:
-            raise PgeCsvError("MIXED_INTERVAL_DURATIONS", "CSV mixes interval resolutions")
+    try:
+        for row_count, row in enumerate(reader, start=1):
+            if row_count > MAX_CSV_ROWS:
+                raise PgeCsvError("TOO_MANY_ROWS", "CSV exceeds the locked row limit")
+            if len(row) != len(EXPECTED_HEADER):
+                raise PgeCsvError("MALFORMED_CSV", "CSV row has an unexpected field count")
+            usage_type, date_text, start_text, end_text, usage, unit, _, _ = row
+            if usage_type != "Electric usage":
+                raise PgeCsvError(
+                    "UNSUPPORTED_READING_SEMANTICS", "Row is not imported electricity"
+                )
+            if unit != "kWh":
+                raise PgeCsvError("UNKNOWN_ENERGY_UNIT", "Row unit is not kilowatt-hours")
+            local_start = _parse_local(date_text, start_text)
+            local_end_label = _parse_local(date_text, end_text)
+            if local_end_label < local_start:
+                local_end_label += timedelta(days=1)
+            nominal_duration = local_end_label + timedelta(minutes=1) - local_start
+            duration = int(nominal_duration.total_seconds())
+            if duration not in {900, 3600}:
+                raise PgeCsvError("UNSUPPORTED_INTERVAL_DURATION", "Row duration is not admitted")
+            if interval_seconds is None:
+                interval_seconds = duration
+            elif interval_seconds != duration:
+                raise PgeCsvError("MIXED_INTERVAL_DURATIONS", "CSV mixes interval resolutions")
 
-        candidates = _local_candidates(local_start)
-        if not candidates:
-            raise PgeCsvError("NONEXISTENT_LOCAL_TIMESTAMP", "Timestamp falls in a DST gap")
-        occurrence = ambiguous_counts[local_start]
-        if len(candidates) == 2:
-            if occurrence >= 2:
-                raise PgeCsvError("AMBIGUOUS_LOCAL_TIMESTAMP", "DST clock occurs too many times")
-            ambiguous_counts[local_start] += 1
-            start_utc = candidates[occurrence]
-        else:
-            start_utc = candidates[0]
-        try:
-            energy_wh = exact_watt_hours(usage, source_unit="kWh")
-        except EnergyAdmissionError as error:
-            raise PgeCsvError(error.code, str(error)) from error
-        readings.append(CsvReading(int(start_utc.timestamp()), duration, energy_wh))
+            candidates = _local_candidates(local_start)
+            if not candidates:
+                raise PgeCsvError("NONEXISTENT_LOCAL_TIMESTAMP", "Timestamp falls in a DST gap")
+            occurrence = ambiguous_counts[local_start]
+            if len(candidates) == 2:
+                if occurrence >= 2:
+                    raise PgeCsvError(
+                        "AMBIGUOUS_LOCAL_TIMESTAMP", "DST clock occurs too many times"
+                    )
+                ambiguous_counts[local_start] += 1
+                start_utc = candidates[occurrence]
+            else:
+                start_utc = candidates[0]
+            try:
+                energy_wh = exact_watt_hours(usage, source_unit="kWh")
+            except EnergyAdmissionError as error:
+                raise PgeCsvError(error.code, str(error)) from error
+            readings.append(CsvReading(int(start_utc.timestamp()), duration, energy_wh))
+    except UnicodeDecodeError as error:
+        raise PgeCsvError("INVALID_CSV_ENCODING", "CSV is not valid UTF-8") from error
+    except csv.Error as error:
+        raise PgeCsvError("MALFORMED_CSV", "CSV structure is malformed") from error
 
     if interval_seconds is None or not readings:
         raise PgeCsvError("EMPTY_FILE", "CSV contains no interval rows")
@@ -175,7 +212,7 @@ def parse_pge_csv(payload: bytes) -> PgeCsvDocument:
             )
 
     return PgeCsvDocument(
-        source_hash=hashlib.sha256(payload).hexdigest(),
+        source_hash=decoded_lines.source_hash,
         adapter_fingerprint=ADAPTER_FINGERPRINT,
         timezone="America/Los_Angeles",
         interval_seconds=interval_seconds,

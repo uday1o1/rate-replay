@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import socket
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,10 +13,12 @@ from ratereplay_persistence.database import make_engine, make_session_factory
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.object_store import FilesystemObjectStore
+from sqlalchemy.engine import Engine
 
 from ratereplay_worker.import_worker import ImportWorker
 
 app = typer.Typer(no_args_is_help=True)
+WORKER_POLL_SECONDS = 1.0
 
 
 @app.callback()
@@ -23,10 +26,7 @@ def main() -> None:
     """Run durable RateReplay worker operations."""
 
 
-@app.command("run-once")
-def run_once() -> None:
-    """Lease and process at most one durable import job."""
-
+def _configured_worker() -> tuple[ImportWorker, Engine]:
     database_url = os.getenv("RATEREPLAY_DATABASE_URL")
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
@@ -47,9 +47,33 @@ def run_once() -> None:
         imports=imports,
         espi_schema_path=schema_path,
     )
+    return worker, engine
+
+
+@app.command("run-once")
+def run_once() -> None:
+    """Lease and process at most one durable import job."""
+
+    worker, engine = _configured_worker()
     processed = worker.run_once(now=datetime.now(UTC))
     engine.dispose()
     typer.echo("processed" if processed else "idle")
+
+
+@app.command("run")
+def run() -> None:
+    """Poll continuously for durable import jobs."""
+
+    worker, engine = _configured_worker()
+    try:
+        while True:
+            processed = worker.run_once(now=datetime.now(UTC))
+            if not processed:
+                time.sleep(WORKER_POLL_SECONDS)
+    except KeyboardInterrupt:
+        typer.echo("stopped")
+    finally:
+        engine.dispose()
 
 
 if __name__ == "__main__":

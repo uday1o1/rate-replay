@@ -1,0 +1,104 @@
+{
+  "benchmark": "milestone-1-durable-import-recovery",
+  "charter_sha256": "d27fcacf395eafb2aa201055ee9abb2ade745e77c13a19931fcb020c07737c0a",
+  "charter_version": "performance-acceptance-v1",
+  "duplicate_draft_rows": 0,
+  "duplicate_terminal_results": 0,
+  "fixture_sha256": "da68f74a2c9bcaf796af3aa540463cb662f1264da01e97432fe8c18dfeae1224",
+  "hardware": {
+    "architecture": "arm64",
+    "logical_cpu_count": 10,
+    "machine": "Apple M5 developer laptop",
+    "memory_gib": 24,
+    "operating_system": "macOS 26.5"
+  },
+  "lease_seconds": 20.0,
+  "maximum_recovery_upper_bound_ms": 21031.514375,
+  "passed": true,
+  "poll_seconds": 1.0,
+  "python": "3.12.13",
+  "recovery_cases": [
+    {
+      "attempt_count": 2,
+      "case": "before_parse",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 21031.514375,
+      "successful_job_rows": 1
+    },
+    {
+      "attempt_count": 2,
+      "case": "during_parse",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 21021.564292,
+      "successful_job_rows": 1
+    },
+    {
+      "attempt_count": 2,
+      "case": "before_publish",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 21020.455375,
+      "successful_job_rows": 1
+    },
+    {
+      "attempt_count": 1,
+      "case": "after_publish",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 0.0,
+      "successful_job_rows": 1
+    },
+    {
+      "attempt_count": 2,
+      "case": "before_parse",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 21025.940625,
+      "successful_job_rows": 1
+    },
+    {
+      "attempt_count": 2,
+      "case": "during_parse",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 21022.457709,
+      "successful_job_rows": 1
+    },
+    {
+      "attempt_count": 2,
+      "case": "before_publish",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 21021.30225,
+      "successful_job_rows": 1
+    },
+    {
+      "attempt_count": 1,
+      "case": "after_publish",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 0.0,
+      "successful_job_rows": 1
+    },
+    {
+      "attempt_count": 2,
+      "case": "during_parse",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 21023.232459,
+      "successful_job_rows": 1
+    },
+    {
+      "attempt_count": 2,
+      "case": "before_parse",
+      "reading_count": 362,
+      "recovered": true,
+      "recovery_upper_bound_ms": 21024.799,
+      "successful_job_rows": 1
+    }
+  ],
+  "schema_sha256": "5c40d509744cacb1813eb672305cfe83bb9b2ff494e254f269b093ce52010a33",
+  "threshold_ms": 30000
+}

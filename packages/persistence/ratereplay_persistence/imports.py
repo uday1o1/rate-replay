@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import BinaryIO, Final
@@ -252,7 +254,8 @@ class ImportService:
                     ) from error
                 return ImportSubmission(existing.operation_id, existing_job, True)
 
-    def load_raw(self, import_id: str) -> tuple[str, bytes]:
+    @contextmanager
+    def open_raw(self, import_id: str) -> Iterator[tuple[str, BinaryIO]]:
         with self._session_factory() as database:
             record = database.get(ImportRecord, import_id)
             raw = database.scalar(
@@ -260,12 +263,14 @@ class ImportService:
             )
             if record is None or raw is None or raw.state != "AVAILABLE":
                 raise ImportServiceError("RAW_OBJECT_MISSING", "Raw import object is unavailable")
-            payload = self._objects.read(
-                raw.object_key, maximum_bytes=_maximum_bytes(record.adapter)
-            )
-            if hashlib.sha256(payload).hexdigest() != raw.content_hash:
-                raise ImportServiceError("RAW_OBJECT_HASH_MISMATCH", "Raw object integrity failed")
-            return record.adapter, payload
+            adapter = record.adapter
+            object_key = raw.object_key
+            expected_hash = raw.content_hash
+        maximum_bytes = _maximum_bytes(adapter)
+        if self._objects.content_hash(object_key, maximum_bytes=maximum_bytes) != expected_hash:
+            raise ImportServiceError("RAW_OBJECT_HASH_MISMATCH", "Raw object integrity failed")
+        with self._objects.open_file(object_key, maximum_bytes=maximum_bytes) as payload:
+            yield adapter, payload
 
     def publish_draft(
         self,

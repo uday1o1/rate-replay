@@ -387,3 +387,28 @@ def test_permanent_parser_failure_never_retries(harness: Harness) -> None:
         assert job.failure_code == "XML_SCHEMA_FAILURE"
         assert imported is not None and imported.failure_code == "XML_SCHEMA_FAILURE"
     assert _counts(harness, submission.import_id) == (0, 1)
+
+
+def test_raw_object_integrity_failure_retries_before_parsing(harness: Harness) -> None:
+    submission = submit(harness)
+    with harness.sessions() as database:
+        raw = database.scalar(
+            select(RawObjectRecord).where(RawObjectRecord.import_id == submission.import_id)
+        )
+        assert raw is not None
+        object_key = raw.object_key
+    harness.objects.put_file(
+        object_key,
+        BytesIO(b"corrupted stored object"),
+        maximum_bytes=10 * 1024 * 1024,
+    )
+    assert harness.worker.run_once(now=NOW)
+    with harness.sessions() as database:
+        job = database.get(JobRecord, submission.job_id)
+        attempt = database.scalar(
+            select(JobAttemptRecord).where(JobAttemptRecord.job_id == submission.job_id)
+        )
+        assert job is not None and job.state == "QUEUED"
+        assert attempt is not None
+        assert attempt.failure_code == "TRANSIENT_IMPORT_STORAGE_FAILURE"
+    assert _counts(harness, submission.import_id) == (0, 1)

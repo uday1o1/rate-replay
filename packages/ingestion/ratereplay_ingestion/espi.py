@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
+from io import BytesIO
 from itertools import pairwise
 from pathlib import Path
-from typing import Final
+from typing import BinaryIO, Final
 
 from lxml import etree
 from ratereplay_domain.energy import EnergyAdmissionError, exact_watt_hours
@@ -161,22 +162,16 @@ def _parse_atom_entry(atom_entry: etree._Element, schema: etree.XMLSchema | None
 
 
 def _stream_entries(
-    payload: bytes,
+    payload: bytes | BinaryIO,
     schema: etree.XMLSchema | None,
     on_chunk: Callable[[int], None] | None,
-) -> dict[str, _Entry]:
-    if not payload:
-        raise EspiParseError("EMPTY_FILE", "XML payload is empty")
-    if len(payload) > MAX_XML_BYTES:
-        raise EspiParseError("OVERSIZED_FILE", "XML payload exceeds the locked size limit")
-    upper_payload = payload.upper()
-    if b"<!DOCTYPE" in upper_payload:
-        raise EspiParseError(
-            "EXTERNAL_ENTITY_REFERENCE", "Document type declarations are forbidden"
-        )
-    if b"<!ENTITY" in upper_payload:
-        raise EspiParseError("XML_ENTITY_EXPANSION", "Entity declarations are forbidden")
-
+) -> tuple[dict[str, _Entry], str]:
+    if isinstance(payload, bytes):
+        if not payload:
+            raise EspiParseError("EMPTY_FILE", "XML payload is empty")
+        if len(payload) > MAX_XML_BYTES:
+            raise EspiParseError("OVERSIZED_FILE", "XML payload exceeds the locked size limit")
+    source = BytesIO(payload) if isinstance(payload, bytes) else payload
     parser = etree.XMLPullParser(
         events=("start", "end"),
         resolve_entities=False,
@@ -187,11 +182,25 @@ def _stream_entries(
         remove_comments=False,
     )
     entries: dict[str, _Entry] = {}
+    digest = hashlib.sha256()
     depth = 0
     root_seen = False
+    size = 0
+    scan_tail = b""
     try:
-        for offset in range(0, len(payload), XML_CHUNK_BYTES):
-            chunk = payload[offset : offset + XML_CHUNK_BYTES]
+        while chunk := source.read(XML_CHUNK_BYTES):
+            size += len(chunk)
+            if size > MAX_XML_BYTES:
+                raise EspiParseError("OVERSIZED_FILE", "XML payload exceeds the locked size limit")
+            digest.update(chunk)
+            scan_window = (scan_tail + chunk).upper()
+            if b"<!DOCTYPE" in scan_window:
+                raise EspiParseError(
+                    "EXTERNAL_ENTITY_REFERENCE", "Document type declarations are forbidden"
+                )
+            if b"<!ENTITY" in scan_window:
+                raise EspiParseError("XML_ENTITY_EXPANSION", "Entity declarations are forbidden")
+            scan_tail = scan_window[-16:]
             parser.feed(chunk)
             if on_chunk is not None:
                 on_chunk(len(chunk))
@@ -220,6 +229,8 @@ def _stream_entries(
                             while element.getprevious() is not None:
                                 del parent[0]
                     depth -= 1
+        if size == 0:
+            raise EspiParseError("EMPTY_FILE", "XML payload is empty")
         parser.close()
     except EspiParseError:
         raise
@@ -227,7 +238,7 @@ def _stream_entries(
         raise EspiParseError("XML_SCHEMA_FAILURE", "Malformed XML") from error
     if not entries:
         raise EspiParseError("EMPTY_FILE", "Atom feed contains no entries")
-    return entries
+    return entries, digest.hexdigest()
 
 
 def _required_int(entry: _Entry, name: str) -> int:
@@ -327,14 +338,14 @@ def _normalized_readings(
 
 
 def parse_espi(
-    payload: bytes,
+    payload: bytes | BinaryIO,
     *,
     schema_path: Path | None = None,
     on_chunk: Callable[[int], None] | None = None,
 ) -> EspiDocument:
     """Stream one ESPI Atom document and resolve its calculation stream."""
 
-    entries = _stream_entries(payload, _compile_schema(schema_path), on_chunk)
+    entries, source_hash = _stream_entries(payload, _compile_schema(schema_path), on_chunk)
     usage_points = tuple(entry for entry in entries.values() if entry.kind == "UsagePoint")
     if len(usage_points) != 1:
         raise EspiParseError("MULTIPLE_USAGE_POINTS", "Exactly one usage point is required")
@@ -391,7 +402,7 @@ def parse_espi(
         multiplier=multiplier,
     )
     return EspiDocument(
-        source_hash=hashlib.sha256(payload).hexdigest(),
+        source_hash=source_hash,
         interval_seconds=interval_seconds,
         timezone_offset_seconds=timezone_offset,
         dst_offset_seconds=dst_offset,

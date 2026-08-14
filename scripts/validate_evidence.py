@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate locked Milestone 0 evidence without network access."""
+"""Validate locked repository evidence without network access."""
 
 from __future__ import annotations
 
@@ -156,12 +156,52 @@ def _validate_generated_evidence() -> None:
     )
 
 
+def _validate_m1_evidence() -> None:
+    charter = _json("benchmarks/charters/performance-v1.json")
+    recovery = _json("evidence/performance/m1-import-recovery.json")
+    _require(recovery["passed"] is True, "M1_RECOVERY_FAILED")
+    _require(recovery["charter_version"] == charter["charter_version"], "M1_CHARTER_DRIFT")
+    _require(
+        recovery["charter_sha256"] == _sha256(ROOT / "benchmarks/charters/performance-v1.json"),
+        "M1_CHARTER_HASH_MISMATCH",
+    )
+    _require(
+        recovery["fixture_sha256"]
+        == _sha256(ROOT / "data/fixtures/espi/independent-pacific-hourly.xml"),
+        "M1_RECOVERY_FIXTURE_HASH_MISMATCH",
+    )
+    _require(
+        recovery["schema_sha256"] == _sha256(ROOT / "third_party/espi-schema/espi-4.0.xsd"),
+        "M1_RECOVERY_SCHEMA_HASH_MISMATCH",
+    )
+    _require(len(recovery["recovery_cases"]) == 10, "M1_RECOVERY_CASE_COUNT_MISMATCH")
+    _require(
+        {result["case"] for result in recovery["recovery_cases"]}
+        == {"before_parse", "during_parse", "before_publish", "after_publish"},
+        "M1_RECOVERY_CRASH_COVERAGE_MISMATCH",
+    )
+    _require(
+        all(result["recovered"] is True for result in recovery["recovery_cases"]),
+        "M1_RECOVERY_CASE_FAILED",
+    )
+    _require(recovery["lease_seconds"] == 20, "M1_LEASE_DURATION_DRIFT")
+    _require(recovery["poll_seconds"] <= 1, "M1_WORKER_POLL_DRIFT")
+    _require(
+        recovery["maximum_recovery_upper_bound_ms"]
+        <= charter["thresholds"]["worker_recovery_maximum_ms"],
+        "M1_RECOVERY_THRESHOLD_FAILED",
+    )
+    _require(recovery["duplicate_draft_rows"] == 0, "M1_DUPLICATE_DRAFT")
+    _require(recovery["duplicate_terminal_results"] == 0, "M1_DUPLICATE_TERMINAL")
+
+
 def main() -> None:
     _validate_external_sources()
     _validate_csv()
     _validate_tariffs()
     _validate_generated_evidence()
-    print("Milestone 0 evidence locks are internally consistent.")
+    _validate_m1_evidence()
+    print("Repository evidence locks are internally consistent through Milestone 1.")
 
 
 if __name__ == "__main__":

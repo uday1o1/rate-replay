@@ -2,6 +2,7 @@ from scripts.validate_evidence import (
     _validate_csv,
     _validate_external_sources,
     _validate_generated_evidence,
+    _validate_m1_evidence,
     _validate_tariffs,
 )
 
@@ -20,3 +21,7 @@ def test_tariff_sources_and_admission_matrix_are_consistent() -> None:
 
 def test_generated_evidence_is_content_addressed() -> None:
     _validate_generated_evidence()
+
+
+def test_milestone_one_recovery_evidence_matches_frozen_charter() -> None:
+    _validate_m1_evidence()

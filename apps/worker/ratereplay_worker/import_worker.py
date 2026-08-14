@@ -45,21 +45,23 @@ class ImportWorker:
         if not self._jobs.start(lease, now=now):
             return False
         try:
-            adapter, payload = self._imports.load_raw(lease.import_id)
-            if adapter == "ESPI_XML":
-                draft = normalize_espi(
-                    parse_espi(
-                        payload,
-                        schema_path=self._espi_schema_path,
-                        on_chunk=(
-                            None if during_parse is None else lambda _size: during_parse(lease)
-                        ),
+            with self._imports.open_raw(lease.import_id) as (adapter, payload):
+                if adapter == "ESPI_XML":
+                    draft = normalize_espi(
+                        parse_espi(
+                            payload,
+                            schema_path=self._espi_schema_path,
+                            on_chunk=(
+                                None if during_parse is None else lambda _size: during_parse(lease)
+                            ),
+                        )
                     )
-                )
-            elif adapter == "PGE_CSV":
-                draft = normalize_pge_csv(parse_pge_csv(payload))
-            else:
-                raise ImportServiceError("UNSUPPORTED_ADAPTER", "Import adapter is not supported")
+                elif adapter == "PGE_CSV":
+                    draft = normalize_pge_csv(parse_pge_csv(payload))
+                else:
+                    raise ImportServiceError(
+                        "UNSUPPORTED_ADAPTER", "Import adapter is not supported"
+                    )
             if after_parse is not None:
                 after_parse(lease)
             published = self._imports.publish_draft(
