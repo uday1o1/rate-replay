@@ -19,6 +19,25 @@ def test_public_cli_compiles_full_bundle() -> None:
     assert payload["reports"]["component_vector"]["active_component_count_by_key"] == [1, 1]
 
 
+def test_public_generic_cli_compiles_etouc_bundle() -> None:
+    result = CliRunner().invoke(
+        app,
+        [
+            "compile",
+            str(ROOT / "tariffs/definitions/pge-etouc-2026-07.json"),
+            "--root",
+            str(ROOT),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["ir"]["tariff_version_id"] == "pge-etouc-2026-07"
+    assert any(
+        operator["operator"] == "TIME_OF_USE_MULTIPLY_WITH_OPTIONAL_BASELINE_CREDIT"
+        for operator in payload["ir"]["operators"]
+    )
+
+
 def test_public_cli_replays_example_with_visible_residual() -> None:
     result = CliRunner().invoke(
         app,

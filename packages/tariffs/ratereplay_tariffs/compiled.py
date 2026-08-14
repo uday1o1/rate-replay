@@ -9,10 +9,12 @@ from pydantic import Field
 from ratereplay_tariffs.schema import (
     ChargeComponentKey,
     DateRange,
+    DaySelector,
     FrozenModel,
     RoundingOperator,
     RuleApplicability,
     SourceLink,
+    TimeOfUsePeriod,
 )
 
 
@@ -43,6 +45,37 @@ class IRTieredEnergyCharge(IRRuleBase):
     tiers: tuple[IREnergyTier, ...]
 
 
+class IRTimeOfUseWindow(FrozenModel):
+    period: Literal["PEAK", "PARTIAL_PEAK"]
+    start_minute_inclusive: int
+    end_minute_exclusive: int
+    day_selector: DaySelector
+
+
+class IRTimeOfUseSchedule(IRRuleBase):
+    operator: Literal["CLASSIFY_LOCAL_TIME_PERIOD"]
+    timezone: Literal["America/Los_Angeles"]
+    windows: tuple[IRTimeOfUseWindow, ...]
+    default_period: Literal["OFF_PEAK"]
+    calendar_id: str | None
+    calendar_content_sha256: str | None
+    holiday_dates: tuple[str, ...]
+
+
+class IRTimeOfUsePeriodRate(FrozenModel):
+    period: TimeOfUsePeriod
+    rate_microdollars_per_kwh: int
+
+
+class IRTimeOfUseEnergyCharge(IRRuleBase):
+    operator: Literal["TIME_OF_USE_MULTIPLY_WITH_OPTIONAL_BASELINE_CREDIT"]
+    line_item_key: str
+    schedule_rule_id: str
+    period_rates: tuple[IRTimeOfUsePeriodRate, ...]
+    baseline_credit_microdollars_per_kwh: int | None
+    baseline_rule_id: str | None
+
+
 class IRFixedDailyCharge(IRRuleBase):
     operator: Literal["MULTIPLY_DAYS_BY_INTEGER_RATE"]
     line_item_key: str
@@ -64,6 +97,8 @@ class IRExplicitUnsupportedCharge(IRRuleBase):
 CompiledRule = Annotated[
     IRBaselineAllowance
     | IRTieredEnergyCharge
+    | IRTimeOfUseSchedule
+    | IRTimeOfUseEnergyCharge
     | IRFixedDailyCharge
     | IRFixedMonthlyCharge
     | IRExplicitUnsupportedCharge,

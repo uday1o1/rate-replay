@@ -22,6 +22,10 @@ from ratereplay_tariffs.compiled import (
     IRFixedDailyCharge,
     IRFixedMonthlyCharge,
     IRTieredEnergyCharge,
+    IRTimeOfUseEnergyCharge,
+    IRTimeOfUsePeriodRate,
+    IRTimeOfUseSchedule,
+    IRTimeOfUseWindow,
     SourceCoverage,
 )
 from ratereplay_tariffs.hashing import canonical_content_sha256
@@ -33,6 +37,8 @@ from ratereplay_tariffs.schema import (
     TariffRule,
     TariffVersion,
     TieredEnergyCharge,
+    TimeOfUseEnergyCharge,
+    TimeOfUseSchedule,
 )
 
 SIGNED_INT64_MAX = 2**63 - 1
@@ -230,7 +236,10 @@ def _validate_component_composition(
 
 def _validate_target_account(root: Path, tariff: TariffVersion) -> None:
     lock = _read_object(root / "tariffs/admission/target-account-v1.json")
-    if lock.get("predicate_id") != tariff.eligibility_predicate.predicate_id:
+    if (
+        tariff.eligibility_predicate.predicate_version == "eligibility-predicate-v1"
+        and lock.get("predicate_id") != tariff.eligibility_predicate.predicate_id
+    ):
         raise TariffCompileError("ELIGIBILITY_LOCK_MISMATCH", "Eligibility predicate ID differs")
     expected = lock.get("required_facts")
     predicate = tariff.eligibility_predicate
@@ -271,6 +280,12 @@ def _validate_bounds(tariff: TariffVersion) -> None:
                     raise TariffCompileError(
                         "INT64_OVERFLOW", f"Tier {rule.rule_id} bound overflows"
                     )
+        elif isinstance(rule, TimeOfUseEnergyCharge):
+            largest_period_rate = max(
+                period.rate_microdollars_per_kwh for period in rule.period_rates
+            )
+            credit = abs(rule.baseline_credit_microdollars_per_kwh or 0)
+            maximum_rate = max(maximum_rate, largest_period_rate + credit)
         elif isinstance(rule, FixedDailyCharge):
             fixed_bound += abs(rule.rate_microdollars_per_day) * MAXIMUM_COMPILED_BILLING_DAYS
         elif isinstance(rule, FixedMonthlyCharge):
@@ -280,11 +295,68 @@ def _validate_bounds(tariff: TariffVersion) -> None:
         raise TariffCompileError("INT64_OVERFLOW", "Tariff intermediate bound exceeds int64")
 
 
+def _validate_time_operators(tariff: TariffVersion) -> None:
+    schedules = {
+        rule.rule_id: rule for rule in tariff.charge_rules if isinstance(rule, TimeOfUseSchedule)
+    }
+    baseline_ids = {
+        rule.rule_id for rule in tariff.charge_rules if isinstance(rule, BaselineAllowance)
+    }
+    referenced_schedules: set[str] = set()
+    for rule in tariff.charge_rules:
+        if not isinstance(rule, TimeOfUseEnergyCharge):
+            continue
+        schedule = schedules.get(rule.schedule_rule_id)
+        if schedule is None:
+            raise TariffCompileError(
+                "TOU_SCHEDULE_MISSING", f"Schedule {rule.schedule_rule_id} is not defined"
+            )
+        referenced_schedules.add(rule.schedule_rule_id)
+        schedule_periods = {
+            schedule.default_period,
+            *(window.period for window in schedule.windows),
+        }
+        rate_periods = {period.period for period in rule.period_rates}
+        if rate_periods != schedule_periods:
+            raise TariffCompileError(
+                "TOU_PERIOD_COVERAGE_MISMATCH",
+                f"Rate periods do not exactly cover schedule {schedule.rule_id}",
+            )
+        if rule.baseline_rule_id is not None and rule.baseline_rule_id not in baseline_ids:
+            raise TariffCompileError(
+                "BASELINE_RULE_MISSING", f"Baseline rule {rule.baseline_rule_id} is not defined"
+            )
+    if set(schedules) != referenced_schedules:
+        raise TariffCompileError("TOU_SCHEDULE_UNUSED", "Every time schedule must be used exactly")
+
+
 def _load_golden_coverage(root: Path, tariff: TariffVersion) -> GoldenCoverage:
-    complete = _read_object(root / "tariffs/golden/e1-july-2026-complete-bill.json")
-    boundaries = _read_object(root / "tariffs/golden/e1-july-2026-boundaries.json")
-    cases: list[dict[str, Any]] = [complete]
-    boundary_cases = boundaries.get("cases")
+    if tariff.plan_code == "E-1":
+        complete = _read_object(root / "tariffs/golden/e1-july-2026-complete-bill.json")
+        boundaries = _read_object(root / "tariffs/golden/e1-july-2026-boundaries.json")
+        cases: list[dict[str, Any]] = [complete]
+        boundary_cases = boundaries.get("cases")
+        suite_source_ids: list[str] = []
+    else:
+        golden_lock = _read_object(root / "tariffs/admission/m3-golden-lock.json")
+        locked_tariff = next(
+            (
+                item
+                for item in golden_lock.get("tariffs", [])
+                if isinstance(item, dict) and item.get("plan_code") == tariff.plan_code
+            ),
+            None,
+        )
+        if not isinstance(locked_tariff, dict):
+            raise TariffCompileError("GOLDEN_LOCK_MISSING", "Tariff golden lock is missing")
+        suite = _read_object(root / cast(str, locked_tariff["golden_path"]))
+        candidate_complete = suite.get("complete_bill")
+        boundary_cases = suite.get("boundary_cases")
+        suite_source_ids = cast(list[str], suite.get("source_ids", []))
+        if not isinstance(candidate_complete, dict):
+            raise TariffCompileError("GOLDEN_INVALID", "Complete-bill golden is malformed")
+        complete = candidate_complete
+        cases = [complete]
     if not isinstance(boundary_cases, list):
         raise TariffCompileError("GOLDEN_INVALID", "Boundary golden cases are malformed")
     cases.extend(cast(list[dict[str, Any]], boundary_cases))
@@ -293,7 +365,7 @@ def _load_golden_coverage(root: Path, tariff: TariffVersion) -> GoldenCoverage:
         raise TariffCompileError("GOLDEN_LOCK_MISMATCH", "Golden case identifiers differ")
     by_rule: dict[str, list[str]] = defaultdict(list)
     for case in cases:
-        source_ids = case.get("source_ids")
+        source_ids = case.get("source_ids", suite_source_ids)
         if source_ids is None:
             source_id = case.get("source_id")
             source_ids = [source_id] if isinstance(source_id, str) else []
@@ -302,8 +374,10 @@ def _load_golden_coverage(root: Path, tariff: TariffVersion) -> GoldenCoverage:
                 "GOLDEN_SOURCE_MISMATCH", "Golden references an unknown source"
             )
         rule_ids = case.get("rule_ids")
+        if rule_ids is None:
+            continue
         if not isinstance(rule_ids, list):
-            raise TariffCompileError("GOLDEN_INVALID", "Golden has no rule identifiers")
+            raise TariffCompileError("GOLDEN_INVALID", "Golden rule identifiers are malformed")
         for rule_id in rule_ids:
             if isinstance(rule_id, str):
                 by_rule[rule_id].append(cast(str, case["case_id"]))
@@ -320,7 +394,7 @@ def _load_golden_coverage(root: Path, tariff: TariffVersion) -> GoldenCoverage:
     )
 
 
-def _lower_rule(rule: TariffRule) -> CompiledRule:
+def _lower_rule(root: Path, rule: TariffRule) -> CompiledRule:
     if isinstance(rule, BaselineAllowance):
         return IRBaselineAllowance(
             operator="BASELINE_ALLOWANCE",
@@ -351,6 +425,68 @@ def _lower_rule(rule: TariffRule) -> CompiledRule:
                 )
                 for tier in rule.tiers
             ),
+        )
+    if isinstance(rule, TimeOfUseSchedule):
+        holiday_dates: tuple[str, ...] = ()
+        if rule.calendar_id is not None:
+            calendar = _read_object(root / "tariffs/calendars/ca-observed-holidays-2026.json")
+            if calendar.get("calendar_id") != rule.calendar_id:
+                raise TariffCompileError("CALENDAR_LOCK_MISSING", "Calendar identifier differs")
+            if calendar.get("content_sha256") != rule.calendar_content_sha256:
+                raise TariffCompileError("CALENDAR_HASH_MISMATCH", "Calendar content hash differs")
+            holidays = calendar.get("holidays_used_in_july_window")
+            if not isinstance(holidays, list):
+                raise TariffCompileError("CALENDAR_LOCK_INVALID", "Calendar holidays are malformed")
+            holiday_dates = tuple(
+                sorted(
+                    cast(str, item["date"])
+                    for item in holidays
+                    if isinstance(item, dict) and isinstance(item.get("date"), str)
+                )
+            )
+        return IRTimeOfUseSchedule(
+            operator="CLASSIFY_LOCAL_TIME_PERIOD",
+            rule_id=rule.rule_id,
+            effective_range=rule.effective_range,
+            applicability=rule.applicability,
+            source=rule.source,
+            rounding=rule.rounding,
+            charge_component_key=rule.charge_component_key,
+            timezone=rule.timezone,
+            windows=tuple(
+                IRTimeOfUseWindow(
+                    period=window.period,
+                    start_minute_inclusive=window.start_minute_inclusive,
+                    end_minute_exclusive=window.end_minute_exclusive,
+                    day_selector=window.day_selector,
+                )
+                for window in rule.windows
+            ),
+            default_period=rule.default_period,
+            calendar_id=rule.calendar_id,
+            calendar_content_sha256=rule.calendar_content_sha256,
+            holiday_dates=holiday_dates,
+        )
+    if isinstance(rule, TimeOfUseEnergyCharge):
+        return IRTimeOfUseEnergyCharge(
+            operator="TIME_OF_USE_MULTIPLY_WITH_OPTIONAL_BASELINE_CREDIT",
+            rule_id=rule.rule_id,
+            effective_range=rule.effective_range,
+            applicability=rule.applicability,
+            source=rule.source,
+            rounding=rule.rounding,
+            charge_component_key=rule.charge_component_key,
+            line_item_key=rule.line_item_key,
+            schedule_rule_id=rule.schedule_rule_id,
+            period_rates=tuple(
+                IRTimeOfUsePeriodRate(
+                    period=period.period,
+                    rate_microdollars_per_kwh=period.rate_microdollars_per_kwh,
+                )
+                for period in rule.period_rates
+            ),
+            baseline_credit_microdollars_per_kwh=(rule.baseline_credit_microdollars_per_kwh),
+            baseline_rule_id=rule.baseline_rule_id,
         )
     if isinstance(rule, FixedDailyCharge):
         return IRFixedDailyCharge(
@@ -401,6 +537,7 @@ def compile_tariff(root: Path, definition_path: Path | None = None) -> Compilati
     _validate_component_composition(tariff, source_lock, source_records)
     _validate_target_account(root, tariff)
     _validate_bounds(tariff)
+    _validate_time_operators(tariff)
     for rule in tariff.charge_rules:
         _validate_source_link(
             rule.source.source_id,
@@ -416,7 +553,7 @@ def compile_tariff(root: Path, definition_path: Path | None = None) -> Compilati
         tariff_version_id=tariff.tariff_version_id,
         maximum_energy_wh=MAXIMUM_COMPILED_ENERGY_WH,
         maximum_billing_days=MAXIMUM_COMPILED_BILLING_DAYS,
-        operators=tuple(_lower_rule(rule) for rule in tariff.charge_rules),
+        operators=tuple(_lower_rule(root, rule) for rule in tariff.charge_rules),
     )
     source_coverages = tuple(
         SourceCoverage(

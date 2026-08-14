@@ -84,14 +84,25 @@ def _locked_path(root: Path, artifact: LockedArtifact) -> Path:
     return path
 
 
-def load_admitted_e1(root: Path) -> AdmittedTariff:
-    lock_path = root / "tariffs/admission/pge-e1-2026-07.json"
+_LOCK_PATHS = {
+    "E-1": "tariffs/admission/pge-e1-2026-07.json",
+    "E-TOU-C": "tariffs/admission/pge-etouc-2026-07.json",
+}
+
+
+def load_admitted_tariff(root: Path, plan_code: str) -> AdmittedTariff:
+    relative_lock_path = _LOCK_PATHS.get(plan_code)
+    if relative_lock_path is None:
+        raise TariffCompileError("TARIFF_NOT_ADMITTED", f"Tariff {plan_code} is not admitted")
+    lock_path = root / relative_lock_path
     try:
         lock = TariffAdmissionLock.model_validate_json(lock_path.read_bytes())
     except (OSError, ValueError) as error:
         raise TariffCompileError(
-            "ADMISSION_LOCK_INVALID", "E-1 admission lock is invalid"
+            "ADMISSION_LOCK_INVALID", f"{plan_code} admission lock is invalid"
         ) from error
+    if lock.plan_code != plan_code:
+        raise TariffCompileError("ADMISSION_VERSION_MISMATCH", "Admission plan code differs")
     definition_path = _locked_path(root, lock.definition)
     for golden in lock.golden_suites:
         _locked_path(root, golden)
@@ -118,3 +129,11 @@ def load_admitted_e1(root: Path) -> AdmittedTariff:
     if windows != lock.admitted_service_windows:
         raise TariffCompileError("ADMISSION_WINDOW_MISMATCH", "Service windows differ from lock")
     return AdmittedTariff(lock=lock, compilation=compilation)
+
+
+def load_admitted_e1(root: Path) -> AdmittedTariff:
+    return load_admitted_tariff(root, "E-1")
+
+
+def load_all_admitted_tariffs(root: Path) -> tuple[AdmittedTariff, ...]:
+    return tuple(load_admitted_tariff(root, plan_code) for plan_code in _LOCK_PATHS)

@@ -37,9 +37,9 @@
       "tariff_id": "E-1"
     },
     {
-      "admission_status": "NOT_ADMITTED",
+      "admission_status": "ADMITTED",
       "calendar_dependency": "NONE_PEAK_IS_EVERY_DAY",
-      "eligibility_gap": "Active cumulative bill protection must be proved false from account attestation before ranking.",
+      "eligibility_gap": null,
       "expected_july_rates": {
         "baseline_credit_usd_per_kwh": "-0.08140",
         "base_service_tier3_usd_per_day": "0.79343",

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from ratereplay_domain.energy import exact_watt_hours
-from ratereplay_tariffs.admission import load_admitted_e1
+from ratereplay_tariffs.admission import load_admitted_e1, load_admitted_tariff
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -117,8 +117,13 @@ def _validate_tariffs() -> None:
         candidate["tariff_id"]: candidate["admission_status"] for candidate in matrix["tariffs"]
     }
     _require(statuses["E-1"] == "ADMITTED", "E1_ADMISSION_STATUS_MISMATCH")
+    _require(statuses["E-TOU-C"] == "ADMITTED", "ETOUC_ADMISSION_STATUS_MISMATCH")
     _require(
-        all(statuses[tariff_id] != "ADMITTED" for tariff_id in statuses if tariff_id != "E-1"),
+        all(
+            statuses[tariff_id] != "ADMITTED"
+            for tariff_id in statuses
+            if tariff_id not in {"E-1", "E-TOU-C"}
+        ),
         "PREMATURE_TARIFF_ADMISSION",
     )
     _require(e1["admission_status"] == "ADMITTED", "E1_COMPONENT_ADMISSION_MISMATCH")
@@ -137,6 +142,12 @@ def _validate_tariffs() -> None:
     _require(
         admitted.compilation.compiler_content_sha256 == admission["compiler_content_sha256"],
         "E1_COMPILER_HASH_MISMATCH",
+    )
+    etouc = load_admitted_tariff(ROOT, "E-TOU-C")
+    _require(
+        etouc.compilation.compiler_content_sha256
+        == "1ee58b8ccbff4be24ca72e8b9ec47b54bbc8fb02f5ae4f7e37ca4886ee09e5de",
+        "ETOUC_COMPILER_HASH_MISMATCH",
     )
     holiday = _json("tariffs/calendars/ca-observed-holidays-2026.json")
     _require(

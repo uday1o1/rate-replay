@@ -1,0 +1,44 @@
+{
+  "admission_lock_version": "tariff-admission-lock-v1",
+  "tariff_version_id": "pge-etouc-2026-07",
+  "plan_code": "E-TOU-C",
+  "admission_status": "ADMITTED",
+  "admitted_at": "2026-08-14T03:00:00Z",
+  "admitted_service_windows": [["2026-07-01", "2026-08-01"]],
+  "target_account_predicate_id": "pge-etouc-bundled-residential-july-2026-v2",
+  "definition": {
+    "path": "tariffs/definitions/pge-etouc-2026-07.json",
+    "sha256": "72583e8617b2ae8caf1f2b57bed976e873c4f0ecf165d48751a45a9b3898c4c5"
+  },
+  "compiler_content_sha256": "1ee58b8ccbff4be24ca72e8b9ec47b54bbc8fb02f5ae4f7e37ca4886ee09e5de",
+  "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
+  "source_hashes": [
+    "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+    "c7b7f7128aec0c2cd86d3ac0f8a076d71dcb65cc03bdd2f8042d0560c02b5877"
+  ],
+  "golden_suites": [
+    {
+      "path": "tariffs/golden/etouc-july-2026.json",
+      "sha256": "27b72a88367ea181c796c05cfc6ce606ec143bea9d92f81b51d10629e9fa651b"
+    }
+  ],
+  "scope": {
+    "service_provider": "PG&E",
+    "service_mode": "BUNDLED",
+    "income_tier": "TIER_3",
+    "baseline_territory": "T",
+    "baseline_quantity_code": "BASIC",
+    "calculation_time_mode": "HISTORICAL_REPLAY",
+    "comparison_admitted": false,
+    "optimization_admitted": false
+  },
+  "gate_evidence": {
+    "component_vector_complete": true,
+    "eligibility_fail_closed": true,
+    "golden_coverage_complete": true,
+    "integer_bounds_proved": true,
+    "mutation_suite_passed": true,
+    "source_links_retrievable": true,
+    "stable_compiler_hash": true
+  }
+}

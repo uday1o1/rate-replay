@@ -1,0 +1,254 @@
+{
+  "schema_version": "tariff-schema-v1",
+  "compiler_version": "tariff-compiler-v1",
+  "tariff_version_id": "pge-etouc-2026-07",
+  "utility": "PG&E",
+  "plan_code": "E-TOU-C",
+  "admitted_service_windows": [
+    {
+      "start": "2026-07-01",
+      "end": "2026-08-01"
+    }
+  ],
+  "component_versions": [
+    {
+      "component_version_id": "etouc-applicability-time-baseline-2026-03-01",
+      "component_key": "etouc-applicability-time-baseline-and-special-conditions",
+      "effective_range": {
+        "start": "2026-03-01",
+        "end": null
+      },
+      "precedence": 1,
+      "source": {
+        "source_id": "pge-advice-7846-e",
+        "source_sha256": "c7b7f7128aec0c2cd86d3ac0f8a076d71dcb65cc03bdd2f8042d0560c02b5877",
+        "source_sheet_ids": ["61124-E", "61128-E", "61130-E"]
+      },
+      "extracted_rule_ids": [
+        "ETOUC_APPLICABILITY_2026_03_01",
+        "ETOUC_BASELINE_T_BASIC_SUMMER_2026_03_01",
+        "ETOUC_BILL_PROTECTION_2026_03_01",
+        "ETOUC_PEAK_1600_2100_EVERY_DAY_2026_03_01"
+      ]
+    },
+    {
+      "component_version_id": "etouc-rates-and-credits-2026-06-01",
+      "component_key": "etouc-total-rates-base-service-and-climate-credit",
+      "effective_range": {
+        "start": "2026-06-01",
+        "end": null
+      },
+      "precedence": 2,
+      "source": {
+        "source_id": "pge-advice-7921-e",
+        "source_sha256": "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+        "source_sheet_ids": ["61364-E"]
+      },
+      "extracted_rule_ids": [
+        "BSC_TIER3_2026_06_01",
+        "CALIFORNIA_CLIMATE_CREDIT_2026",
+        "ETOUC_SUMMER_TOTAL_RATES_2026_06_01"
+      ]
+    }
+  ],
+  "timezone": "America/Los_Angeles",
+  "currency": "USD",
+  "eligibility_predicate": {
+    "predicate_id": "pge-etouc-bundled-residential-july-2026-v2",
+    "predicate_version": "eligibility-predicate-v2",
+    "supported_income_tiers": ["TIER_3"],
+    "required_service_provider": "PG&E",
+    "required_service_mode": "BUNDLED",
+    "required_meter_count": 1,
+    "requires_primary_meter_only": true,
+    "requires_care_enrolled": false,
+    "requires_fera_enrolled": false,
+    "requires_medical_baseline": false,
+    "requires_cca_service": false,
+    "requires_direct_access_service": false,
+    "requires_active_bill_protection": false,
+    "requires_solar_or_export": false,
+    "required_qualifying_technology": null,
+    "required_any_qualifying_technologies": [],
+    "requires_dated_technology_attestation": false,
+    "requires_ev_registration_at_premises": false,
+    "requires_whole_house_metering": false,
+    "maximum_annual_baseline_ratio_numerator": null,
+    "maximum_annual_baseline_ratio_denominator": null,
+    "source_rule_ids": [
+      "ETOUC_APPLICABILITY_2026_03_01",
+      "ETOUC_BILL_PROTECTION_2026_03_01"
+    ]
+  },
+  "eligibility_questions": [
+    "Confirm bundled PG&E residential service on one primary whole-house meter.",
+    "Confirm income Tier 3 and no CARE, FERA, medical-baseline, CCA, direct-access, solar, export, or active cumulative bill-protection condition applies.",
+    "Select the filed baseline territory and quantity code shown on the bill."
+  ],
+  "comparison_component_keys": [
+    "bundled_energy",
+    "baseline_adjustment",
+    "base_services_charge",
+    "california_climate_credit"
+  ],
+  "optimization_capability": "UNSUPPORTED_WITH_REASON",
+  "optimization_unsupported_reason": "Exact optimizer lowering and invariance proofs are admitted separately in Milestone 4.",
+  "charge_rules": [
+    {
+      "rule_type": "BaselineAllowance",
+      "rule_id": "ETOUC_BASELINE_T_BASIC_SUMMER_2026_03_01",
+      "effective_range": {
+        "start": "2026-03-01",
+        "end": null
+      },
+      "applicability": {
+        "income_tiers": [],
+        "baseline_territories": ["T"],
+        "baseline_quantity_codes": ["BASIC"],
+        "bill_cycle_months": []
+      },
+      "source": {
+        "source_id": "pge-advice-7846-e",
+        "source_sha256": "c7b7f7128aec0c2cd86d3ac0f8a076d71dcb65cc03bdd2f8042d0560c02b5877",
+        "source_sheet_ids": ["61128-E"]
+      },
+      "rounding": "EXACT",
+      "charge_component_key": "baseline_allowance",
+      "daily_allowance_wh": 6500,
+      "unit": "Wh/day"
+    },
+    {
+      "rule_type": "TimeOfUseSchedule",
+      "rule_id": "ETOUC_PEAK_1600_2100_EVERY_DAY_2026_03_01",
+      "effective_range": {
+        "start": "2026-03-01",
+        "end": null
+      },
+      "applicability": {
+        "income_tiers": [],
+        "baseline_territories": [],
+        "baseline_quantity_codes": [],
+        "bill_cycle_months": []
+      },
+      "source": {
+        "source_id": "pge-advice-7846-e",
+        "source_sha256": "c7b7f7128aec0c2cd86d3ac0f8a076d71dcb65cc03bdd2f8042d0560c02b5877",
+        "source_sheet_ids": ["61128-E"]
+      },
+      "rounding": "EXACT",
+      "charge_component_key": "bundled_energy",
+      "timezone": "America/Los_Angeles",
+      "windows": [
+        {
+          "period": "PEAK",
+          "start_minute_inclusive": 960,
+          "end_minute_exclusive": 1260,
+          "day_selector": "EVERY_DAY"
+        }
+      ],
+      "default_period": "OFF_PEAK",
+      "calendar_id": null,
+      "calendar_content_sha256": null
+    },
+    {
+      "rule_type": "TimeOfUseEnergyCharge",
+      "rule_id": "ETOUC_SUMMER_TOTAL_RATES_2026_06_01",
+      "effective_range": {
+        "start": "2026-06-01",
+        "end": null
+      },
+      "applicability": {
+        "income_tiers": [],
+        "baseline_territories": [],
+        "baseline_quantity_codes": [],
+        "bill_cycle_months": []
+      },
+      "source": {
+        "source_id": "pge-advice-7921-e",
+        "source_sha256": "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+        "source_sheet_ids": ["61364-E"]
+      },
+      "rounding": "HALF_UP_CENT_AT_LINE_ITEM",
+      "charge_component_key": "bundled_energy",
+      "line_item_key": "bundled_energy",
+      "schedule_rule_id": "ETOUC_PEAK_1600_2100_EVERY_DAY_2026_03_01",
+      "quantity_unit": "Wh",
+      "rate_unit": "microdollars/kWh",
+      "period_rates": [
+        {
+          "period": "PEAK",
+          "rate_microdollars_per_kwh": 522400
+        },
+        {
+          "period": "OFF_PEAK",
+          "rate_microdollars_per_kwh": 399400
+        }
+      ],
+      "baseline_credit_microdollars_per_kwh": -81400,
+      "baseline_rule_id": "ETOUC_BASELINE_T_BASIC_SUMMER_2026_03_01"
+    },
+    {
+      "rule_type": "FixedDailyCharge",
+      "rule_id": "BSC_TIER3_2026_06_01",
+      "effective_range": {
+        "start": "2026-06-01",
+        "end": null
+      },
+      "applicability": {
+        "income_tiers": ["TIER_3"],
+        "baseline_territories": [],
+        "baseline_quantity_codes": [],
+        "bill_cycle_months": []
+      },
+      "source": {
+        "source_id": "pge-advice-7921-e",
+        "source_sha256": "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+        "source_sheet_ids": ["61364-E"]
+      },
+      "rounding": "HALF_UP_CENT_AT_LINE_ITEM",
+      "charge_component_key": "base_services_charge",
+      "line_item_key": "base_services_charge",
+      "rate_microdollars_per_day": 793430,
+      "rate_unit": "microdollars/day"
+    },
+    {
+      "rule_type": "FixedMonthlyCharge",
+      "rule_id": "CALIFORNIA_CLIMATE_CREDIT_2026",
+      "effective_range": {
+        "start": "2026-06-01",
+        "end": null
+      },
+      "applicability": {
+        "income_tiers": [],
+        "baseline_territories": [],
+        "baseline_quantity_codes": [],
+        "bill_cycle_months": [8]
+      },
+      "source": {
+        "source_id": "pge-advice-7921-e",
+        "source_sha256": "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+        "source_sheet_ids": ["61364-E"]
+      },
+      "rounding": "HALF_UP_CENT_AT_LINE_ITEM",
+      "charge_component_key": "california_climate_credit",
+      "line_item_key": "california_climate_credit",
+      "amount_microdollars": -36180000,
+      "rate_unit": "microdollars/bill_cycle"
+    }
+  ],
+  "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
+  "source_hashes": [
+    "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+    "c7b7f7128aec0c2cd86d3ac0f8a076d71dcb65cc03bdd2f8042d0560c02b5877"
+  ],
+  "golden_case_ids": [
+    "etouc-active-bill-protection-blocks-ranking",
+    "etouc-baseline-credit-rounds-away-from-zero",
+    "etouc-missing-bill-protection-fact",
+    "etouc-one-minute-before-peak",
+    "etouc-peak-end-exclusive",
+    "etouc-peak-start-inclusive",
+    "etouc-weekend-still-peak",
+    "pge-etouc-july-2026-hourly-flat-load"
+  ]
+}
