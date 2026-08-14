@@ -41,6 +41,7 @@ M7_EVIDENCE: Final = ROOT / "evidence/reliability/m7-local-deployment.json"
 M1_RECOVERY_EVIDENCE: Final = ROOT / "evidence/performance/m1-import-recovery.json"
 RELEASE_OUTPUT: Final = ROOT / "evidence/evaluation/m8-release-topology.json"
 CRASH_OUTPUT: Final = ROOT / "evidence/evaluation/m8-crash-recovery.json"
+FAILED_API_OUTPUT: Final = ROOT / "evidence/performance/m8-api-release-failed.json"
 HEX_IDENTIFIER: Final = re.compile(r"^[0-9a-f]{32}$")
 SOURCE_COMMIT: Final = re.compile(r"^[0-9a-f]{40}$")
 API_CONCURRENCY: Final = 8
@@ -978,6 +979,31 @@ def qualify() -> tuple[dict[str, Any], dict[str, Any]]:
                 warmups=warmups,
             ),
         ]
+        api_attempt: dict[str, Any] = {
+            "schema_version": "m8-api-release-attempt-v1",
+            "evidence_level": "LOCAL_REPRODUCIBLE",
+            "evidence_scope": "PUBLIC_SIMULATED_PROFILE_ONLY",
+            "manifest_sha256": manifest["manifest_sha256"],
+            "evaluation_source_commit": evaluation_commit,
+            "application_source_commit": m7["source_commit"],
+            "application_image_id": cast(dict[str, str], m7["images"])["app_candidate"],
+            "generated_at": datetime.now(UTC).isoformat(),
+            "api_latency": api_latency,
+            "failed_repetitions_omitted": False,
+            "gate_result": ("PASS" if all(item["passed"] for item in api_latency) else "FAIL"),
+        }
+        api_attempt["artifact_sha256"] = _self_hash(api_attempt)
+        if api_attempt["gate_result"] == "FAIL":
+            FAILED_API_OUTPUT.write_text(
+                json.dumps(api_attempt, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            print(
+                "M8_API_LATENCY_ATTEMPT_FAIL "
+                + " ".join(f"{item['operation']}_p95_ms={item['p95_ms']}" for item in api_latency),
+                file=sys.stderr,
+                flush=True,
+            )
         _require(all(item["passed"] for item in api_latency), "API_LATENCY_GATE")
         worker = deployment.container_id("worker")
         import_cases, synthetic_import_sha256 = _recover_import_workers(
@@ -1071,6 +1097,14 @@ def qualify() -> tuple[dict[str, Any], dict[str, Any]]:
                 "m8_manifest_sha256": manifest["manifest_sha256"],
                 "uv_lock_sha256": _sha256(ROOT / "uv.lock"),
             },
+            "preserved_failed_api_attempt": (
+                {
+                    "path": str(FAILED_API_OUTPUT.relative_to(ROOT)),
+                    "sha256": _sha256(FAILED_API_OUTPUT),
+                }
+                if FAILED_API_OUTPUT.is_file()
+                else None
+            ),
             "images": {key: cast(dict[str, str], m7["images"])[key] for key in tags},
             "topology": {
                 "service_count": 8,
