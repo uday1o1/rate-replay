@@ -147,3 +147,58 @@ class ValidatedScenario(FrozenModel):
     scenario: ScenarioInput
     decomposition: ScenarioDecomposition
     reference_validation: ReferenceValidationRecord
+
+
+class ScheduleSlot(FrozenModel):
+    slot_start_utc: datetime
+    duration_seconds: int = Field(gt=0)
+    energy_wh: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_utc(self) -> ScheduleSlot:
+        if not _is_utc(self.slot_start_utc):
+            raise ValueError("schedule slot start must be a UTC instant")
+        return self
+
+
+class OccurrenceSchedule(FrozenModel):
+    occurrence_id: UUID
+    slots: tuple[ScheduleSlot, ...] = Field(min_length=1)
+
+
+class CandidateSchedule(FrozenModel):
+    schedule_version: Literal["candidate-schedule-v1"] = "candidate-schedule-v1"
+    occurrences: tuple[OccurrenceSchedule, ...] = Field(min_length=1)
+
+
+class ObjectiveTuple(FrozenModel):
+    supported_cost_cents: int
+    changed_occurrence_slot_count: int = Field(ge=0)
+    completion_slot_index_sum: int = Field(ge=0)
+    stable_slot_order_score: int = Field(ge=0)
+
+    def ordered_values(self) -> tuple[int, int, int, int]:
+        return (
+            self.supported_cost_cents,
+            self.changed_occurrence_slot_count,
+            self.completion_slot_index_sum,
+            self.stable_slot_order_score,
+        )
+
+
+class CandidateProfileSlot(FrozenModel):
+    slot_start_utc: datetime
+    duration_seconds: int = Field(gt=0)
+    energy_wh: int = Field(ge=0)
+
+
+class VerificationRecord(FrozenModel):
+    verification_version: Literal["independent-schedule-verifier-v1"] = (
+        "independent-schedule-verifier-v1"
+    )
+    status: Literal["VALID"] = "VALID"
+    objective: ObjectiveTuple
+    candidate_profile: tuple[CandidateProfileSlot, ...]
+    billing_result_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    checked_constraint_codes: tuple[str, ...]
+    verification_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
