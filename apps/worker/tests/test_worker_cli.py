@@ -209,6 +209,33 @@ def test_restore_qualification_cli_writes_and_self_verifies_artifact(
     assert "exposure_allowed=true" in verified.output
 
 
+def test_restore_qualification_cli_accepts_versioned_key_directories(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _, artifact, _ = _configure_restore(monkeypatch, tmp_path, initialize_ledger=True)
+    ledger_keys = tmp_path / "ledger-keys"
+    restore_keys = tmp_path / "restore-keys"
+    ledger_keys.mkdir()
+    restore_keys.mkdir()
+    (ledger_keys / "ledger-v1").write_bytes(b"l" * 32)
+    (restore_keys / "restore-v1").write_bytes(b"r" * 32)
+    monkeypatch.delenv("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
+    monkeypatch.delenv("RATEREPLAY_RESTORE_KEY_FILE")
+    monkeypatch.setenv("RATEREPLAY_DELETION_LEDGER_KEYS_DIR", str(ledger_keys))
+    monkeypatch.setenv("RATEREPLAY_DELETION_LEDGER_CURRENT_KEY_VERSION", "ledger-v1")
+    monkeypatch.setenv("RATEREPLAY_RESTORE_KEYS_DIR", str(restore_keys))
+    monkeypatch.setenv("RATEREPLAY_RESTORE_CURRENT_KEY_VERSION", "restore-v1")
+
+    result = CliRunner().invoke(
+        app,
+        ["qualify-restore", "--artifact-file", str(artifact)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "exposure_allowed=true" in result.output
+
+
 def test_restore_qualification_cli_writes_hold_and_exits_nonzero(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -69,8 +69,8 @@ def create_app(
     )
     application.state.deletion_ledger = FilesystemDeletionLedger(
         resolved.deletion_ledger_root,
-        integrity_key=resolved.deletion_ledger_key,
-        restore_key_version=resolved.restore_key_version,
+        keyring=resolved.deletion_ledger_keyring,
+        restore_key_version=resolved.restore_keyring.current_version,
         actor="API_COORDINATOR",
     )
     application.state.built_in_simulated_profile = load_locked_simulated_profile(
@@ -84,8 +84,7 @@ def create_app(
     application.state.deletion_coordinator = DeletionCoordinator(
         application.state.session_factory,
         application.state.deletion_ledger,
-        restore_key=resolved.restore_suppression_key,
-        restore_key_version=resolved.restore_key_version,
+        restore_keyring=resolved.restore_keyring,
     )
     application.state.replay_service = ReplayService(application.state.session_factory)
     application.state.comparison_service = ComparisonService(application.state.session_factory)

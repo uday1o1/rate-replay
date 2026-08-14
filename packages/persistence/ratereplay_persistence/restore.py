@@ -34,6 +34,7 @@ from ratereplay_persistence.deletions import (
     _target_by_scope,
 )
 from ratereplay_persistence.imports import ImportService
+from ratereplay_persistence.keyrings import KeyringError, VersionedKeyring
 from ratereplay_persistence.models import (
     DeletionAuditRecord,
     DeletionControlOperationRecord,
@@ -131,23 +132,31 @@ class RestoreReconciler:
         object_store: ObjectStore,
         ledger: FilesystemDeletionLedger,
         *,
-        restore_key: bytes,
-        restore_key_version: str,
+        restore_key: bytes | None = None,
+        restore_key_version: str = "restore-v1",
+        restore_keyring: VersionedKeyring | None = None,
         outcome_evidence_key: bytes,
     ) -> None:
-        if len(restore_key) != 32 or len(outcome_evidence_key) != 32:
-            raise ValueError("Restore and transaction outcome keys must contain exactly 32 bytes")
+        if len(outcome_evidence_key) != 32:
+            raise ValueError("Transaction outcome key must contain exactly 32 bytes")
+        if (restore_key is None) == (restore_keyring is None):
+            raise ValueError("Configure exactly one restore key source")
+        if restore_keyring is None:
+            if restore_key is None:
+                raise RuntimeError("Restore key source invariant failed")
+            try:
+                restore_keyring = VersionedKeyring.single(restore_key_version, restore_key)
+            except KeyringError as error:
+                raise ValueError("Restore suppression key configuration is invalid") from error
         self._session_factory = session_factory
         self._objects = object_store
         self._ledger = ledger
-        self._restore_key = bytes(restore_key)
-        self._restore_key_version = restore_key_version
+        self._restore_keyring = restore_keyring
         self._outcome_key = bytes(outcome_evidence_key)
         self._coordinator = DeletionCoordinator(
             session_factory,
             ledger,
-            restore_key=restore_key,
-            restore_key_version=restore_key_version,
+            restore_keyring=restore_keyring,
         )
 
     def qualify(
@@ -165,11 +174,14 @@ class RestoreReconciler:
                 "LEDGER_UNVERIFIED",
                 "Restore deletion ledger could not be verified",
             ) from error
-        if any(event.restore_key_version != self._restore_key_version for event in events):
-            raise RestoreQualificationError(
-                "RESTORE_KEY_VERSION_UNAVAILABLE",
-                "Restore key version required by the deletion ledger is unavailable",
-            )
+        for version in {event.restore_key_version for event in events}:
+            try:
+                self._restore_keyring.require(version)
+            except KeyringError as error:
+                raise RestoreQualificationError(
+                    "RESTORE_KEY_VERSION_UNAVAILABLE",
+                    "Restore key version required by the deletion ledger is unavailable",
+                ) from error
         evidence_by_id = self._validated_evidence(outcome_evidence, events)
         chains = _chains(events)
         requested: list[str] = []
@@ -432,7 +444,14 @@ class RestoreReconciler:
         )
         for restored in scopes:
             scope_id = restored.scope_id
-            candidate = _scope_token(self._restore_key, scope_id)
+            try:
+                restore_key = self._restore_keyring.require(event.restore_key_version)
+            except KeyringError as error:
+                raise RestoreQualificationError(
+                    "RESTORE_KEY_VERSION_UNAVAILABLE",
+                    "Restore key version required by the deletion ledger is unavailable",
+                ) from error
+            candidate = _scope_token(restore_key, scope_id)
             if hmac.compare_digest(candidate, event.scope_token):
                 matches.append(restored)
         if len(matches) > 1:

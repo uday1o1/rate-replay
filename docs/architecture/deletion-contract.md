@@ -46,6 +46,17 @@ Signed genesis and head files bind the ledger identity, last acknowledged record
 An authenticated stream tail written before a crash but not yet reflected in the signed head is recovered under the exclusive ledger lock.
 Every other head mismatch fails closed.
 
+Ledger and restore suppression secrets are loaded from separate version-named key directories.
+`RATEREPLAY_DELETION_LEDGER_CURRENT_KEY_VERSION` selects the key used for new encrypted ledger records, and `RATEREPLAY_RESTORE_CURRENT_KEY_VERSION` selects the key used for new suppression tokens.
+Every process loads `RATEREPLAY_DELETION_LEDGER_KEYS_DIR`, while the API, preparation reconciler, and restore qualifier also load `RATEREPLAY_RESTORE_KEYS_DIR`.
+The single-file variables remain a development compatibility path and cannot be configured together with their matching directory.
+Restore qualification verifies that every restore-key version referenced anywhere in the ledger is available before inspecting or mutating restored data.
+It derives each candidate suppression token using the exact version recorded by that event.
+The preparation reconciler likewise continues an older `PREPARED` event with its original restore-key version after the configured write version changes.
+Missing historical keys fail closed with `RESTORE_KEY_VERSION_UNAVAILABLE` and leave the target unexposed.
+V1 retains all historical ledger and restore read keys indefinitely because retained backups and unresolved preparations can reference them.
+Key retirement is therefore report-only until backup retention and ledger state prove a version unnecessary.
+
 Every successful read or mutation first validates the entire chain and durably appends an encrypted access-audit record with a fixed actor, fixed operation, random operation ID, timestamp, and prior chain position.
 Access-audit records never contain deletion IDs, scope tokens, user IDs, paths, secrets, or free text.
 If the audit cannot be persisted, the requested read or mutation does not proceed.

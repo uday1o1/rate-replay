@@ -22,6 +22,7 @@ from ratereplay_persistence.deletion_ledger import (
     LedgerEvent,
     LedgerPhase,
 )
+from ratereplay_persistence.keyrings import KeyringError, VersionedKeyring
 from ratereplay_persistence.models import (
     DeletionAuditRecord,
     DeletionControlOperationRecord,
@@ -94,17 +95,22 @@ class DeletionCoordinator:
         session_factory: sessionmaker[Session],
         ledger: FilesystemDeletionLedger,
         *,
-        restore_key: bytes,
+        restore_key: bytes | None = None,
         restore_key_version: str = RESTORE_KEY_VERSION,
+        restore_keyring: VersionedKeyring | None = None,
     ) -> None:
-        if len(restore_key) != 32:
-            raise ValueError("Restore suppression key must contain exactly 32 bytes")
-        if not restore_key_version or len(restore_key_version) > 32:
-            raise ValueError("Restore key version is invalid")
+        if (restore_key is None) == (restore_keyring is None):
+            raise ValueError("Configure exactly one restore key source")
+        if restore_keyring is None:
+            if restore_key is None:
+                raise RuntimeError("Restore key source invariant failed")
+            try:
+                restore_keyring = VersionedKeyring.single(restore_key_version, restore_key)
+            except KeyringError as error:
+                raise ValueError("Restore suppression key configuration is invalid") from error
         self._session_factory = session_factory
         self._ledger = ledger
-        self._restore_key = bytes(restore_key)
-        self._restore_key_version = restore_key_version
+        self._restore_keyring = restore_keyring
 
     def create_intent(
         self,
@@ -815,14 +821,23 @@ class DeletionCoordinator:
         intent: DeletionIntentRecord,
         *,
         occurred_at: datetime,
+        restore_key_version: str | None = None,
     ) -> LedgerAppendArguments:
+        version = restore_key_version or self._restore_keyring.current_version
+        try:
+            restore_key = self._restore_keyring.require(version)
+        except KeyringError as error:
+            raise DeletionServiceError(
+                "RESTORE_KEY_VERSION_UNAVAILABLE",
+                "Restore key version required by the deletion ledger is unavailable",
+            ) from error
         target_scope_id = intent.target_scope_id
-        scope_token = _scope_token(self._restore_key, target_scope_id)
+        scope_token = _scope_token(restore_key, target_scope_id)
         proof_digest = _intent_proof_digest(intent)
         preparation_digest = _preparation_digest(
             deletion_id=intent.deletion_id,
             scope_token=scope_token,
-            restore_key_version=self._restore_key_version,
+            restore_key_version=version,
             original_generation=intent.original_generation,
             proposed_generation=intent.proposed_generation,
             intent_proof_digest=proof_digest,
@@ -831,7 +846,7 @@ class DeletionCoordinator:
             "deletion_id": intent.deletion_id,
             "phase": "PREPARED",
             "scope_token": scope_token,
-            "restore_key_version": self._restore_key_version,
+            "restore_key_version": version,
             "original_generation": intent.original_generation,
             "proposed_generation": intent.proposed_generation,
             "preparation_digest": preparation_digest,
@@ -843,6 +858,7 @@ class DeletionCoordinator:
         expected = self._prepared_arguments(
             intent,
             occurred_at=datetime.fromisoformat(event.occurred_at),
+            restore_key_version=event.restore_key_version,
         )
         if event.phase != "PREPARED" or any(
             getattr(event, field) != value

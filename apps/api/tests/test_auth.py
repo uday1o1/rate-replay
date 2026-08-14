@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import httpx
@@ -266,3 +267,31 @@ def test_production_configuration_requires_external_session_secret(
     monkeypatch.delenv("RATEREPLAY_SESSION_SECRET_FILE", raising=False)
     with pytest.raises(RuntimeError, match="RATEREPLAY_SESSION_SECRET_FILE"):
         AppSettings.from_environment()
+
+
+def test_configuration_loads_current_and_historical_deletion_keys(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ledger_keys = tmp_path / "ledger-keys"
+    restore_keys = tmp_path / "restore-keys"
+    ledger_keys.mkdir()
+    restore_keys.mkdir()
+    (ledger_keys / "ledger-v1").write_bytes(b"l" * 32)
+    (ledger_keys / "ledger-v2").write_bytes(b"n" * 32)
+    (restore_keys / "restore-v1").write_bytes(b"r" * 32)
+    (restore_keys / "restore-v2").write_bytes(b"s" * 32)
+    monkeypatch.setenv("RATEREPLAY_ENV", "development")
+    monkeypatch.setenv("RATEREPLAY_DELETION_LEDGER_KEYS_DIR", str(ledger_keys))
+    monkeypatch.setenv("RATEREPLAY_DELETION_LEDGER_CURRENT_KEY_VERSION", "ledger-v2")
+    monkeypatch.setenv("RATEREPLAY_RESTORE_KEYS_DIR", str(restore_keys))
+    monkeypatch.setenv("RATEREPLAY_RESTORE_CURRENT_KEY_VERSION", "restore-v2")
+    monkeypatch.delenv("RATEREPLAY_DELETION_LEDGER_KEY_FILE", raising=False)
+    monkeypatch.delenv("RATEREPLAY_RESTORE_KEY_FILE", raising=False)
+
+    settings = AppSettings.from_environment()
+
+    assert settings.deletion_ledger_keyring.current_version == "ledger-v2"
+    assert settings.deletion_ledger_keyring.require("ledger-v1") == b"l" * 32
+    assert settings.restore_keyring.current_version == "restore-v2"
+    assert settings.restore_keyring.require("restore-v1") == b"r" * 32

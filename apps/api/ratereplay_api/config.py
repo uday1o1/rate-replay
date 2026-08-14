@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ratereplay_persistence.database import DatabaseAtRestConfiguration
+from ratereplay_persistence.keyrings import KeyringError, VersionedKeyring, load_keyring
 from ratereplay_persistence.object_store import ObjectStoreConfiguration
 
 
@@ -18,9 +19,8 @@ class AppSettings:
     database_at_rest: DatabaseAtRestConfiguration
     allowed_origin: str
     session_key: bytes
-    deletion_ledger_key: bytes
-    restore_suppression_key: bytes
-    restore_key_version: str
+    deletion_ledger_keyring: VersionedKeyring
+    restore_keyring: VersionedKeyring
     object_store_root: Path
     object_store_configuration: ObjectStoreConfiguration
     deletion_ledger_root: Path
@@ -63,13 +63,19 @@ class AppSettings:
             session_key = Path(secret_path).read_bytes().strip()
             if len(session_key) < 32:
                 raise RuntimeError("Session secret must contain at least 32 bytes")
-        deletion_ledger_key = _load_control_key(
+        deletion_ledger_keyring = _load_control_keyring(
             environment=environment,
-            variable="RATEREPLAY_DELETION_LEDGER_KEY_FILE",
+            directory_variable="RATEREPLAY_DELETION_LEDGER_KEYS_DIR",
+            current_version_variable="RATEREPLAY_DELETION_LEDGER_CURRENT_KEY_VERSION",
+            legacy_file_variable="RATEREPLAY_DELETION_LEDGER_KEY_FILE",
+            default_version="ledger-v1",
         )
-        restore_suppression_key = _load_control_key(
+        restore_keyring = _load_control_keyring(
             environment=environment,
-            variable="RATEREPLAY_RESTORE_KEY_FILE",
+            directory_variable="RATEREPLAY_RESTORE_KEYS_DIR",
+            current_version_variable="RATEREPLAY_RESTORE_CURRENT_KEY_VERSION",
+            legacy_file_variable="RATEREPLAY_RESTORE_KEY_FILE",
+            default_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
         )
         object_store_configuration = ObjectStoreConfiguration.from_environment(
             environment=environment,
@@ -84,9 +90,8 @@ class AppSettings:
             database_at_rest=database_at_rest,
             allowed_origin=allowed_origin,
             session_key=session_key,
-            deletion_ledger_key=deletion_ledger_key,
-            restore_suppression_key=restore_suppression_key,
-            restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+            deletion_ledger_keyring=deletion_ledger_keyring,
+            restore_keyring=restore_keyring,
             object_store_root=object_store_root,
             object_store_configuration=object_store_configuration,
             deletion_ledger_root=deletion_ledger_root,
@@ -115,9 +120,12 @@ class AppSettings:
             ),
             allowed_origin=allowed_origin,
             session_key=b"rate-replay-test-session-key-v1!",
-            deletion_ledger_key=b"rate-replay-test-ledger-key-v1!!",
-            restore_suppression_key=b"rate-replay-test-restore-key-v1!",
-            restore_key_version="restore-test-v1",
+            deletion_ledger_keyring=VersionedKeyring.single(
+                "ledger-test-v1", b"rate-replay-test-ledger-key-v1!!"
+            ),
+            restore_keyring=VersionedKeyring.single(
+                "restore-test-v1", b"rate-replay-test-restore-key-v1!"
+            ),
             object_store_root=object_store_root,
             object_store_configuration=ObjectStoreConfiguration.filesystem(object_store_root),
             deletion_ledger_root=(
@@ -146,6 +154,29 @@ def _load_control_key(*, environment: str, variable: str) -> bytes:
     if len(value) != 32:
         raise RuntimeError(f"{variable} must reference exactly 32 bytes")
     return value
+
+
+def _load_control_keyring(
+    *,
+    environment: str,
+    directory_variable: str,
+    current_version_variable: str,
+    legacy_file_variable: str,
+    default_version: str,
+) -> VersionedKeyring:
+    directory = os.getenv(directory_variable)
+    current_version = os.getenv(current_version_variable, default_version)
+    if directory is None:
+        return VersionedKeyring.single(
+            current_version,
+            _load_control_key(environment=environment, variable=legacy_file_variable),
+        )
+    if os.getenv(legacy_file_variable) is not None:
+        raise RuntimeError(f"Configure {directory_variable} or {legacy_file_variable}, not both")
+    try:
+        return load_keyring(Path(directory), current_version=current_version)
+    except KeyringError as error:
+        raise RuntimeError(f"{directory_variable} is invalid: {error.code}") from error
 
 
 def _trusted_proxy_cidrs() -> tuple[str, ...]:

@@ -8,6 +8,7 @@ import pytest
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import DeletionLedgerError, FilesystemDeletionLedger
 from ratereplay_persistence.deletions import DeletionCoordinator, DeletionServiceError
+from ratereplay_persistence.keyrings import VersionedKeyring
 from ratereplay_persistence.models import (
     DeletionControlOperationRecord,
     DeletionIntentRecord,
@@ -94,6 +95,23 @@ def _intent(harness: Harness, *, key: str = "intent-key", secret: bytes = SECRET
         receipt_secret=secret,
         now=NOW,
     ).deletion_id
+
+
+def test_deletion_coordinator_rejects_ambiguous_or_invalid_restore_key_sources(
+    harness: Harness,
+) -> None:
+    keyring = VersionedKeyring.single("restore-v1", b"r" * 32)
+    with pytest.raises(ValueError, match="exactly one"):
+        DeletionCoordinator(harness.sessions, harness.ledger)
+    with pytest.raises(ValueError, match="exactly one"):
+        DeletionCoordinator(
+            harness.sessions,
+            harness.ledger,
+            restore_key=b"r" * 32,
+            restore_keyring=keyring,
+        )
+    with pytest.raises(ValueError, match="configuration is invalid"):
+        DeletionCoordinator(harness.sessions, harness.ledger, restore_key=b"short")
 
 
 def test_intent_is_idempotent_secret_bound_and_expires_exactly(harness: Harness) -> None:
@@ -226,6 +244,60 @@ def test_startup_reconciler_recovers_crash_after_prepared(harness: Harness) -> N
         ).status
         == "DELETING"
     )
+
+
+def test_reconciler_continues_old_preparation_after_restore_key_rotation(
+    harness: Harness,
+) -> None:
+    deletion_id = _intent(harness)
+    intent = harness.deletions._authorized_intent(
+        owner_user_id=OWNER_ID,
+        deletion_id=deletion_id,
+        receipt_secret=SECRET,
+        now=NOW,
+    )
+    harness.deletions._ensure_prepared(intent, now=NOW + timedelta(seconds=1))
+    rotated = DeletionCoordinator(
+        harness.sessions,
+        harness.ledger,
+        restore_keyring=VersionedKeyring(
+            current_version="restore-v2",
+            keys={"restore-v1": b"r" * 32, "restore-v2": b"n" * 32},
+        ),
+    )
+
+    result = rotated.reconcile(now=NOW + timedelta(seconds=2))
+
+    assert (result.advanced, result.quarantined) == (1, 0)
+    chain = harness.ledger.chain(deletion_id)
+    assert tuple(event.phase for event in chain) == ("PREPARED", "REQUESTED")
+    assert {event.restore_key_version for event in chain} == {"restore-v1"}
+
+
+def test_reconciler_quarantines_old_preparation_without_historical_restore_key(
+    harness: Harness,
+) -> None:
+    deletion_id = _intent(harness)
+    intent = harness.deletions._authorized_intent(
+        owner_user_id=OWNER_ID,
+        deletion_id=deletion_id,
+        receipt_secret=SECRET,
+        now=NOW,
+    )
+    harness.deletions._ensure_prepared(intent, now=NOW + timedelta(seconds=1))
+    rotated = DeletionCoordinator(
+        harness.sessions,
+        harness.ledger,
+        restore_keyring=VersionedKeyring.single("restore-v2", b"n" * 32),
+    )
+
+    result = rotated.reconcile(now=NOW + timedelta(seconds=2))
+
+    assert (result.advanced, result.quarantined) == (0, 1)
+    assert tuple(event.phase for event in harness.ledger.chain(deletion_id)) == ("PREPARED",)
+    with harness.sessions() as database:
+        user = database.get(UserRecord, OWNER_ID)
+        assert user is not None and user.lifecycle_state == "ACTIVE"
 
 
 def test_failed_requested_append_leaves_target_fenced_until_retry(

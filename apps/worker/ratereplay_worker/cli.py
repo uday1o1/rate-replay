@@ -31,6 +31,7 @@ from ratereplay_persistence.deletion_sweep import DeletionSweepService
 from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
+from ratereplay_persistence.keyrings import KeyringError, VersionedKeyring, load_keyring
 from ratereplay_persistence.object_store import (
     ObjectStore,
     ObjectStoreConfiguration,
@@ -177,20 +178,29 @@ def _configured_deletion_reconciler() -> tuple[DeletionCoordinator, Engine]:
     ledger_root = Path(
         os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
     )
-    ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
-    restore_key = _required_key_file("RATEREPLAY_RESTORE_KEY_FILE")
+    ledger_keyring = _required_keyring(
+        directory_variable="RATEREPLAY_DELETION_LEDGER_KEYS_DIR",
+        current_version_variable="RATEREPLAY_DELETION_LEDGER_CURRENT_KEY_VERSION",
+        legacy_file_variable="RATEREPLAY_DELETION_LEDGER_KEY_FILE",
+        default_version="ledger-v1",
+    )
+    restore_keyring = _required_keyring(
+        directory_variable="RATEREPLAY_RESTORE_KEYS_DIR",
+        current_version_variable="RATEREPLAY_RESTORE_CURRENT_KEY_VERSION",
+        legacy_file_variable="RATEREPLAY_RESTORE_KEY_FILE",
+        default_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+    )
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
     coordinator = DeletionCoordinator(
         sessions,
         FilesystemDeletionLedger(
             ledger_root,
-            integrity_key=ledger_key,
-            restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+            keyring=ledger_keyring,
+            restore_key_version=restore_keyring.current_version,
             actor="PREPARATION_RECONCILER",
         ),
-        restore_key=restore_key,
-        restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+        restore_keyring=restore_keyring,
     )
     return coordinator, engine
 
@@ -205,14 +215,14 @@ def _configured_deletion_worker(
     ledger_root = Path(
         os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
     )
-    ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
+    ledger_keyring = _required_ledger_keyring()
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
     jobs = JobService(sessions)
     ledger = FilesystemDeletionLedger(
         ledger_root,
-        integrity_key=ledger_key,
-        restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+        keyring=ledger_keyring,
+        restore_key_version=_restore_current_version(),
         actor="DELETION_WORKER",
     )
     worker = DeletionWorker(
@@ -247,7 +257,7 @@ def _configured_retention_worker(
     ledger_root = Path(
         os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
     )
-    ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
+    ledger_keyring = _required_ledger_keyring()
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
     primary_configuration = _object_store_configuration()
@@ -256,8 +266,8 @@ def _configured_retention_worker(
     )
     ledger = FilesystemDeletionLedger(
         ledger_root,
-        integrity_key=ledger_key,
-        restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+        keyring=ledger_keyring,
+        restore_key_version=_restore_current_version(),
         actor="RETENTION_WORKER",
     )
     return (
@@ -284,13 +294,13 @@ def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
     ledger_root = Path(
         os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
     )
-    ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
-    restore_key = _required_key_file("RATEREPLAY_RESTORE_KEY_FILE")
+    ledger_keyring = _required_ledger_keyring()
+    restore_keyring = _required_restore_keyring()
     outcome_key = _required_key_file("RATEREPLAY_TRANSACTION_OUTCOME_KEY_FILE")
     ledger = FilesystemDeletionLedger(
         ledger_root,
-        integrity_key=ledger_key,
-        restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+        keyring=ledger_keyring,
+        restore_key_version=restore_keyring.current_version,
         actor="RESTORE_QUALIFIER",
         require_existing=True,
     )
@@ -301,8 +311,7 @@ def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
             sessions,
             _configured_object_store(),
             ledger,
-            restore_key=restore_key,
-            restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+            restore_keyring=restore_keyring,
             outcome_evidence_key=outcome_key,
         ),
         engine,
@@ -417,6 +426,58 @@ def _required_key_file(variable: str) -> bytes:
         typer.echo(f"{variable} must reference exactly 32 bytes", err=True)
         raise typer.Exit(code=2)
     return value
+
+
+def _required_keyring(
+    *,
+    directory_variable: str,
+    current_version_variable: str,
+    legacy_file_variable: str,
+    default_version: str,
+) -> VersionedKeyring:
+    directory = os.getenv(directory_variable)
+    current_version = os.getenv(current_version_variable, default_version)
+    if directory is None:
+        return VersionedKeyring.single(
+            current_version,
+            _required_key_file(legacy_file_variable),
+        )
+    if os.getenv(legacy_file_variable) is not None:
+        typer.echo(
+            f"Configure {directory_variable} or {legacy_file_variable}, not both",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    try:
+        return load_keyring(Path(directory), current_version=current_version)
+    except KeyringError as error:
+        typer.echo(f"{directory_variable} is invalid: {error.code}", err=True)
+        raise typer.Exit(code=2) from error
+
+
+def _required_ledger_keyring() -> VersionedKeyring:
+    return _required_keyring(
+        directory_variable="RATEREPLAY_DELETION_LEDGER_KEYS_DIR",
+        current_version_variable="RATEREPLAY_DELETION_LEDGER_CURRENT_KEY_VERSION",
+        legacy_file_variable="RATEREPLAY_DELETION_LEDGER_KEY_FILE",
+        default_version="ledger-v1",
+    )
+
+
+def _required_restore_keyring() -> VersionedKeyring:
+    return _required_keyring(
+        directory_variable="RATEREPLAY_RESTORE_KEYS_DIR",
+        current_version_variable="RATEREPLAY_RESTORE_CURRENT_KEY_VERSION",
+        legacy_file_variable="RATEREPLAY_RESTORE_KEY_FILE",
+        default_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+    )
+
+
+def _restore_current_version() -> str:
+    return os.getenv(
+        "RATEREPLAY_RESTORE_CURRENT_KEY_VERSION",
+        os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
+    )
 
 
 def _read_outcome_evidence(path: Path | None) -> tuple[TransactionOutcomeEvidence, ...]:

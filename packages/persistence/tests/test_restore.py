@@ -11,6 +11,7 @@ import pytest
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger, LedgerEvent
 from ratereplay_persistence.deletions import DeletionCoordinator, _event_arguments, _scope_token
+from ratereplay_persistence.keyrings import VersionedKeyring
 from ratereplay_persistence.models import (
     DeletionControlOperationRecord,
     DeletionIntentRecord,
@@ -124,6 +125,44 @@ def _evidence(
     )
 
 
+def test_restore_reconciler_rejects_ambiguous_or_invalid_key_sources(
+    harness: Harness,
+) -> None:
+    keyring = VersionedKeyring.single("restore-v1", RESTORE_KEY)
+    with pytest.raises(ValueError, match="Transaction outcome key"):
+        RestoreReconciler(
+            harness.sessions,
+            harness.objects,
+            harness.ledger,
+            restore_key=RESTORE_KEY,
+            outcome_evidence_key=b"short",
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        RestoreReconciler(
+            harness.sessions,
+            harness.objects,
+            harness.ledger,
+            outcome_evidence_key=OUTCOME_KEY,
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        RestoreReconciler(
+            harness.sessions,
+            harness.objects,
+            harness.ledger,
+            restore_key=RESTORE_KEY,
+            restore_keyring=keyring,
+            outcome_evidence_key=OUTCOME_KEY,
+        )
+    with pytest.raises(ValueError, match="configuration is invalid"):
+        RestoreReconciler(
+            harness.sessions,
+            harness.objects,
+            harness.ledger,
+            restore_key=b"short",
+            outcome_evidence_key=OUTCOME_KEY,
+        )
+
+
 def test_requested_event_suppresses_predeletion_backup_before_exposure(
     harness: Harness,
 ) -> None:
@@ -137,6 +176,71 @@ def test_requested_event_suppresses_predeletion_backup_before_exposure(
     assert not harness.objects.exists(f"owners/{OWNER_ID}/exports/report.json")
     with harness.sessions() as database:
         assert database.get(UserRecord, OWNER_ID) is None
+
+
+def test_mixed_restore_key_versions_suppress_every_matching_restored_scope(
+    harness: Harness,
+) -> None:
+    second_owner_id = "6" * 32
+    second_scope_id = "7" * 32
+    old_key = RESTORE_KEY
+    new_key = b"n" * 32
+    with harness.sessions.begin() as database:
+        database.add(
+            UserRecord(
+                id=second_owner_id,
+                username_canonical="restore-owner-two",
+                password_hash="test-only",
+                deletion_scope_id=second_scope_id,
+                created_at=NOW,
+                lifecycle_state="ACTIVE",
+                lifecycle_generation=0,
+            )
+        )
+    events: list[LedgerEvent] = []
+    for deletion_id, scope_id, version, key in (
+        ("8" * 32, SCOPE_ID, "restore-v1", old_key),
+        ("9" * 32, second_scope_id, "restore-v2", new_key),
+    ):
+        prepared = harness.ledger.append(
+            deletion_id=deletion_id,
+            phase="PREPARED",
+            scope_token=_scope_token(key, scope_id),
+            restore_key_version=version,
+            original_generation=0,
+            proposed_generation=1,
+            preparation_digest=deletion_id[0] * 64,
+            intent_proof_digest=scope_id[0] * 64,
+            occurred_at=NOW + timedelta(seconds=len(events) * 2 + 1),
+        )
+        harness.ledger.append(
+            **_event_arguments(
+                prepared,
+                phase="REQUESTED",
+                occurred_at=NOW + timedelta(seconds=len(events) * 2 + 2),
+            )
+        )
+        events.append(prepared)
+    reconciler = RestoreReconciler(
+        harness.sessions,
+        harness.objects,
+        harness.ledger,
+        restore_keyring=VersionedKeyring(
+            current_version="restore-v2",
+            keys={"restore-v1": old_key, "restore-v2": new_key},
+        ),
+        outcome_evidence_key=OUTCOME_KEY,
+    )
+
+    qualification = reconciler.qualify(now=NOW + timedelta(seconds=10))
+
+    assert qualification.exposure_allowed
+    assert qualification.suppressed_deletions == tuple(
+        sorted(event.deletion_id for event in events)
+    )
+    with harness.sessions() as database:
+        assert database.get(UserRecord, OWNER_ID) is None
+        assert database.get(UserRecord, second_owner_id) is None
 
 
 def test_account_restore_suppression_removes_child_deletion_controls(
