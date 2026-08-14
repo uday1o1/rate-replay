@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ApiProblem(Exception):
@@ -18,12 +18,14 @@ class ApiProblem(Exception):
         code: str,
         message: str,
         field_paths: tuple[str, ...] = (),
+        witness: dict[str, object] | None = None,
     ) -> None:
         super().__init__(code)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.field_paths = field_paths
+        self.witness = witness or {}
 
 
 class ProblemResponse(BaseModel):
@@ -34,6 +36,7 @@ class ProblemResponse(BaseModel):
     message: str
     request_id: str
     field_paths: tuple[str, ...] = ()
+    witness: dict[str, object] = Field(default_factory=dict)
 
 
 def install_problem_handler(app: FastAPI) -> None:
@@ -45,6 +48,7 @@ def install_problem_handler(app: FastAPI) -> None:
             message=error.message,
             request_id=request_id,
             field_paths=error.field_paths,
+            witness=error.witness,
         )
         return JSONResponse(
             status_code=error.status_code,
