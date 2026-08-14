@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qualify a clean tracked checkout inside the pinned Linux toolchain image."""
+"""Qualify a clean tracked checkout in a pinned, disposable Linux environment."""
 
 from __future__ import annotations
 
@@ -15,11 +15,27 @@ from pathlib import Path
 from typing import Any, Final, cast
 
 ROOT: Final = Path(__file__).resolve().parents[1]
-DOCKERFILE: Final = ROOT / "containers/qualification.Dockerfile"
 OUTPUT: Final = ROOT / "evidence/reproducibility/m9-clean-container.json"
+CONTAINER_IMAGE: Final = (
+    "mcr.microsoft.com/playwright@sha256:"
+    "dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
+)
+CONTAINER_PLATFORM: Final = "linux/amd64"
+UV_WHEEL_URL: Final = (
+    "https://files.pythonhosted.org/packages/19/ff/"
+    "764e1c21ba988589d2b505d2b06876b5f06ffe7cc6858dff6cc3faf7cb14/"
+    "uv-0.11.23-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+)
+UV_WHEEL_SHA256: Final = "7a85330de0a7eb0d5c6cf03c80edfb86facad19df367a0b52fc906db1ab15ce9"
+NODE_ARCHIVE_URL: Final = "https://nodejs.org/dist/v24.16.0/node-v24.16.0-linux-x64.tar.gz"
+NODE_ARCHIVE_SHA256: Final = "2faf6a387e9b62b888e21c54f01249fb27537ffecf1842f29f4c919d0a59a0ff"
+COMPOSE_URL: Final = (
+    "https://github.com/docker/compose/releases/download/v5.4.0/docker-compose-linux-x86_64"
+)
+COMPOSE_SHA256: Final = "837fd1d35bf6a494f41b5b5988269a7be79de337cf1a1a6ff0e45ab51bb4e9be"
+PYTHON_VERSION: Final = "3.12.13"
 QUALIFICATION_COMMANDS: Final = (
     "make bootstrap",
-    "corepack pnpm --filter @ratereplay/web exec playwright install --with-deps chromium",
     "make check",
     "make dependency-audit",
     "make qualification-m3",
@@ -32,11 +48,12 @@ REQUIRED_OUTPUT_MARKERS: Final = (
     "Public demo artifacts are reproducible and current.",
     "No known vulnerabilities found",
 )
+ENVIRONMENT_PREFIXES: Final = ("os=", "arch=", "python=", "node=", "uv=", "pnpm=", "compose=")
 ALLOWED_EXECUTABLES: Final = frozenset({"docker", "git"})
 
 
 class CleanContainerError(RuntimeError):
-    """The fresh-container qualification is invalid or failed."""
+    """The clean Linux qualification is invalid or failed."""
 
 
 def _require(condition: bool, code: str) -> None:
@@ -59,10 +76,6 @@ def _run(command: tuple[str, ...], *, cwd: Path = ROOT) -> subprocess.CompletedP
             f"COMMAND_FAILED\ncommand={' '.join(command)}\noutput={completed.stdout[-6000:]}"
         )
     return completed
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _artifact_hash(payload: dict[str, Any]) -> str:
@@ -94,66 +107,108 @@ def _export_checkout(destination: Path) -> None:
     _require(archive.wait() == 0, "GIT_ARCHIVE_FAILED")
 
 
-def _docker_target_architecture() -> str:
-    observed = _run(("docker", "info", "--format", "{{.Architecture}}")).stdout.strip()
-    mapping = {
-        "aarch64": "arm64",
-        "arm64": "arm64",
-        "amd64": "amd64",
-        "x86_64": "amd64",
-    }
-    _require(observed in mapping, f"UNSUPPORTED_DOCKER_ARCHITECTURE:{observed}")
-    return mapping[observed]
+def _container_script() -> str:
+    commands = "\n".join(QUALIFICATION_COMMANDS)
+    return f"""
+set -eu
+tools=/workspace/.qualification-tools
+apt_root="$tools/apt/root"
+apt_state="$tools/apt/state"
+apt_cache="$tools/apt/cache"
+mkdir -p "$tools" "$apt_root" "$apt_state/lists/partial" "$apt_cache/archives/partial" \
+  "$tools/debs" "$tools/node" "$tools/python" "$tools/uv-cache" "$tools/pnpm-store" \
+  "$tools/playwright"
+
+curl --fail --location --silent --show-error '{UV_WHEEL_URL}' --output "$tools/uv.whl"
+printf '%s  %s\n' '{UV_WHEEL_SHA256}' "$tools/uv.whl" | sha256sum --check --strict
+python3 -m zipfile -e "$tools/uv.whl" "$tools/uv-wheel"
+uv="$tools/uv-wheel/uv-0.11.23.data/scripts/uv"
+chmod 0755 "$uv"
+
+curl --fail --location --silent --show-error '{NODE_ARCHIVE_URL}' --output "$tools/node.tar.gz"
+printf '%s  %s\n' '{NODE_ARCHIVE_SHA256}' "$tools/node.tar.gz" | sha256sum --check --strict
+tar --extract --gzip --file "$tools/node.tar.gz" --directory "$tools/node" --strip-components=1
+
+curl --fail --location --silent --show-error '{COMPOSE_URL}' --output "$tools/docker-compose"
+printf '%s  %s\n' '{COMPOSE_SHA256}' "$tools/docker-compose" | sha256sum --check --strict
+chmod 0755 "$tools/docker-compose"
+
+apt-get -o "Dir::State=$apt_state" -o "Dir::Cache=$apt_cache" update
+(
+  cd "$tools/debs"
+  apt-get -o "Dir::State=$apt_state" -o "Dir::Cache=$apt_cache" download make ripgrep
+)
+for package in "$tools"/debs/*.deb; do
+  dpkg-deb --extract "$package" "$apt_root"
+done
+
+export PATH="$apt_root/usr/bin:$tools/node/bin:$tools:$PATH"
+export UV_CACHE_DIR="$tools/uv-cache"
+export UV_PYTHON_INSTALL_DIR="$tools/python"
+export UV_PYTHON='{PYTHON_VERSION}'
+export PNPM_STORE_DIR="$tools/pnpm-store"
+export PLAYWRIGHT_BROWSERS_PATH="$tools/playwright"
+export CI=1
+
+"$uv" python install '{PYTHON_VERSION}'
+ln -s "$uv" "$tools/uv"
+corepack enable --install-directory "$tools/node/bin"
+
+printf 'os='
+. /etc/os-release
+printf '%s\n' "$PRETTY_NAME"
+printf 'arch='
+uname -m
+printf 'python='
+"$uv" run --no-project --python '{PYTHON_VERSION}' python --version
+printf 'node='
+node --version
+printf 'uv='
+"$uv" --version
+printf 'pnpm='
+corepack pnpm --version
+printf 'compose='
+docker-compose version --short
+
+{commands}
+""".strip()
 
 
 def qualify() -> dict[str, Any]:
     commit = _validate_source_state()
-    tag = f"ratereplay-m9-clean:{commit[:12]}"
-    target_architecture = _docker_target_architecture()
-    image_id: str | None = None
-    with tempfile.TemporaryDirectory(prefix="rate-replay-m9-clean-") as directory:
+    with tempfile.TemporaryDirectory(
+        prefix="rate-replay-m9-clean-", dir="/private/tmp"
+    ) as directory:
         checkout = Path(directory)
         _export_checkout(checkout)
-        _run(
-            (
-                "docker",
-                "build",
-                "--file",
-                str(checkout / "containers/qualification.Dockerfile"),
-                "--build-arg",
-                f"TARGETARCH={target_architecture}",
-                "--tag",
-                tag,
-                str(checkout),
-            )
-        )
-        image_id = _run(("docker", "image", "inspect", tag, "--format", "{{.Id}}")).stdout.strip()
-        environment = _run(
+        verification = _run(
             (
                 "docker",
                 "run",
                 "--rm",
-                "--entrypoint",
-                "sh",
-                tag,
-                "-c",
-                (
-                    "printf 'os='; . /etc/os-release; printf '%s\\n' \"$PRETTY_NAME\"; "
-                    "printf 'arch='; uname -m; "
-                    "printf 'python='; python --version; "
-                    "printf 'node='; node --version; "
-                    "printf 'uv='; uv --version; "
-                    "printf 'pnpm='; corepack pnpm --version; "
-                    "printf 'compose='; docker-compose version --short"
-                ),
+                "--platform",
+                CONTAINER_PLATFORM,
+                "--volume",
+                f"{checkout}:/workspace",
+                "--workdir",
+                "/workspace",
+                CONTAINER_IMAGE,
+                "bash",
+                "-lc",
+                _container_script(),
             )
         ).stdout
-        verification = _run(("docker", "run", "--rm", tag)).stdout
         for marker in REQUIRED_OUTPUT_MARKERS:
             _require(marker in verification, f"QUALIFICATION_OUTPUT_MISSING:{marker}")
 
     environment_values = dict(
-        line.split("=", 1) for line in environment.splitlines() if "=" in line
+        line.split("=", 1)
+        for line in verification.splitlines()
+        if line.startswith(ENVIRONMENT_PREFIXES)
+    )
+    _require(
+        set(environment_values) == {prefix.removesuffix("=") for prefix in ENVIRONMENT_PREFIXES},
+        "QUALIFICATION_ENVIRONMENT_INCOMPLETE",
     )
     payload: dict[str, Any] = {
         "schema_version": "m9-clean-container-qualification-v1",
@@ -163,11 +218,14 @@ def qualify() -> dict[str, Any]:
         "source_commit": commit,
         "source_branch": _git("branch", "--show-current"),
         "source_remote_confirmed": True,
-        "dockerfile": {
-            "path": str(DOCKERFILE.relative_to(ROOT)),
-            "sha256": _sha256(DOCKERFILE),
+        "qualification_container": {
+            "image": CONTAINER_IMAGE,
+            "platform": CONTAINER_PLATFORM,
+            "python_version": PYTHON_VERSION,
+            "uv_wheel_sha256": UV_WHEEL_SHA256,
+            "node_archive_sha256": NODE_ARCHIVE_SHA256,
+            "compose_binary_sha256": COMPOSE_SHA256,
         },
-        "qualification_image_id": image_id,
         "host": {
             "system": platform.system(),
             "machine": platform.machine(),
@@ -201,7 +259,7 @@ def qualify() -> dict[str, Any]:
     OUTPUT.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(
         "M9_CLEAN_CONTAINER_PASS "
-        f"source_commit={commit} image_id={image_id} artifact_sha256={payload['artifact_sha256']}"
+        f"source_commit={commit} artifact_sha256={payload['artifact_sha256']}"
     )
     return payload
 
@@ -215,7 +273,18 @@ def validate(path: Path = OUTPUT) -> dict[str, Any]:
     _require(payload["artifact_sha256"] == _artifact_hash(payload), "M9_CLEAN_CONTAINER_HASH")
     _require(payload["gate_result"] == "PASS", "M9_CLEAN_CONTAINER_FAILED")
     _require(payload["source_remote_confirmed"] is True, "M9_SOURCE_NOT_REMOTE_CONFIRMED")
-    _require(payload["dockerfile"]["sha256"] == _sha256(DOCKERFILE), "M9_DOCKERFILE_DRIFT")
+    expected_container = {
+        "image": CONTAINER_IMAGE,
+        "platform": CONTAINER_PLATFORM,
+        "python_version": PYTHON_VERSION,
+        "uv_wheel_sha256": UV_WHEEL_SHA256,
+        "node_archive_sha256": NODE_ARCHIVE_SHA256,
+        "compose_binary_sha256": COMPOSE_SHA256,
+    }
+    _require(
+        payload["qualification_container"] == expected_container,
+        "M9_QUALIFICATION_CONTAINER_DRIFT",
+    )
     _require(
         payload["commands"] == list(QUALIFICATION_COMMANDS),
         "M9_QUALIFICATION_COMMAND_DRIFT",
