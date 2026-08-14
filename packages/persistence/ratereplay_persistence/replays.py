@@ -9,7 +9,12 @@ from typing import Final
 
 from ratereplay_domain.semantic_identity import SemanticCalculationIdentity
 from ratereplay_tariffs.admission import AdmittedTariff
-from ratereplay_tariffs.billing import ReconciliationPolicy, ReplayRequest, ReplayResult
+from ratereplay_tariffs.billing import (
+    IntervalReplayRequest,
+    ReconciliationPolicy,
+    ReplayRequest,
+    ReplayResult,
+)
 from ratereplay_tariffs.hashing import canonical_content_sha256
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -35,7 +40,7 @@ from ratereplay_persistence.models import (
 REPLAY_ROUTE: Final = "POST:/v1/replays"
 REPLAY_REQUEST_SCHEMA: Final = "replay-operation-v1"
 IDEMPOTENCY_RETENTION: Final = timedelta(hours=24)
-REPLAY_CALCULATION_CONTRACT: Final = "historical-replay-calculation-v1"
+REPLAY_CALCULATION_CONTRACT: Final = "historical-replay-calculation-v2"
 
 
 class ReplayServiceError(RuntimeError):
@@ -63,7 +68,7 @@ class ReplayService:
         profile_version_id: str,
         idempotency_key: str,
         tariff: AdmittedTariff,
-        replay_request: ReplayRequest,
+        replay_request: ReplayRequest | IntervalReplayRequest,
         environment_lock_hash: str,
         now: datetime,
     ) -> CalculationSubmission:
@@ -323,7 +328,7 @@ class ReplayService:
 def replay_semantic_identity(
     *,
     tariff: AdmittedTariff,
-    replay_request: ReplayRequest,
+    replay_request: ReplayRequest | IntervalReplayRequest,
     environment_lock_hash: str,
     reconciliation_policy: ReconciliationPolicy | None = None,
 ) -> SemanticCalculationIdentity:
@@ -354,7 +359,7 @@ def replay_semantic_identity(
         calculation_contract_version=REPLAY_CALCULATION_CONTRACT,
         environment_lock_hash=environment_lock_hash,
         tariff_compiler_version=tariff.compilation.bundle_version,
-        billing_evaluator_version="historical-replay-evaluator-v1",
+        billing_evaluator_version="historical-replay-evaluator-v2",
         profile_version_hash=replay_request.profile_content_sha256,
         tariff_ast_hashes=(tariff.compilation.reports.normalized_ast_sha256,),
         component_vector_hashes=(component_vector_hash,),

@@ -98,20 +98,20 @@ def _seed_july_profile(test_app: FastAPI, owner_user_id: str) -> str:
                 billing_period_start_utc_ns=start_ns,
                 billing_period_end_utc_ns=end_ns,
                 tariff_timezone="America/Los_Angeles",
-                interval_resolution_seconds=86_400,
+                interval_resolution_seconds=3_600,
                 lifecycle_state="ACTIVE",
                 lifecycle_generation=0,
                 created_at=now,
             )
         )
-        for index in range(31):
+        for index in range(31 * 24):
             database.add(
                 ImportReadingRecord(
                     id=secrets.token_hex(16),
                     import_id=import_id,
-                    start_utc_ns=start_ns + index * 86_400 * 1_000_000_000,
-                    duration_seconds=86_400,
-                    energy_wh=10_000,
+                    start_utc_ns=start_ns + index * 3_600 * 1_000_000_000,
+                    duration_seconds=3_600,
+                    energy_wh=416 if index < 248 else 417,
                     flow_direction="IMPORT",
                     source_unit="Wh",
                     source_multiplier=0,
@@ -251,6 +251,17 @@ async def test_authenticated_tariff_provenance_and_replay_path(
     assert replay["result"]["reconciliation"]["unexplained_residual_cents"] == 981
     assert len(replay["result"]["line_items"]) == 4
     assert len(replay["result"]["provenance_sources"]) == 2
+    allocation = replay["result"]["diagnostic_cost_allocation"]
+    assert allocation["status"] == "AVAILABLE"
+    assert len({item["service_day"] for item in allocation["daily_energy_charges"]}) == 31
+    assert allocation["reconciliation"] == {
+        "daily_energy_charge_cents": 10_977,
+        "supported_period_adjustment_cents": -1_158,
+        "supported_calculated_cents": 9_819,
+        "user_unsupported_cents": 200,
+        "unexplained_residual_cents": 981,
+        "displayed_total_cents": 11_000,
+    }
 
     repeated = await client.post(
         "/v1/replays",

@@ -5,8 +5,17 @@ import {
   ComparisonWorkspace,
   TariffSummary,
 } from "./ComparisonWorkspace";
+import {
+  CostDiagnostics,
+  type DiagnosticCostAllocation,
+} from "./CostDiagnostics";
 import { PrivacyControls } from "./PrivacyControls";
 import { SESSION_EXPIRED_EVENT, api } from "./api";
+import {
+  finishDurableJob,
+  isJobResource,
+  type JobResource,
+} from "./durableJob";
 import { PublicDemo } from "./PublicDemo";
 import { ScenarioWorkspace } from "./ScenarioWorkspace";
 import "./styles.css";
@@ -92,6 +101,7 @@ type ReplayResource = {
     supported_calculated_cents: number;
     line_items: ReplayLine[];
     user_unsupported_lines: UnsupportedLine[];
+    diagnostic_cost_allocation?: DiagnosticCostAllocation;
     reconciliation: null | {
       user_unsupported_cents: number;
       unexplained_residual_cents: number;
@@ -137,6 +147,7 @@ export function App() {
   const [tariff, setTariff] = useState<TariffDetail | null>(null);
   const [tariffs, setTariffs] = useState<TariffSummary[]>([]);
   const [replay, setReplay] = useState<ReplayResource | null>(null);
+  const [replaySubmitting, setReplaySubmitting] = useState(false);
   const [comparisonAccountFacts, setComparisonAccountFacts] =
     useState<AccountFacts | null>(null);
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<Set<string>>(
@@ -235,6 +246,7 @@ export function App() {
     }
     const data = new FormData(event.currentTarget);
     profileMutationVersion.current += 1;
+    setReplaySubmitting(false);
     try {
       const operation = await api<{ import_id: string; state_url: string }>(
         "/v1/imports",
@@ -271,6 +283,7 @@ export function App() {
       return;
     }
     profileMutationVersion.current += 1;
+    setReplaySubmitting(false);
     try {
       const installed = await api<BuiltInSimulatedProfile>(
         "/v1/imports/built-in-simulated-profile",
@@ -327,6 +340,7 @@ export function App() {
       return;
     }
     profileMutationVersion.current += 1;
+    setReplaySubmitting(false);
     try {
       const confirmed = await api<Profile>(
         `/v1/imports/${importStatus.import_id}/confirm`,
@@ -361,6 +375,8 @@ export function App() {
       return;
     }
     const data = new FormData(event.currentTarget);
+    setReplaySubmitting(true);
+    const mutationVersion = profileMutationVersion.current;
     try {
       const currentBill = optionalDollarsToCents(
         data.get("current_bill_total"),
@@ -386,7 +402,7 @@ export function App() {
         throw new Error("The admitted E-1 service window is unavailable.");
       }
       const accountFacts = lockedAccountFacts(window, new Date().toISOString());
-      const value = await api<ReplayResource>("/v1/replays", {
+      const submitted = await api<ReplayResource | JobResource>("/v1/replays", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -411,12 +427,27 @@ export function App() {
                 ],
         }),
       });
+      const value = isJobResource(submitted)
+        ? await finishReplay(submitted)
+        : submitted;
+      if (profileMutationVersion.current !== mutationVersion) return;
       setReplay(value);
       setComparisonAccountFacts(accountFacts);
       setMessage("Immutable E-1 historical replay created.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Replay failed.");
+      if (profileMutationVersion.current === mutationVersion) {
+        setMessage(error instanceof Error ? error.message : "Replay failed.");
+      }
+    } finally {
+      if (profileMutationVersion.current === mutationVersion) {
+        setReplaySubmitting(false);
+      }
     }
+  }
+
+  async function finishReplay(initial: Parameters<typeof finishDurableJob>[0]) {
+    const completed = await finishDurableJob(initial, "REPLAY");
+    return api<ReplayResource>(`/v1/replays/${completed.terminal_result_id}`);
   }
 
   async function logout() {
@@ -434,6 +465,7 @@ export function App() {
       setTariff(null);
       setTariffs([]);
       setReplay(null);
+      setReplaySubmitting(false);
       setComparisonAccountFacts(null);
       setAcknowledgedWarnings(new Set());
       setPgeAttested(false);
@@ -464,6 +496,7 @@ export function App() {
     setTariff(null);
     setTariffs([]);
     setReplay(null);
+    setReplaySubmitting(false);
     setComparisonAccountFacts(null);
     setAcknowledgedWarnings(new Set());
     setPgeAttested(false);
@@ -819,8 +852,14 @@ export function App() {
                   active bill protection do not apply. I also attest that an EV
                   was a qualifying technology at the premises.
                 </label>
-                <button className="primary" type="submit">
-                  Create historical replay
+                <button
+                  className="primary"
+                  type="submit"
+                  disabled={replaySubmitting}
+                >
+                  {replaySubmitting
+                    ? "Creating durable replay…"
+                    : "Create historical replay"}
                 </button>
               </form>
             )}
@@ -927,6 +966,9 @@ export function App() {
                     </p>
                   </div>
                 )}
+                <CostDiagnostics
+                  allocation={replay.result.diagnostic_cost_allocation ?? null}
+                />
                 <details className="manifest">
                   <summary>Calculation manifest and exact hashes</summary>
                   <dl>
@@ -1046,6 +1088,7 @@ export function App() {
             profileMutationVersion.current += 1;
             setProfile(null);
             setReplay(null);
+            setReplaySubmitting(false);
             setComparisonAccountFacts(null);
           }}
           onImportDeleted={() => {
@@ -1053,6 +1096,7 @@ export function App() {
             setImportStatus(null);
             setProfile(null);
             setReplay(null);
+            setReplaySubmitting(false);
             setComparisonAccountFacts(null);
           }}
           onMessage={setMessage}

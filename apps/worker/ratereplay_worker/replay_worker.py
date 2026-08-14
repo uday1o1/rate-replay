@@ -7,7 +7,7 @@ import secrets
 from datetime import UTC, datetime
 from typing import cast
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from ratereplay_persistence.artifacts import ArtifactService, ArtifactServiceError
 from ratereplay_persistence.jobs import JobLease, JobService
 from ratereplay_persistence.models import (
@@ -21,7 +21,12 @@ from ratereplay_persistence.replays import (
     replay_semantic_identity,
 )
 from ratereplay_tariffs.admission import AdmittedTariff
-from ratereplay_tariffs.billing import ReplayError, ReplayRequest, replay_compiled_tariff
+from ratereplay_tariffs.billing import (
+    IntervalReplayRequest,
+    ReplayError,
+    ReplayRequest,
+    replay_compiled_tariff,
+)
 from sqlalchemy.orm import Session, sessionmaker
 
 
@@ -110,9 +115,9 @@ class ReplayWorker:
             if tariff is None:
                 raise ReplayWorkerError("REPLAY_TARIFF_UNKNOWN", "Replay tariff is unavailable")
             try:
-                replay_request = ReplayRequest.model_validate_json(
-                    json.dumps(payload["replay_request"])
-                )
+                replay_request: ReplayRequest | IntervalReplayRequest = TypeAdapter(
+                    ReplayRequest | IntervalReplayRequest
+                ).validate_json(json.dumps(payload["replay_request"]))
             except ValidationError as error:
                 raise ReplayWorkerError(
                     "REPLAY_REQUEST_INVALID",

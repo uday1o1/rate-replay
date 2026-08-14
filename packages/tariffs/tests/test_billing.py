@@ -9,9 +9,12 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from ratereplay_tariffs.billing import (
+    IntervalReplayRequest,
     ReconciliationPolicy,
     ReplayError,
+    ReplayInterval,
     ReplayRequest,
+    ReplayResult,
     UserUnsupportedLine,
     evaluate_eligibility,
     replay_compiled_tariff,
@@ -149,6 +152,55 @@ def test_reconciliation_keeps_unsupported_items_and_residual_visible() -> None:
     assert result.reconciliation.classification == "REVIEW_REQUIRED"
     assert result.manifest.reconciliation_input_sha256 == result.reconciliation.input_sha256
     assert result.manifest.reconciliation_policy_sha256 == result.reconciliation.policy_sha256
+    allocation = result.diagnostic_cost_allocation
+    assert allocation is not None
+    assert allocation.status == "INTERVAL_DATA_UNAVAILABLE"
+    assert allocation.daily_energy_charges == ()
+    assert allocation.monthly_energy_charges == ()
+    assert allocation.reconciliation.supported_period_adjustment_cents == 9_819
+    assert allocation.reconciliation.displayed_total_cents == 11_000
+
+
+def test_interval_cost_allocation_splits_energy_and_rounding_exactly_by_service_day() -> None:
+    start = datetime(2026, 7, 2, 6, 30, tzinfo=UTC)
+    request = IntervalReplayRequest(
+        request_version="interval-replay-request-v1",
+        profile_content_sha256="f" * 64,
+        account_facts=_facts(),
+        energy_wh=1_001,
+        intervals=(
+            ReplayInterval(
+                start_utc_ns=int(start.timestamp()) * 1_000_000_000,
+                duration_seconds=3_600,
+                energy_wh=1_001,
+            ),
+        ),
+    )
+
+    result = replay_compiled_tariff(compile_tariff(ROOT), request)
+
+    allocation = result.diagnostic_cost_allocation
+    assert allocation is not None
+    tier = tuple(
+        item
+        for item in allocation.daily_energy_charges
+        if item.line_item_key == "bundled_energy.tier_1"
+    )
+    assert tuple(item.service_day.isoformat() for item in tier) == (
+        "2026-07-01",
+        "2026-07-02",
+    )
+    assert tuple(item.allocation_weight_wh for item in tier) == (501, 500)
+    assert sum(item.allocated_cents for item in tier) == result.line_items[0].rounded_cents
+    assert (
+        allocation.reconciliation.daily_energy_charge_cents
+        + allocation.reconciliation.supported_period_adjustment_cents
+        == result.supported_calculated_cents
+    )
+    assert any(
+        item.adjustment_kind == "TIER_RESET_CONTEXT" and item.amount_cents == 0
+        for item in allocation.billing_period_adjustments
+    )
 
 
 def test_reconciliation_hashes_every_difference_making_input() -> None:
@@ -237,3 +289,16 @@ def test_replay_result_hash_is_stable() -> None:
     compiled = compile_tariff(ROOT)
     request = _request(current_total=10_000)
     assert replay_compiled_tariff(compiled, request) == replay_compiled_tariff(compiled, request)
+
+
+def test_legacy_replay_result_remains_readable_after_diagnostic_contract_upgrade() -> None:
+    current = replay_compiled_tariff(compile_tariff(ROOT), _request())
+    payload = current.model_dump(mode="json")
+    payload["result_version"] = "e1-replay-result-v1"
+    payload.pop("diagnostic_cost_allocation")
+
+    restored = ReplayResult.model_validate_json(json.dumps(payload))
+
+    assert restored.result_version == "e1-replay-result-v1"
+    assert restored.diagnostic_cost_allocation is None
+    assert restored.result_sha256 == current.result_sha256

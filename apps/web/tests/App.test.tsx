@@ -103,6 +103,74 @@ const replayResource = {
         amount_cents: 200,
       },
     ],
+    diagnostic_cost_allocation: {
+      allocation_version: "private-cost-allocation-v1",
+      status: "AVAILABLE",
+      timezone: "America/Los_Angeles",
+      daily_energy_charges: [
+        {
+          service_day: "2026-07-01",
+          line_item_key: "bundled_energy.tier_1",
+          charge_component_key: "bundled_energy",
+          allocation_weight_wh: 1000,
+          allocated_cents: 3600,
+        },
+        {
+          service_day: "2026-07-02",
+          line_item_key: "bundled_energy.tier_1",
+          charge_component_key: "bundled_energy",
+          allocation_weight_wh: 1000,
+          allocated_cents: 3600,
+        },
+      ],
+      monthly_energy_charges: [
+        {
+          calendar_month: "2026-07",
+          allocation_weight_wh: 2000,
+          allocated_cents: 7200,
+        },
+      ],
+      billing_period_adjustments: [
+        {
+          adjustment_kind: "SUPPORTED_PERIOD_CHARGE",
+          line_item_key: "base_services_charge",
+          charge_component_key: "base_services_charge",
+          amount_cents: 2460,
+        },
+        {
+          adjustment_kind: "SUPPORTED_PERIOD_CHARGE",
+          line_item_key: "california_climate_credit",
+          charge_component_key: "california_climate_credit",
+          amount_cents: 159,
+        },
+        {
+          adjustment_kind: "TIER_RESET_CONTEXT",
+          line_item_key: "tier_reset.billing_period",
+          charge_component_key: null,
+          amount_cents: 0,
+        },
+        {
+          adjustment_kind: "USER_UNSUPPORTED",
+          line_item_key: "user_entered_other_1",
+          charge_component_key: null,
+          amount_cents: 200,
+        },
+        {
+          adjustment_kind: "UNEXPLAINED_RESIDUAL",
+          line_item_key: "unexplained_residual",
+          charge_component_key: null,
+          amount_cents: 981,
+        },
+      ],
+      reconciliation: {
+        daily_energy_charge_cents: 7200,
+        supported_period_adjustment_cents: 2619,
+        supported_calculated_cents: 9819,
+        user_unsupported_cents: 200,
+        unexplained_residual_cents: 981,
+        displayed_total_cents: 11000,
+      },
+    },
     reconciliation: {
       user_unsupported_cents: 200,
       unexplained_residual_cents: 981,
@@ -120,6 +188,36 @@ const replayResource = {
     },
     result_sha256: "1".repeat(64),
   },
+};
+
+const replaySubmission = {
+  job_id: "replay-job-one",
+  state: "QUEUED",
+  failure_code: null,
+  terminal_result_type: null,
+  terminal_result_id: null,
+};
+
+const successfulReplayJob = {
+  ...replaySubmission,
+  state: "SUCCEEDED",
+  terminal_result_type: "REPLAY",
+  terminal_result_id: "replay-one",
+};
+
+const comparisonSubmission = {
+  job_id: "comparison-job-one",
+  state: "QUEUED",
+  failure_code: null,
+  terminal_result_type: null,
+  terminal_result_id: null,
+};
+
+const successfulComparisonJob = {
+  ...comparisonSubmission,
+  state: "SUCCEEDED",
+  terminal_result_type: "COMPARISON",
+  terminal_result_id: "comparison-one",
 };
 
 const supportedCoverage = [
@@ -708,7 +806,9 @@ describe("App", () => {
       .mockResolvedValueOnce(response(200, { items: [profile] }))
       .mockResolvedValueOnce(response(200, tariffList))
       .mockResolvedValueOnce(response(200, tariffDetail))
-      .mockResolvedValueOnce(response(201, replayResource));
+      .mockResolvedValueOnce(response(202, replaySubmission))
+      .mockResolvedValueOnce(response(200, successfulReplayJob))
+      .mockResolvedValueOnce(response(200, replayResource));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("crypto", { randomUUID: () => "replay-request-id" });
     render(<App />);
@@ -743,12 +843,34 @@ describe("App", () => {
     );
 
     expect(await screen.findByText("$98.19")).toBeVisible();
-    expect(screen.getByText("$9.81")).toBeVisible();
+    expect(screen.getAllByText("$9.81")).toHaveLength(2);
     expect(
       screen.getByText(/User-entered unsupported: Local tax/i),
     ).toBeVisible();
     expect(
       screen.getByText(/does not move it into a supported charge/i),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", {
+        name: "Where supported energy charges occurred",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/not independent daily or monthly bills/i),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Accessible table for daily energy-charge allocations"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "Accessible table for monthly energy-charge allocations",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Billing-period adjustments and reconciliation rows"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Tier boundaries reset once for this billing period/i),
     ).toBeVisible();
     expect(screen.queryByText(/recommended plan/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/savings/i)).not.toBeInTheDocument();
@@ -766,6 +888,60 @@ describe("App", () => {
       baseline_territory: "T",
       qualifying_technologies: ["EV"],
     });
+    expect(fetchMock.mock.calls[6]?.[0]).toBe("/v1/jobs/replay-job-one");
+    expect(fetchMock.mock.calls[7]?.[0]).toBe("/v1/replays/replay-one");
+  });
+
+  it("keeps a failed durable replay visible and retryable", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(response(202, replaySubmission))
+      .mockResolvedValueOnce(
+        response(200, {
+          ...replaySubmission,
+          state: "FAILED",
+          failure_code: "REPLAY_EVALUATION_FAILED",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "failed-replay-request" });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.click(
+      await screen.findByLabelText(/I attest that every locked account fact/i),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create historical replay" }),
+    );
+
+    expect(
+      await screen.findByText(/durable calculation published no result/i),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Create historical replay" }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole("heading", { name: "Compare July plans" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders a rankable comparison with coverage and filed-source evidence", async () => {
@@ -808,7 +984,13 @@ describe("App", () => {
           return Promise.resolve(response(201, replayResource));
         }
         if (path === "/v1/comparisons") {
-          return Promise.resolve(response(201, rankableComparison));
+          return Promise.resolve(response(202, comparisonSubmission));
+        }
+        if (path === "/v1/jobs/comparison-job-one") {
+          return Promise.resolve(response(200, successfulComparisonJob));
+        }
+        if (path === "/v1/comparisons/comparison-one") {
+          return Promise.resolve(response(200, rankableComparison));
         }
         return Promise.reject(new Error(`Unexpected request: ${path}`));
       },
@@ -1432,7 +1614,7 @@ describe("App", () => {
       await screen.findByRole("heading", { name: "Private local account" }),
     ).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent(
-      /session has expired/i,
+      /private session expired/i,
     );
     expect(
       screen.queryByRole("heading", { name: "Replay July E-1" }),
@@ -1448,35 +1630,60 @@ describe("App", () => {
       artifact_counts: {},
       completed_at: null,
     };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
-      .mockResolvedValueOnce(
-        response(201, {
-          user: { user_id: "owner", username: "owner_one" },
-          csrf_token: "csrf-token",
-        }),
-      )
-      .mockResolvedValueOnce(response(200, { items: [profile] }))
-      .mockResolvedValueOnce(response(200, tariffList))
-      .mockResolvedValueOnce(response(200, tariffDetail))
-      .mockResolvedValueOnce(
-        response(201, {
-          schema_version: "deletion-intent-v1",
-          deletion_id: deletionId,
-          status: "INTENT_CREATED",
-          expires_at: "2026-08-14T00:15:00Z",
-        }),
-      )
-      .mockResolvedValueOnce(response(202, deletingStatus))
-      .mockResolvedValueOnce(
-        response(200, {
-          ...deletingStatus,
-          status: "DELETED",
-          artifact_counts: { sessions: 1, profiles: 1 },
-          completed_at: "2026-08-14T00:01:00Z",
-        }),
-      );
+    const fetchMock = vi.fn(
+      (input: string | URL | Request, init?: RequestInit) => {
+        const path =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (path === "/v1/auth/session") {
+          return Promise.resolve(response(401, { message: "Sign in" }));
+        }
+        if (path === "/v1/auth/register") {
+          return Promise.resolve(
+            response(201, {
+              user: { user_id: "owner", username: "owner_one" },
+              csrf_token: "csrf-token",
+            }),
+          );
+        }
+        if (path === "/v1/profiles?page_size=1") {
+          return Promise.resolve(response(200, { items: [profile] }));
+        }
+        if (path === "/v1/tariffs") {
+          return Promise.resolve(response(200, tariffList));
+        }
+        if (path === "/v1/tariffs/pge-e1-2026-07") {
+          return Promise.resolve(response(200, tariffDetail));
+        }
+        if (path === "/v1/account/deletion-intents") {
+          return Promise.resolve(
+            response(201, {
+              schema_version: "deletion-intent-v1",
+              deletion_id: deletionId,
+              status: "INTENT_CREATED",
+              expires_at: "2026-08-14T00:15:00Z",
+            }),
+          );
+        }
+        if (path === "/v1/account" && init?.method === "DELETE") {
+          return Promise.resolve(response(202, deletingStatus));
+        }
+        if (path === `/v1/deletions/${deletionId}`) {
+          return Promise.resolve(
+            response(200, {
+              ...deletingStatus,
+              status: "DELETED",
+              artifact_counts: { sessions: 1, profiles: 1 },
+              completed_at: "2026-08-14T00:01:00Z",
+            }),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected request: ${path}`));
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("crypto", {
       randomUUID: () => "deletion-request-id",
@@ -1528,9 +1735,15 @@ describe("App", () => {
       await screen.findByRole("heading", { name: "Deleted" }),
     ).toBeVisible();
 
-    const intentCall = fetchMock.mock.calls[5] as [string, RequestInit];
-    const deleteCall = fetchMock.mock.calls[6] as [string, RequestInit];
-    const receiptCall = fetchMock.mock.calls[7] as [string, RequestInit];
+    const intentCall = fetchMock.mock.calls.find(
+      ([path]) => path === "/v1/account/deletion-intents",
+    ) as [string, RequestInit];
+    const deleteCall = fetchMock.mock.calls.find(
+      ([path]) => path === "/v1/account",
+    ) as [string, RequestInit];
+    const receiptCall = fetchMock.mock.calls.find(
+      ([path]) => path === `/v1/deletions/${deletionId}`,
+    ) as [string, RequestInit];
     expect(intentCall[0]).toBe("/v1/account/deletion-intents");
     expect(deleteCall[0]).toBe("/v1/account");
     expect(receiptCall[0]).toBe(`/v1/deletions/${deletionId}`);

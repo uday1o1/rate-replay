@@ -1,6 +1,11 @@
 import { FormEvent, useMemo, useState } from "react";
 
 import { api } from "./api";
+import {
+  finishDurableJob,
+  isJobResource,
+  type JobResource,
+} from "./durableJob";
 
 export type AccountFacts = {
   schema_version: "account-facts-v1";
@@ -128,32 +133,38 @@ export function ComparisonWorkspace({
     try {
       const annualUsageWh = optionalKwhToWh(data.get("annual_usage_kwh"));
       const annualBaselineWh = optionalKwhToWh(data.get("annual_baseline_kwh"));
-      const value = await api<ComparisonResource>("/v1/comparisons", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": `browser-comparison-${crypto.randomUUID()}`,
-          "X-CSRF-Token": csrf,
-        },
-        body: JSON.stringify({
-          request_schema_version: "comparison-operation-v1",
-          replay_id: replayId,
-          candidate_tariff_version_ids: [...selectedIds].sort(),
-          account_facts: accountFacts,
-          dated_eligibility_facts: {
-            facts_as_of: entryText(data.get("facts_as_of")),
-            ev_registered_and_charged_at_premises:
-              data.get("ev_registered") === "on",
-            whole_house_metering: data.get("whole_house_metering") === "on",
-            annual_usage_period: {
-              start: entryText(data.get("annual_period_start")),
-              end: entryText(data.get("annual_period_end")),
-            },
-            annual_usage_wh: annualUsageWh,
-            annual_baseline_allowance_wh: annualBaselineWh,
+      const submitted = await api<ComparisonResource | JobResource>(
+        "/v1/comparisons",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": `browser-comparison-${crypto.randomUUID()}`,
+            "X-CSRF-Token": csrf,
           },
-        }),
-      });
+          body: JSON.stringify({
+            request_schema_version: "comparison-operation-v1",
+            replay_id: replayId,
+            candidate_tariff_version_ids: [...selectedIds].sort(),
+            account_facts: accountFacts,
+            dated_eligibility_facts: {
+              facts_as_of: entryText(data.get("facts_as_of")),
+              ev_registered_and_charged_at_premises:
+                data.get("ev_registered") === "on",
+              whole_house_metering: data.get("whole_house_metering") === "on",
+              annual_usage_period: {
+                start: entryText(data.get("annual_period_start")),
+                end: entryText(data.get("annual_period_end")),
+              },
+              annual_usage_wh: annualUsageWh,
+              annual_baseline_allowance_wh: annualBaselineWh,
+            },
+          }),
+        },
+      );
+      const value = isJobResource(submitted)
+        ? await finishComparison(submitted)
+        : submitted;
       setComparison(value);
       onMessage(
         value.result.rankable
@@ -167,6 +178,15 @@ export function ComparisonWorkspace({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function finishComparison(
+    initial: Parameters<typeof finishDurableJob>[0],
+  ): Promise<ComparisonResource> {
+    const completed = await finishDurableJob(initial, "COMPARISON");
+    return api<ComparisonResource>(
+      `/v1/comparisons/${completed.terminal_result_id}`,
+    );
   }
 
   return (

@@ -16,15 +16,16 @@ from ratereplay_persistence.models import (
 from ratereplay_persistence.replays import ReplayService, ReplayServiceError
 from ratereplay_tariffs.admission import AdmittedTariff, TariffAdmissionLock
 from ratereplay_tariffs.billing import (
+    IntervalReplayRequest,
     ReplayError,
-    ReplayRequest,
+    ReplayInterval,
     ReplayResult,
     UserUnsupportedLine,
 )
 from ratereplay_tariffs.compiled import CompilationBundle
 from ratereplay_tariffs.hashing import canonical_json_bytes
 from ratereplay_tariffs.schema import AccountFacts, DateRange, FrozenModel
-from sqlalchemy import BigInteger, func, select
+from sqlalchemy import BigInteger, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.orm import Session
 
@@ -154,33 +155,49 @@ def profile_window(profile: ProfileVersionRecord) -> DateRange:
     return DateRange(start=start.date(), end=end.date())
 
 
-def _profile_energy(database: Session, profile: ProfileVersionRecord) -> int:
-    summary = database.execute(
-        select(
-            func.sum(ImportReadingRecord.energy_wh),
-            func.min(ImportReadingRecord.start_utc_ns),
-            func.max(
+def _profile_intervals(
+    database: Session, profile: ProfileVersionRecord
+) -> tuple[ReplayInterval, ...]:
+    records = tuple(
+        database.scalars(
+            select(ImportReadingRecord)
+            .where(
+                ImportReadingRecord.import_id == profile.import_id,
+                ImportReadingRecord.start_utc_ns >= profile.billing_period_start_utc_ns,
                 ImportReadingRecord.start_utc_ns
                 + sql_cast(ImportReadingRecord.duration_seconds, BigInteger) * 1_000_000_000
-            ),
-        ).where(
-            ImportReadingRecord.import_id == profile.import_id,
-            ImportReadingRecord.start_utc_ns >= profile.billing_period_start_utc_ns,
-            ImportReadingRecord.start_utc_ns
-            + sql_cast(ImportReadingRecord.duration_seconds, BigInteger) * 1_000_000_000
-            <= profile.billing_period_end_utc_ns,
+                <= profile.billing_period_end_utc_ns,
+            )
+            .order_by(ImportReadingRecord.start_utc_ns)
         )
-    ).one()
-    if (
-        summary[0] is None
-        or summary[1] != profile.billing_period_start_utc_ns
-        or summary[2] != profile.billing_period_end_utc_ns
-    ):
+    )
+    expected_start = profile.billing_period_start_utc_ns
+    intervals: list[ReplayInterval] = []
+    for record in records:
+        if record.start_utc_ns != expected_start or record.flow_direction != "IMPORT":
+            raise ReplayError(
+                "PROFILE_INTERVAL_COVERAGE_MISMATCH",
+                "Confirmed profile intervals are not complete import coverage.",
+            )
+        try:
+            interval = ReplayInterval(
+                start_utc_ns=record.start_utc_ns,
+                duration_seconds=record.duration_seconds,
+                energy_wh=record.energy_wh,
+            )
+        except ValidationError as error:
+            raise ReplayError(
+                "PROFILE_INTERVAL_UNSUPPORTED",
+                "Confirmed profile contains intervals unsupported by tariff replay.",
+            ) from error
+        intervals.append(interval)
+        expected_start += interval.duration_seconds * 1_000_000_000
+    if not intervals or expected_start != profile.billing_period_end_utc_ns:
         raise ReplayError(
             "PROFILE_INTERVAL_COVERAGE_MISMATCH",
             "Confirmed profile intervals do not cover the stored billing period.",
         )
-    return int(summary[0])
+    return tuple(intervals)
 
 
 def _resource(record: ReplayResultRecord, *, repeated: bool) -> ReplayResourceResponse:
@@ -291,11 +308,13 @@ def create_replay(
                 "PROFILE_ACCOUNT_WINDOW_MISMATCH",
                 "Account facts do not describe the confirmed profile billing period.",
             )
-        replay_request = ReplayRequest(
-            request_version="e1-replay-request-v1",
+        intervals = _profile_intervals(database, profile)
+        replay_request = IntervalReplayRequest(
+            request_version="interval-replay-request-v1",
             profile_content_sha256=profile.content_hash,
             account_facts=account_facts,
-            energy_wh=_profile_energy(database, profile),
+            energy_wh=sum(interval.energy_wh for interval in intervals),
+            intervals=intervals,
             current_bill_total_cents=payload.current_bill_total_cents,
             user_unsupported_lines=unsupported_lines,
         )

@@ -100,6 +100,32 @@ def test_etouc_complete_bill_matches_prefrozen_golden() -> None:
     assert sum(line.rounded_cents for line in result.line_items) == (
         result.supported_calculated_cents
     )
+    allocation = result.diagnostic_cost_allocation
+    assert allocation is not None
+    assert allocation.status == "AVAILABLE"
+    assert len({line.service_day for line in allocation.daily_energy_charges}) == 31
+    assert sum(line.allocated_cents for line in allocation.daily_energy_charges) == 29_982
+    assert allocation.monthly_energy_charges[0].calendar_month == "2026-07"
+    assert allocation.monthly_energy_charges[0].allocated_cents == 29_982
+    assert allocation.reconciliation.daily_energy_charge_cents == 29_982
+    assert allocation.reconciliation.supported_period_adjustment_cents == -1_158
+    assert allocation.reconciliation.supported_calculated_cents == (
+        result.supported_calculated_cents
+    )
+    by_line = {
+        line.line_item_key: sum(
+            item.allocated_cents
+            for item in allocation.daily_energy_charges
+            if item.line_item_key == line.line_item_key
+        )
+        for line in result.line_items
+        if line.quantity_unit == "Wh"
+    }
+    assert by_line == {
+        "bundled_energy.baseline_credit": -1_640,
+        "bundled_energy.off_peak": 23_525,
+        "bundled_energy.peak": 8_097,
+    }
 
 
 @pytest.mark.parametrize(

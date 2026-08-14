@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from fractions import Fraction
 from typing import Literal, cast
 from zoneinfo import ZoneInfo
@@ -156,6 +156,93 @@ class ReconciliationResult(FrozenModel):
     policy_sha256: str
 
 
+class DailyEnergyChargeAllocation(FrozenModel):
+    service_day: date
+    line_item_key: str = Field(min_length=1)
+    charge_component_key: ChargeComponentKey
+    allocation_weight_wh: int = Field(ge=0)
+    allocated_cents: int
+
+
+class MonthlyEnergyChargeAllocation(FrozenModel):
+    calendar_month: str = Field(pattern=r"^[0-9]{4}-[0-9]{2}$")
+    allocation_weight_wh: int = Field(ge=0)
+    allocated_cents: int
+
+
+class BillingPeriodAdjustment(FrozenModel):
+    adjustment_kind: Literal[
+        "SUPPORTED_PERIOD_CHARGE",
+        "USER_UNSUPPORTED",
+        "UNEXPLAINED_RESIDUAL",
+        "TIER_RESET_CONTEXT",
+    ]
+    line_item_key: str = Field(min_length=1)
+    charge_component_key: ChargeComponentKey | None
+    amount_cents: int
+
+
+class CostAllocationReconciliation(FrozenModel):
+    daily_energy_charge_cents: int
+    supported_period_adjustment_cents: int
+    supported_calculated_cents: int
+    user_unsupported_cents: int
+    unexplained_residual_cents: int
+    displayed_total_cents: int
+
+
+class DiagnosticCostAllocation(FrozenModel):
+    allocation_version: Literal["private-cost-allocation-v1"] = "private-cost-allocation-v1"
+    status: Literal["AVAILABLE", "INTERVAL_DATA_UNAVAILABLE"]
+    timezone: Literal["America/Los_Angeles"] = "America/Los_Angeles"
+    daily_energy_charges: tuple[DailyEnergyChargeAllocation, ...]
+    monthly_energy_charges: tuple[MonthlyEnergyChargeAllocation, ...]
+    billing_period_adjustments: tuple[BillingPeriodAdjustment, ...]
+    reconciliation: CostAllocationReconciliation
+
+    @model_validator(mode="after")
+    def validate_exact_reconciliation(self) -> DiagnosticCostAllocation:
+        daily_cents = sum(item.allocated_cents for item in self.daily_energy_charges)
+        monthly_cents = sum(item.allocated_cents for item in self.monthly_energy_charges)
+        supported_period_cents = sum(
+            item.amount_cents
+            for item in self.billing_period_adjustments
+            if item.adjustment_kind == "SUPPORTED_PERIOD_CHARGE"
+        )
+        user_unsupported_cents = sum(
+            item.amount_cents
+            for item in self.billing_period_adjustments
+            if item.adjustment_kind == "USER_UNSUPPORTED"
+        )
+        residual_cents = sum(
+            item.amount_cents
+            for item in self.billing_period_adjustments
+            if item.adjustment_kind == "UNEXPLAINED_RESIDUAL"
+        )
+        if daily_cents != monthly_cents:
+            raise ValueError("daily and monthly diagnostic allocations must match")
+        if daily_cents != self.reconciliation.daily_energy_charge_cents:
+            raise ValueError("daily diagnostic allocation total does not reconcile")
+        if supported_period_cents != self.reconciliation.supported_period_adjustment_cents:
+            raise ValueError("supported period adjustment total does not reconcile")
+        if user_unsupported_cents != self.reconciliation.user_unsupported_cents:
+            raise ValueError("unsupported period adjustment total does not reconcile")
+        if residual_cents != self.reconciliation.unexplained_residual_cents:
+            raise ValueError("residual period adjustment total does not reconcile")
+        if daily_cents + supported_period_cents != self.reconciliation.supported_calculated_cents:
+            raise ValueError("diagnostic supported charges do not reconcile")
+        if (
+            daily_cents + supported_period_cents + user_unsupported_cents + residual_cents
+            != self.reconciliation.displayed_total_cents
+        ):
+            raise ValueError("diagnostic displayed total does not reconcile")
+        if self.status == "INTERVAL_DATA_UNAVAILABLE" and (
+            self.daily_energy_charges or self.monthly_energy_charges
+        ):
+            raise ValueError("unavailable interval diagnostics cannot contain daily data")
+        return self
+
+
 class CalculationManifest(FrozenModel):
     manifest_version: Literal["e1-calculation-manifest-v1"]
     calculation_time_mode: Literal["HISTORICAL_REPLAY"]
@@ -192,13 +279,19 @@ class IntervalCalculationManifest(FrozenModel):
 
 
 class ReplayResult(FrozenModel):
-    result_version: Literal["e1-replay-result-v1", "historical-replay-result-v2"]
+    result_version: Literal[
+        "e1-replay-result-v1",
+        "e1-replay-result-v2",
+        "historical-replay-result-v2",
+        "historical-replay-result-v3",
+    ]
     eligibility: EligibilityResult
     supported_calculated_cents: int
     line_items: tuple[ChargeLineItem, ...]
     tariff_unsupported_placeholders: tuple[UnsupportedPlaceholder, ...]
     user_unsupported_lines: tuple[UserUnsupportedLine, ...]
     reconciliation: ReconciliationResult | None
+    diagnostic_cost_allocation: DiagnosticCostAllocation | None = None
     provenance_sources: tuple[dict[str, object], ...]
     manifest: CalculationManifest | IntervalCalculationManifest
     result_sha256: str
@@ -526,6 +619,248 @@ def _period_energy(
     return totals
 
 
+_DIAGNOSTIC_TIMEZONE = ZoneInfo("America/Los_Angeles")
+
+
+def _apportion_integer(total: int, weights: dict[date, int]) -> dict[date, int]:
+    positive_weights = {key: value for key, value in weights.items() if value > 0}
+    weight_total = sum(positive_weights.values())
+    if total == 0:
+        return {key: 0 for key in sorted(positive_weights)}
+    if weight_total == 0:
+        raise ReplayError(
+            "DIAGNOSTIC_ALLOCATION_BASIS_MISSING",
+            "A nonzero rounded charge has no interval-energy allocation basis.",
+        )
+    magnitude = abs(total)
+    allocations: dict[date, int] = {}
+    remainders: list[tuple[int, date]] = []
+    allocated_magnitude = 0
+    for key, weight in sorted(positive_weights.items()):
+        numerator = magnitude * weight
+        quotient, remainder = divmod(numerator, weight_total)
+        allocations[key] = quotient
+        allocated_magnitude += quotient
+        remainders.append((remainder, key))
+    for _, key in sorted(remainders, key=lambda item: (-item[0], item[1]))[
+        : magnitude - allocated_magnitude
+    ]:
+        allocations[key] += 1
+    sign = 1 if total > 0 else -1
+    return {key: sign * value for key, value in allocations.items()}
+
+
+def _interval_daily_energy(
+    interval: ReplayInterval,
+    service_window: DateRange,
+) -> dict[date, int]:
+    start_utc = datetime.fromtimestamp(interval.start_utc_ns // 1_000_000_000, tz=UTC)
+    end_utc = start_utc + timedelta(seconds=interval.duration_seconds)
+    cursor = start_utc
+    segment_seconds: dict[date, int] = {}
+    while cursor < end_utc:
+        local_cursor = cursor.astimezone(_DIAGNOSTIC_TIMEZONE)
+        service_day = local_cursor.date()
+        if not service_window.contains(service_day):
+            raise ReplayError(
+                "INTERVAL_OUTSIDE_SERVICE_WINDOW",
+                "An interval is outside the billing period.",
+            )
+        next_midnight = datetime.combine(
+            service_day + timedelta(days=1),
+            time.min,
+            tzinfo=_DIAGNOSTIC_TIMEZONE,
+        ).astimezone(UTC)
+        segment_end = min(end_utc, next_midnight)
+        seconds = int((segment_end - cursor).total_seconds())
+        if seconds <= 0:
+            raise ReplayError(
+                "DIAGNOSTIC_INTERVAL_INVALID",
+                "An interval could not be divided into local service days.",
+            )
+        segment_seconds[service_day] = segment_seconds.get(service_day, 0) + seconds
+        cursor = segment_end
+    return _apportion_integer(interval.energy_wh, segment_seconds)
+
+
+def _daily_energy(request: IntervalReplayRequest) -> dict[date, int]:
+    totals: dict[date, int] = {}
+    for interval in request.intervals:
+        for service_day, energy_wh in _interval_daily_energy(
+            interval, request.account_facts.service_window
+        ).items():
+            totals[service_day] = totals.get(service_day, 0) + energy_wh
+    return dict(sorted(totals.items()))
+
+
+def _period_daily_energy(
+    request: IntervalReplayRequest,
+    schedule: IRTimeOfUseSchedule,
+) -> dict[str, dict[date, int]]:
+    totals: dict[str, dict[date, int]] = {}
+    for interval in request.intervals:
+        start_utc = datetime.fromtimestamp(interval.start_utc_ns // 1_000_000_000, tz=UTC)
+        period = classify_interval_period(
+            schedule,
+            start_utc,
+            interval.duration_seconds,
+            request.account_facts.service_window,
+        )
+        by_day = totals.setdefault(period, {})
+        for service_day, energy_wh in _interval_daily_energy(
+            interval, request.account_facts.service_window
+        ).items():
+            by_day[service_day] = by_day.get(service_day, 0) + energy_wh
+    return {period: dict(sorted(by_day.items())) for period, by_day in sorted(totals.items())}
+
+
+def _energy_slice(
+    daily_energy: dict[date, int],
+    *,
+    offset_wh: int,
+    quantity_wh: int,
+) -> dict[date, int]:
+    if offset_wh < 0 or quantity_wh < 0:
+        raise ReplayError(
+            "DIAGNOSTIC_ALLOCATION_INVALID",
+            "An interval-energy allocation slice cannot be negative.",
+        )
+    remaining_offset = offset_wh
+    remaining_quantity = quantity_wh
+    selected: dict[date, int] = {}
+    for service_day, energy_wh in daily_energy.items():
+        if remaining_offset >= energy_wh:
+            remaining_offset -= energy_wh
+            continue
+        available = energy_wh - remaining_offset
+        remaining_offset = 0
+        taken = min(available, remaining_quantity)
+        if taken:
+            selected[service_day] = taken
+            remaining_quantity -= taken
+        if remaining_quantity == 0:
+            break
+    if remaining_offset or remaining_quantity:
+        raise ReplayError(
+            "DIAGNOSTIC_ALLOCATION_BASIS_MISSING",
+            "A charge quantity exceeds its canonical interval-energy basis.",
+        )
+    return selected
+
+
+def _diagnostic_cost_allocation(
+    request: ReplayRequest | IntervalReplayRequest,
+    lines: tuple[ChargeLineItem, ...],
+    line_daily_energy: dict[str, dict[date, int]],
+    reconciliation: ReconciliationResult | None,
+    *,
+    has_tiered_energy: bool,
+) -> DiagnosticCostAllocation:
+    daily_lines: list[DailyEnergyChargeAllocation] = []
+    period_adjustments: list[BillingPeriodAdjustment] = []
+    interval_available = isinstance(request, IntervalReplayRequest)
+    for line in lines:
+        basis = line_daily_energy.get(line.line_item_key)
+        if interval_available and line.quantity_unit == "Wh" and basis is not None:
+            allocated = _apportion_integer(line.rounded_cents, basis)
+            for service_day, allocated_cents in allocated.items():
+                daily_lines.append(
+                    DailyEnergyChargeAllocation(
+                        service_day=service_day,
+                        line_item_key=line.line_item_key,
+                        charge_component_key=line.charge_component_key,
+                        allocation_weight_wh=basis[service_day],
+                        allocated_cents=allocated_cents,
+                    )
+                )
+            continue
+        period_adjustments.append(
+            BillingPeriodAdjustment(
+                adjustment_kind="SUPPORTED_PERIOD_CHARGE",
+                line_item_key=line.line_item_key,
+                charge_component_key=line.charge_component_key,
+                amount_cents=line.rounded_cents,
+            )
+        )
+    if interval_available and has_tiered_energy:
+        period_adjustments.append(
+            BillingPeriodAdjustment(
+                adjustment_kind="TIER_RESET_CONTEXT",
+                line_item_key="tier_reset.billing_period",
+                charge_component_key=None,
+                amount_cents=0,
+            )
+        )
+    for unsupported_line in request.user_unsupported_lines:
+        period_adjustments.append(
+            BillingPeriodAdjustment(
+                adjustment_kind="USER_UNSUPPORTED",
+                line_item_key=unsupported_line.line_item_key,
+                charge_component_key=None,
+                amount_cents=unsupported_line.amount_cents,
+            )
+        )
+    if reconciliation is not None:
+        period_adjustments.append(
+            BillingPeriodAdjustment(
+                adjustment_kind="UNEXPLAINED_RESIDUAL",
+                line_item_key="unexplained_residual",
+                charge_component_key=None,
+                amount_cents=reconciliation.unexplained_residual_cents,
+            )
+        )
+    monthly_values: dict[str, tuple[int, int]] = {}
+    for item in daily_lines:
+        month = item.service_day.isoformat()[:7]
+        energy_wh, cents = monthly_values.get(month, (0, 0))
+        monthly_values[month] = (
+            energy_wh + item.allocation_weight_wh,
+            cents + item.allocated_cents,
+        )
+    monthly_lines = tuple(
+        MonthlyEnergyChargeAllocation(
+            calendar_month=month,
+            allocation_weight_wh=energy_wh,
+            allocated_cents=cents,
+        )
+        for month, (energy_wh, cents) in sorted(monthly_values.items())
+    )
+    daily_cents = sum(item.allocated_cents for item in daily_lines)
+    supported_period_cents = sum(
+        item.amount_cents
+        for item in period_adjustments
+        if item.adjustment_kind == "SUPPORTED_PERIOD_CHARGE"
+    )
+    user_unsupported_cents = (
+        reconciliation.user_unsupported_cents if reconciliation is not None else 0
+    )
+    residual_cents = reconciliation.unexplained_residual_cents if reconciliation is not None else 0
+    displayed_total_cents = (
+        reconciliation.entered_bill_total_cents
+        if reconciliation is not None
+        else daily_cents + supported_period_cents
+    )
+    return DiagnosticCostAllocation(
+        status="AVAILABLE" if interval_available else "INTERVAL_DATA_UNAVAILABLE",
+        daily_energy_charges=tuple(
+            sorted(
+                daily_lines,
+                key=lambda item: (item.service_day, item.line_item_key),
+            )
+        ),
+        monthly_energy_charges=monthly_lines,
+        billing_period_adjustments=tuple(period_adjustments),
+        reconciliation=CostAllocationReconciliation(
+            daily_energy_charge_cents=daily_cents,
+            supported_period_adjustment_cents=supported_period_cents,
+            supported_calculated_cents=sum(line.rounded_cents for line in lines),
+            user_unsupported_cents=user_unsupported_cents,
+            unexplained_residual_cents=residual_cents,
+            displayed_total_cents=displayed_total_cents,
+        ),
+    )
+
+
 def _reconcile(
     request: ReplayRequest | IntervalReplayRequest,
     supported_cents: int,
@@ -594,12 +929,17 @@ def replay_compiled_tariff(
     lines: list[ChargeLineItem] = []
     placeholders: list[UnsupportedPlaceholder] = []
     period_energy_by_schedule: dict[str, dict[str, int]] = {}
+    period_daily_energy_by_schedule: dict[str, dict[str, dict[date, int]]] = {}
+    line_daily_energy: dict[str, dict[date, int]] = {}
+    all_daily_energy = _daily_energy(request) if isinstance(request, IntervalReplayRequest) else {}
+    has_tiered_energy = False
     for operator in bundle.ir.operators:
         if not rule_applies(operator.applicability, request.account_facts, bill_cycle_month):
             continue
         if isinstance(operator, (IRBaselineAllowance, IRTimeOfUseSchedule)):
             continue
         if isinstance(operator, IRTieredEnergyCharge):
+            has_tiered_energy = True
             remaining = request.energy_wh
             lower_bound = 0
             for index, tier in enumerate(operator.tiers, start=1):
@@ -621,19 +961,24 @@ def replay_compiled_tariff(
                         quantity * tier.rate_microdollars_per_kwh,
                         1000,
                     )
-                    lines.append(
-                        _line(
-                            bundle=bundle,
-                            rule=operator,
-                            line_item_key=f"{operator.line_item_key}.tier_{index}",
-                            quantity=quantity,
-                            quantity_unit="Wh",
-                            rate=tier.rate_microdollars_per_kwh,
-                            rate_unit="microdollars/kWh",
-                            raw_microdollars=raw,
-                            service_window=service_window,
-                        )
+                    line = _line(
+                        bundle=bundle,
+                        rule=operator,
+                        line_item_key=f"{operator.line_item_key}.tier_{index}",
+                        quantity=quantity,
+                        quantity_unit="Wh",
+                        rate=tier.rate_microdollars_per_kwh,
+                        rate_unit="microdollars/kWh",
+                        raw_microdollars=raw,
+                        service_window=service_window,
                     )
+                    lines.append(line)
+                    if isinstance(request, IntervalReplayRequest):
+                        line_daily_energy[line.line_item_key] = _energy_slice(
+                            all_daily_energy,
+                            offset_wh=request.energy_wh - remaining,
+                            quantity_wh=quantity,
+                        )
                     remaining -= quantity
                 if upper_bound is not None:
                     lower_bound = upper_bound
@@ -646,6 +991,15 @@ def replay_compiled_tariff(
             period_energy = period_energy_by_schedule.setdefault(
                 schedule.rule_id, _period_energy(request, schedule)
             )
+            if not isinstance(request, IntervalReplayRequest):
+                raise ReplayError(
+                    "INTERVAL_DATA_REQUIRED",
+                    "Time-of-use replay requires canonical interval data.",
+                )
+            period_daily_energy = period_daily_energy_by_schedule.setdefault(
+                schedule.rule_id,
+                _period_daily_energy(request, schedule),
+            )
             for period_rate in operator.period_rates:
                 quantity = period_energy.get(period_rate.period, 0)
                 if not quantity:
@@ -654,18 +1008,20 @@ def replay_compiled_tariff(
                     quantity * period_rate.rate_microdollars_per_kwh,
                     1000,
                 )
-                lines.append(
-                    _line(
-                        bundle=bundle,
-                        rule=operator,
-                        line_item_key=(f"{operator.line_item_key}.{period_rate.period.lower()}"),
-                        quantity=quantity,
-                        quantity_unit="Wh",
-                        rate=period_rate.rate_microdollars_per_kwh,
-                        rate_unit="microdollars/kWh",
-                        raw_microdollars=raw,
-                        service_window=service_window,
-                    )
+                line = _line(
+                    bundle=bundle,
+                    rule=operator,
+                    line_item_key=(f"{operator.line_item_key}.{period_rate.period.lower()}"),
+                    quantity=quantity,
+                    quantity_unit="Wh",
+                    rate=period_rate.rate_microdollars_per_kwh,
+                    rate_unit="microdollars/kWh",
+                    raw_microdollars=raw,
+                    service_window=service_window,
+                )
+                lines.append(line)
+                line_daily_energy[line.line_item_key] = period_daily_energy.get(
+                    period_rate.period, {}
                 )
             if operator.baseline_credit_microdollars_per_kwh is not None:
                 baseline_quantity = min(request.energy_wh, baseline_wh)
@@ -673,19 +1029,23 @@ def replay_compiled_tariff(
                     baseline_quantity * operator.baseline_credit_microdollars_per_kwh,
                     1000,
                 )
-                lines.append(
-                    _line(
-                        bundle=bundle,
-                        rule=operator,
-                        line_item_key=f"{operator.line_item_key}.baseline_credit",
-                        quantity=baseline_quantity,
-                        quantity_unit="Wh",
-                        rate=operator.baseline_credit_microdollars_per_kwh,
-                        rate_unit="microdollars/kWh",
-                        raw_microdollars=raw,
-                        service_window=service_window,
-                        charge_component_key=(operator.baseline_credit_charge_component_key),
-                    )
+                line = _line(
+                    bundle=bundle,
+                    rule=operator,
+                    line_item_key=f"{operator.line_item_key}.baseline_credit",
+                    quantity=baseline_quantity,
+                    quantity_unit="Wh",
+                    rate=operator.baseline_credit_microdollars_per_kwh,
+                    rate_unit="microdollars/kWh",
+                    raw_microdollars=raw,
+                    service_window=service_window,
+                    charge_component_key=(operator.baseline_credit_charge_component_key),
+                )
+                lines.append(line)
+                line_daily_energy[line.line_item_key] = _energy_slice(
+                    all_daily_energy,
+                    offset_wh=0,
+                    quantity_wh=baseline_quantity,
                 )
         elif isinstance(operator, IRFixedDailyCharge):
             raw = Fraction(billing_days * operator.rate_microdollars_per_day)
@@ -731,6 +1091,13 @@ def replay_compiled_tariff(
     supported_cents = sum(line.rounded_cents for line in lines)
     resolved_policy = policy or ReconciliationPolicy()
     reconciliation = _reconcile(request, supported_cents, resolved_policy)
+    diagnostic_cost_allocation = _diagnostic_cost_allocation(
+        request,
+        tuple(lines),
+        line_daily_energy,
+        reconciliation,
+        has_tiered_energy=has_tiered_energy,
+    )
     replay_input_payload: dict[str, object] = {
         "profile_content_sha256": request.profile_content_sha256,
         "energy_wh": request.energy_wh,
@@ -818,14 +1185,15 @@ def replay_compiled_tariff(
             item.model_dump(mode="json") for item in request.user_unsupported_lines
         ],
         "reconciliation": reconciliation.model_dump(mode="json") if reconciliation else None,
+        "diagnostic_cost_allocation": diagnostic_cost_allocation.model_dump(mode="json"),
         "provenance_sources": provenance_sources,
         "manifest": manifest.model_dump(mode="json"),
     }
     return ReplayResult(
         result_version=(
-            "historical-replay-result-v2"
+            "historical-replay-result-v3"
             if isinstance(request, IntervalReplayRequest)
-            else "e1-replay-result-v1"
+            else "e1-replay-result-v2"
         ),
         eligibility=eligibility,
         supported_calculated_cents=supported_cents,
@@ -833,9 +1201,10 @@ def replay_compiled_tariff(
         tariff_unsupported_placeholders=tuple(placeholders),
         user_unsupported_lines=request.user_unsupported_lines,
         reconciliation=reconciliation,
+        diagnostic_cost_allocation=diagnostic_cost_allocation,
         provenance_sources=provenance_sources,
         manifest=manifest,
         result_sha256=canonical_content_sha256(
-            b"RateReplay.HistoricalReplayResult.v1", result_payload
+            b"RateReplay.HistoricalReplayResult.v2", result_payload
         ),
     )
