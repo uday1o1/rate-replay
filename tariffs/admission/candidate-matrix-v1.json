@@ -55,9 +55,9 @@
       "tariff_id": "E-TOU-C"
     },
     {
-      "admission_status": "NOT_ADMITTED",
+      "admission_status": "ADMITTED",
       "calendar_dependency": "ca-observed-holidays-2026-v1",
-      "eligibility_gap": "Holiday compiler and complete eligibility predicate are not implemented.",
+      "eligibility_gap": null,
       "expected_july_rates": {
         "base_service_tier3_usd_per_day": "0.79343",
         "off_peak_usd_per_kwh": "0.34212",

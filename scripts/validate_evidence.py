@@ -118,11 +118,12 @@ def _validate_tariffs() -> None:
     }
     _require(statuses["E-1"] == "ADMITTED", "E1_ADMISSION_STATUS_MISMATCH")
     _require(statuses["E-TOU-C"] == "ADMITTED", "ETOUC_ADMISSION_STATUS_MISMATCH")
+    _require(statuses["E-TOU-D"] == "ADMITTED", "ETOUD_ADMISSION_STATUS_MISMATCH")
     _require(
         all(
             statuses[tariff_id] != "ADMITTED"
             for tariff_id in statuses
-            if tariff_id not in {"E-1", "E-TOU-C"}
+            if tariff_id not in {"E-1", "E-TOU-C", "E-TOU-D"}
         ),
         "PREMATURE_TARIFF_ADMISSION",
     )
@@ -148,6 +149,12 @@ def _validate_tariffs() -> None:
         etouc.compilation.compiler_content_sha256
         == "1ee58b8ccbff4be24ca72e8b9ec47b54bbc8fb02f5ae4f7e37ca4886ee09e5de",
         "ETOUC_COMPILER_HASH_MISMATCH",
+    )
+    etoud = load_admitted_tariff(ROOT, "E-TOU-D")
+    _require(
+        etoud.compilation.compiler_content_sha256
+        == "5eb62747fb1f31e4d9d3d799619743a8e387373cf3b601b1e2c6656963b5edc2",
+        "ETOUD_COMPILER_HASH_MISMATCH",
     )
     holiday = _json("tariffs/calendars/ca-observed-holidays-2026.json")
     _require(
@@ -295,7 +302,7 @@ def main() -> None:
     _validate_generated_evidence()
     _validate_m1_evidence()
     _validate_m2_evidence()
-    print("Repository evidence locks are internally consistent through Milestone 2.")
+    print("Repository evidence locks are internally consistent.")
 
 
 if __name__ == "__main__":

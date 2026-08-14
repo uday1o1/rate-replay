@@ -157,6 +157,26 @@
       "coverage_count_per_service_instant": 1,
       "service_window": ["2026-07-01", "2026-08-01"],
       "tariff_id": "pge-etouc-2026-07"
+    },
+    {
+      "admission_status": "ADMITTED",
+      "components": [
+        {
+          "component_id": "etoud-applicability-time-and-special-conditions",
+          "effective_range": ["2026-03-01", null],
+          "precedence": 1,
+          "source_id": "pge-advice-7846-e"
+        },
+        {
+          "component_id": "etoud-total-rates-base-service-and-climate-credit",
+          "effective_range": ["2026-06-01", null],
+          "precedence": 2,
+          "source_id": "pge-advice-7921-e"
+        }
+      ],
+      "coverage_count_per_service_instant": 1,
+      "service_window": ["2026-07-01", "2026-08-01"],
+      "tariff_id": "pge-etoud-2026-07"
     }
   ]
 }

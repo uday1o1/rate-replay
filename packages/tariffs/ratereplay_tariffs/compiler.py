@@ -89,7 +89,12 @@ def load_tariff_definition(path: Path) -> TariffVersion:
         return TariffVersion.model_validate_json(path.read_bytes())
     except ValidationError as error:
         message = str(error)
-        code = "INVALID_TIER" if "energy tier" in message else "SCHEMA_INVALID"
+        if "energy tier" in message:
+            code = "INVALID_TIER"
+        elif "nonholiday schedules require" in message or "calendar identifier" in message:
+            code = "CALENDAR_LOCK_MISSING"
+        else:
+            code = "SCHEMA_INVALID"
         raise TariffCompileError(code, f"Tariff definition is invalid: {message}") from error
 
 
