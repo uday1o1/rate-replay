@@ -36,6 +36,7 @@ from ratereplay_worker.deletion_worker import DeletionWorker
 from ratereplay_worker.import_worker import ImportWorker
 from ratereplay_worker.replay_worker import ReplayWorker
 from ratereplay_worker.report_worker import ReportWorker
+from ratereplay_worker.scenario_worker import ScenarioWorker
 
 app = typer.Typer(no_args_is_help=True)
 WORKER_POLL_SECONDS = 1.0
@@ -210,6 +211,29 @@ def _configured_comparison_worker() -> tuple[ComparisonWorker, Engine]:
             artifacts=ArtifactService(sessions, FilesystemObjectStore(object_root)),
             admitted_tariffs={item.lock.tariff_version_id: item for item in tariffs},
             required_component_keys=load_required_component_keys(repository_root),
+            environment_lock_hash=environment_lock_hash(repository_root),
+        ),
+        engine,
+    )
+
+
+def _configured_scenario_worker() -> tuple[ScenarioWorker, Engine]:
+    database_url = os.getenv("RATEREPLAY_DATABASE_URL")
+    if database_url is None:
+        typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
+        raise typer.Exit(code=2)
+    repository_root = Path(os.getenv("RATEREPLAY_REPOSITORY_ROOT", ".")).resolve()
+    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
+    engine = make_engine(database_url)
+    sessions = make_session_factory(engine)
+    tariffs = load_all_admitted_tariffs(repository_root)
+    return (
+        ScenarioWorker(
+            worker_id=f"{socket.gethostname()}-{os.getpid()}",
+            session_factory=sessions,
+            jobs=JobService(sessions),
+            artifacts=ArtifactService(sessions, FilesystemObjectStore(object_root)),
+            admitted_tariffs={item.lock.tariff_version_id: item for item in tariffs},
             environment_lock_hash=environment_lock_hash(repository_root),
         ),
         engine,
@@ -497,6 +521,34 @@ def run_comparisons() -> None:
     """Poll continuously for durable tariff comparison jobs."""
 
     worker, engine = _configured_comparison_worker()
+    try:
+        while True:
+            processed = worker.run_once(now=datetime.now(UTC))
+            if not processed:
+                time.sleep(WORKER_POLL_SECONDS)
+    except KeyboardInterrupt:
+        typer.echo("stopped")
+    finally:
+        engine.dispose()
+
+
+@app.command("run-scenario-once")
+def run_scenario_once() -> None:
+    """Lease and publish at most one durable flexible-load scenario."""
+
+    worker, engine = _configured_scenario_worker()
+    try:
+        processed = worker.run_once(now=datetime.now(UTC))
+        typer.echo("processed" if processed else "idle")
+    finally:
+        engine.dispose()
+
+
+@app.command("run-scenarios")
+def run_scenarios() -> None:
+    """Poll continuously for durable flexible-load scenario jobs."""
+
+    worker, engine = _configured_scenario_worker()
     try:
         while True:
             processed = worker.run_once(now=datetime.now(UTC))

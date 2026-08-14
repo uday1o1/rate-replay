@@ -15,18 +15,12 @@ from ratereplay_optimizer.models import (
     ScenarioElectricalConstraints,
     ScenarioInput,
 )
-from ratereplay_optimizer.results import (
-    ScenarioOptimizationResult,
-    ScenarioResultError,
-    build_scenario_result,
-)
+from ratereplay_optimizer.results import ScenarioOptimizationResult
 from ratereplay_optimizer.scenario import ScenarioValidationError, validate_and_decompose_scenario
 from ratereplay_optimizer.solver import (
-    OptimizationExecutionError,
     default_solver_configuration,
-    optimize_exact,
-    optimize_off_peak_heuristic,
 )
+from ratereplay_optimizer.verification import ScheduleVerificationError
 from ratereplay_persistence.models import (
     ImportReadingRecord,
     ProfileVersionRecord,
@@ -36,7 +30,7 @@ from ratereplay_persistence.models import (
 from ratereplay_persistence.scenarios import ScenarioService, ScenarioServiceError
 from ratereplay_tariffs.admission import AdmittedTariff
 from ratereplay_tariffs.billing import ReplayError
-from ratereplay_tariffs.hashing import canonical_content_sha256, canonical_json_bytes
+from ratereplay_tariffs.hashing import canonical_json_bytes
 from ratereplay_tariffs.schema import AccountFacts, DatedEligibilityFacts, FrozenModel
 from sqlalchemy import BigInteger, select
 from sqlalchemy import cast as sql_cast
@@ -50,6 +44,7 @@ from ratereplay_api.auth_routes import (
 )
 from ratereplay_api.problems import ApiProblem, problem_openapi_responses
 from ratereplay_api.replay_routes import profile_window
+from ratereplay_api.resource_routes import JobResourceResponse, job_resource, owned_job
 
 
 def _default_electrical_constraints() -> dict[str, object]:
@@ -99,6 +94,12 @@ class ScenarioCancelResponse(FrozenModel):
     schema_version: Literal["scenario-cancel-v1"] = "scenario-cancel-v1"
     scenario_id: str
     state: Literal["CANCEL_REQUESTED"] = "CANCEL_REQUESTED"
+
+
+class ScenarioSubmissionResponse(FrozenModel):
+    schema_version: Literal["scenario-submission-v1"] = "scenario-submission-v1"
+    scenario_id: str
+    job: JobResourceResponse
 
 
 def _tariffs(request: Request) -> dict[str, AdmittedTariff]:
@@ -183,8 +184,7 @@ def _problem(
     error: ScenarioServiceError
     | ScenarioValidationError
     | OptimizationLoweringError
-    | OptimizationExecutionError
-    | ScenarioResultError
+    | ScheduleVerificationError
     | ReplayError,
 ) -> ApiProblem:
     statuses = {
@@ -201,10 +201,10 @@ def _problem(
         "PROFILE_INTERVAL_COVERAGE_MISMATCH": 422,
         "PROFILE_NOT_FOUND": 404,
         "SCENARIO_ALREADY_TERMINAL": 409,
-        "SCENARIO_CANCELLATION_UNAVAILABLE": 409,
+        "SCENARIO_JOB_INVALID": 409,
         "SCENARIO_NOT_FOUND": 404,
-        "SCENARIO_PUBLICATION_CONFLICT": 409,
-        "SCENARIO_RESULT_INPUT_MISMATCH": 500,
+        "SCENARIO_OPERATION_MISMATCH": 409,
+        "SCENARIO_SUBMISSION_CONFLICT": 409,
         "TARIFF_INELIGIBLE": 422,
         "TARIFF_OPTIMIZATION_UNAVAILABLE": 422,
         "TARIFF_UNKNOWN": 422,
@@ -300,8 +300,8 @@ def get_profile_scenario_slots(
 
 @router.post(
     "/v1/scenarios",
-    response_model=ScenarioResourceResponse,
-    status_code=status.HTTP_201_CREATED,
+    response_model=ScenarioSubmissionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
     responses=problem_openapi_responses(401, 403, 404, 409, 422, 500, 503),
 )
 def create_scenario(
@@ -310,7 +310,7 @@ def create_scenario(
     authenticated: Annotated[AuthenticatedSession, Depends(require_csrf_session)],
     database: Annotated[Session, Depends(get_database)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> ScenarioResourceResponse:
+) -> ScenarioSubmissionResponse:
     admitted = _tariffs(request).get(payload.tariff_version_id)
     if admitted is None:
         raise ApiProblem(status_code=404, code="TARIFF_NOT_FOUND", message="Tariff is unavailable")
@@ -381,67 +381,34 @@ def create_scenario(
             electrical_constraints=electrical_constraints,
         )
         validated = validate_and_decompose_scenario(scenario_input)
-        operation_hash = canonical_content_sha256(
-            b"RateReplay.ScenarioOperationRequest.v1",
-            {
-                "request_schema_version": payload.request_schema_version,
-                "profile_version_id": profile.id,
-                "account_facts": account_facts.model_dump(mode="json"),
-                "dated_eligibility_facts": (
-                    dated_facts.model_dump(mode="json") if dated_facts is not None else None
-                ),
-                "scenario": scenario_input.model_dump(mode="json"),
-                "shift_existing_attestation_load_ids": tuple(
-                    sorted(str(value) for value in provided_attestations)
-                ),
-            },
-        )
         configuration = default_solver_configuration(max_deterministic_time_per_stage=5.0)
-        exact = optimize_exact(
-            validated,
-            admitted.compilation,
-            account_facts,
-            dated_facts=dated_facts,
-            configuration=configuration,
-        )
-        heuristic = optimize_off_peak_heuristic(
-            validated,
-            admitted.compilation,
-            account_facts,
-            dated_facts=dated_facts,
-            configuration=configuration,
-        )
-        result = build_scenario_result(
-            validated,
-            admitted.compilation,
-            account_facts,
-            dated_facts,
-            exact,
-            heuristic,
-        )
-        stored = _scenarios(request).publish(
+        submission = _scenarios(request).submit(
             owner_user_id=authenticated.user_id,
             profile_version_id=profile.id,
             idempotency_key=idempotency_key,
-            operation_request_hash=operation_hash,
+            tariff=admitted,
+            account_facts=account_facts,
+            dated_facts=dated_facts,
             validated=validated,
-            result=result,
+            attestation_load_ids=tuple(sorted(str(value) for value in provided_attestations)),
+            solver_configuration=configuration,
+            environment_lock_hash=cast(str, request.app.state.environment_lock_hash),
             now=datetime.now(UTC),
         )
     except (
-        OptimizationExecutionError,
         OptimizationLoweringError,
         ReplayError,
-        ScenarioResultError,
         ScenarioServiceError,
         ScenarioValidationError,
+        ScheduleVerificationError,
     ) as error:
         raise _problem(error) from error
-    return _stored_resource(
-        database,
-        authenticated.user_id,
-        stored.scenario_id,
-        repeated=stored.repeated,
+    return ScenarioSubmissionResponse(
+        scenario_id=submission.scenario_id,
+        job=job_resource(
+            owned_job(database, authenticated.user_id, submission.job_id),
+            repeated=submission.calculation.repeated_operation,
+        ),
     )
 
 
@@ -473,6 +440,7 @@ def cancel_scenario(
         _scenarios(request).cancel(
             owner_user_id=authenticated.user_id,
             scenario_id=scenario_id,
+            now=datetime.now(UTC),
         )
     except ScenarioServiceError as error:
         raise _problem(error) from error

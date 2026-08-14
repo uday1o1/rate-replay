@@ -18,6 +18,7 @@ from ratereplay_tariffs.comparison import load_required_component_keys
 from ratereplay_worker.comparison_worker import ComparisonWorker
 from ratereplay_worker.replay_worker import ReplayWorker
 from ratereplay_worker.report_worker import ReportWorker
+from ratereplay_worker.scenario_worker import ScenarioWorker
 
 ROOT = Path(__file__).resolve().parents[3]
 ORIGIN = "https://app.ratereplay.test"
@@ -222,7 +223,22 @@ async def test_private_account_completes_portfolio_core_through_public_api(
             "shift_existing_attestation_load_ids": [],
         },
     )
-    assert scenario_response.status_code == 201, scenario_response.text
+    assert scenario_response.status_code == 202, scenario_response.text
+    scenario_submission = scenario_response.json()
+    scenario_worker = ScenarioWorker(
+        worker_id="portfolio-scenario-worker",
+        session_factory=state.session_factory,
+        jobs=state.job_service,
+        artifacts=ArtifactService(state.session_factory, state.object_store),
+        admitted_tariffs=state.admitted_tariffs,
+        environment_lock_hash=state.environment_lock_hash,
+    )
+    assert scenario_worker.run_once(now=datetime.now(UTC))
+    scenario_job = await client.get(f"/v1/jobs/{scenario_submission['job']['job_id']}")
+    assert scenario_job.status_code == 200
+    assert scenario_job.json()["state"] == "SUCCEEDED"
+    scenario_response = await client.get(f"/v1/scenarios/{scenario_submission['scenario_id']}")
+    assert scenario_response.status_code == 200
     scenario_resource = scenario_response.json()
     scenario = scenario_resource["result"]
     assert scenario["historical_addition_label"] == ("HISTORICAL_COUNTERFACTUAL_NOT_FORECAST")

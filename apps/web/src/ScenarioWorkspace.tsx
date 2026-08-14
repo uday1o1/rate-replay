@@ -144,6 +144,19 @@ type ScenarioResource = {
   };
 };
 
+type JobResource = {
+  job_id: string;
+  state: "QUEUED" | "LEASED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+  failure_code: string | null;
+  terminal_result_type: string | null;
+  terminal_result_id: string | null;
+};
+
+type ScenarioSubmission = {
+  scenario_id: string;
+  job: JobResource;
+};
+
 type Preview = {
   request: ScenarioRequest | null;
   issue: ScenarioIssue | null;
@@ -219,7 +232,7 @@ export function ScenarioWorkspace({
     }
     setSubmitting(true);
     try {
-      const value = await api<ScenarioResource>("/v1/scenarios", {
+      const submission = await api<ScenarioSubmission>("/v1/scenarios", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -228,6 +241,39 @@ export function ScenarioWorkspace({
         },
         body: JSON.stringify(preview.request),
       });
+      let job = submission.job;
+      for (
+        let attempt = 0;
+        !isTerminal(job.state) && attempt < 120;
+        attempt += 1
+      ) {
+        job = await api<JobResource>(`/v1/jobs/${job.job_id}`);
+        if (!isTerminal(job.state)) await wait(250);
+      }
+      if (!isTerminal(job.state)) {
+        throw new ApiError(
+          504,
+          "SCENARIO_JOB_TIMEOUT",
+          "The scenario is still running. Its durable job can be checked again safely.",
+          [],
+          { job_id: job.job_id },
+        );
+      }
+      if (
+        job.state !== "SUCCEEDED" ||
+        job.terminal_result_type !== "SCENARIO"
+      ) {
+        throw new ApiError(
+          409,
+          job.failure_code ?? "SCENARIO_JOB_UNSUCCESSFUL",
+          "The scenario worker rejected the calculation and published no schedule.",
+          [],
+          { job_id: job.job_id, job_state: job.state },
+        );
+      }
+      const value = await api<ScenarioResource>(
+        `/v1/scenarios/${submission.scenario_id}`,
+      );
       setResult(value);
       onMessage(
         value.result.exact.search_status === "OPTIMAL"
@@ -451,6 +497,14 @@ export function ScenarioWorkspace({
       {result !== null && <ScenarioResultView resource={result} />}
     </section>
   );
+}
+
+function isTerminal(state: JobResource["state"]): boolean {
+  return state === "SUCCEEDED" || state === "FAILED" || state === "CANCELLED";
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 function buildPreview(

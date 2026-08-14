@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    inspect,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -694,11 +695,28 @@ def _prevent_immutable_update(_mapper: object, _connection: object, target: obje
     raise RuntimeError(f"{type(target).__name__} is immutable")
 
 
+def _prevent_scenario_content_update(
+    _mapper: object,
+    _connection: object,
+    target: ScenarioRecord,
+) -> None:
+    mutable_fields = {
+        "completed_at",
+        "lifecycle_generation",
+        "lifecycle_state",
+        "state",
+    }
+    changed_fields = {
+        attribute.key for attribute in inspect(target).attrs if attribute.history.has_changes()
+    }
+    if changed_fields.difference(mutable_fields):
+        raise RuntimeError("ScenarioRecord calculation inputs are immutable")
+
+
 for _immutable_model in (
     ImportReadingRecord,
     ImportFindingRecord,
     ReplayResultRecord,
-    ScenarioRecord,
     ScenarioLoadRecord,
     ScenarioReferenceScheduleRecord,
     ScenarioResultRecord,
@@ -707,3 +725,5 @@ for _immutable_model in (
     JobResultClaimRecord,
 ):
     event.listen(_immutable_model, "before_update", _prevent_immutable_update)
+
+event.listen(ScenarioRecord, "before_update", _prevent_scenario_content_update)

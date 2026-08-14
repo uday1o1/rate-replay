@@ -16,24 +16,20 @@ from ratereplay_optimizer.models import (
     ScenarioInput,
     ValidatedScenario,
 )
-from ratereplay_optimizer.results import ScenarioOptimizationResult, build_scenario_result
 from ratereplay_optimizer.scenario import validate_and_decompose_scenario
-from ratereplay_optimizer.solver import optimize_exact, optimize_off_peak_heuristic
+from ratereplay_optimizer.solver import default_solver_configuration
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.models import (
-    CalculationManifestRecord,
     ImportRecord,
-    JobAttemptRecord,
     JobRecord,
     ProfileVersionRecord,
     ScenarioLoadRecord,
     ScenarioRecord,
     ScenarioReferenceScheduleRecord,
-    ScenarioResultRecord,
     UserRecord,
 )
 from ratereplay_persistence.scenarios import ScenarioService, ScenarioServiceError
-from ratereplay_tariffs.compiler import compile_tariff
+from ratereplay_tariffs.admission import AdmittedTariff, load_all_admitted_tariffs
 from ratereplay_tariffs.schema import AccountFacts, DatedEligibilityFacts
 from sqlalchemy import func, select
 from sqlalchemy.exc import StatementError
@@ -41,8 +37,17 @@ from sqlalchemy.exc import StatementError
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def _result() -> tuple[ValidatedScenario, ScenarioOptimizationResult]:
-    bundle = compile_tariff(ROOT, ROOT / "tariffs/definitions/pge-etoud-2026-07.json")
+def _inputs() -> tuple[
+    ValidatedScenario,
+    AdmittedTariff,
+    AccountFacts,
+    DatedEligibilityFacts,
+]:
+    tariff = next(
+        item
+        for item in load_all_admitted_tariffs(ROOT)
+        if item.lock.tariff_version_id == "pge-etoud-2026-07"
+    )
     facts_payload = json.loads(
         (ROOT / "tariffs/examples/m3-comparison-account.json").read_text(encoding="utf-8")
     )
@@ -91,17 +96,15 @@ def _result() -> tuple[ValidatedScenario, ScenarioOptimizationResult]:
         ScenarioInput(
             scenario_version="historical-flex-scenario-v1",
             profile_content_sha256="a" * 64,
-            tariff_version_id=bundle.ir.tariff_version_id,
+            tariff_version_id=tariff.lock.tariff_version_id,
             profile_slots=slots,
             loads=(load,),
         )
     )
-    exact = optimize_exact(validated, bundle, account, dated_facts=dated)
-    heuristic = optimize_off_peak_heuristic(validated, bundle, account, dated_facts=dated)
-    return validated, build_scenario_result(validated, bundle, account, dated, exact, heuristic)
+    return validated, tariff, account, dated
 
 
-def test_scenario_publication_is_normalized_immutable_idempotent_and_owner_scoped() -> None:
+def test_scenario_submission_is_normalized_immutable_idempotent_and_owner_scoped() -> None:
     engine = make_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     sessions = make_session_factory(engine)
@@ -153,80 +156,83 @@ def test_scenario_publication_is_normalized_immutable_idempotent_and_owner_scope
                 created_at=now,
             )
         )
-    validated, result = _result()
+    validated, tariff, account, dated = _inputs()
+    configuration = default_solver_configuration(max_deterministic_time_per_stage=5.0)
     service = ScenarioService(sessions)
-    stored = service.publish(
+    stored = service.submit(
         owner_user_id=owner_id,
         profile_version_id=profile_id,
         idempotency_key="scenario-request-one",
-        operation_request_hash="c" * 64,
+        tariff=tariff,
+        account_facts=account,
+        dated_facts=dated,
         validated=validated,
-        result=result,
+        attestation_load_ids=("00000000-0000-0000-0000-000000000001",),
+        solver_configuration=configuration,
+        environment_lock_hash="e" * 64,
         now=now,
     )
-    repeated = service.publish(
+    repeated = service.submit(
         owner_user_id=owner_id,
         profile_version_id=profile_id,
         idempotency_key="scenario-request-one",
-        operation_request_hash="c" * 64,
+        tariff=tariff,
+        account_facts=account,
+        dated_facts=dated,
         validated=validated,
-        result=result,
-        now=now,
-    )
-    semantic_reuse = service.publish(
-        owner_user_id=owner_id,
-        profile_version_id=profile_id,
-        idempotency_key="scenario-request-two",
-        operation_request_hash="c" * 64,
-        validated=validated,
-        result=result,
+        attestation_load_ids=("00000000-0000-0000-0000-000000000001",),
+        solver_configuration=configuration,
+        environment_lock_hash="e" * 64,
         now=now,
     )
 
-    assert repeated == semantic_reuse
-    assert repeated.repeated is True
+    assert repeated.calculation.repeated_operation is True
+    assert repeated.calculation.semantic_reuse is False
     assert repeated.scenario_id == stored.scenario_id
     with sessions() as database:
         scenario = database.get(ScenarioRecord, stored.scenario_id)
-        scenario_result = database.get(ScenarioResultRecord, stored.result_id)
         job = database.get(JobRecord, stored.job_id)
-        attempt = database.scalar(
-            select(JobAttemptRecord).where(JobAttemptRecord.job_id == stored.job_id)
-        )
-        manifest = database.scalar(
-            select(CalculationManifestRecord).where(
-                CalculationManifestRecord.scenario_result_id == stored.result_id
-            )
-        )
-        assert scenario is not None and scenario.state == "SUCCEEDED"
-        assert scenario_result is not None and scenario_result.result_hash == result.result_sha256
-        assert job is not None and job.kind == "SCENARIO" and job.state == "SUCCEEDED"
-        assert attempt is not None and attempt.worker_id == "inline-verified-optimizer"
-        assert manifest is not None and manifest.replay_id is None
+        assert scenario is not None and scenario.state == "QUEUED"
+        assert scenario.input_json == validated.scenario.model_dump_json()
+        assert job is not None and job.kind == "SCENARIO" and job.state == "QUEUED"
         assert database.scalar(select(func.count()).select_from(ScenarioLoadRecord)) == 1
         assert (
             database.scalar(select(func.count()).select_from(ScenarioReferenceScheduleRecord)) == 1
         )
-        scenario_result.result_json = "{}"
+        scenario.input_json = "{}"
         with pytest.raises((RuntimeError, StatementError), match="immutable"):
             database.commit()
         database.rollback()
 
+    service.cancel(owner_user_id=owner_id, scenario_id=stored.scenario_id, now=now)
+    with sessions() as database:
+        scenario = database.get(ScenarioRecord, stored.scenario_id)
+        job = database.get(JobRecord, stored.job_id)
+        assert scenario is not None and scenario.state == "CANCELLED"
+        assert job is not None and job.state == "CANCELLED"
     with pytest.raises(ScenarioServiceError) as terminal:
-        service.cancel(owner_user_id=owner_id, scenario_id=stored.scenario_id)
+        service.cancel(owner_user_id=owner_id, scenario_id=stored.scenario_id, now=now)
     assert terminal.value.code == "SCENARIO_ALREADY_TERMINAL"
     with pytest.raises(ScenarioServiceError) as reused_key:
-        service.publish(
+        service.submit(
             owner_user_id=owner_id,
             profile_version_id=profile_id,
             idempotency_key="scenario-request-one",
-            operation_request_hash="d" * 64,
+            tariff=tariff,
+            account_facts=account,
+            dated_facts=dated,
             validated=validated,
-            result=result,
+            attestation_load_ids=("00000000-0000-0000-0000-000000000001",),
+            solver_configuration=default_solver_configuration(max_deterministic_time_per_stage=6.0),
+            environment_lock_hash="e" * 64,
             now=now,
         )
     assert reused_key.value.code == "IDEMPOTENCY_KEY_REUSED"
     with pytest.raises(ScenarioServiceError) as hidden:
-        service.cancel(owner_user_id=secrets.token_hex(16), scenario_id=stored.scenario_id)
+        service.cancel(
+            owner_user_id=secrets.token_hex(16),
+            scenario_id=stored.scenario_id,
+            now=now,
+        )
     assert hidden.value.code == "SCENARIO_NOT_FOUND"
     engine.dispose()

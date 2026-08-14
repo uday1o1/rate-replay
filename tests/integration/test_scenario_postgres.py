@@ -9,17 +9,20 @@ from typing import Any, cast
 
 import pytest
 from ratereplay_ingestion.simulated import load_locked_simulated_profile
-from ratereplay_optimizer.results import build_scenario_result
+from ratereplay_optimizer.results import ScenarioOptimizationResult
 from ratereplay_optimizer.scenario import validate_and_decompose_scenario
-from ratereplay_optimizer.solver import optimize_exact, optimize_off_peak_heuristic
+from ratereplay_optimizer.solver import default_solver_configuration
+from ratereplay_persistence.artifacts import ArtifactService
 from ratereplay_persistence.database import make_engine, make_session_factory
 from ratereplay_persistence.imports import ImportService
+from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.models import (
     CalculationManifestRecord,
     ImportReadingRecord,
     ImportRecord,
     JobAttemptRecord,
     JobRecord,
+    JobResultClaimRecord,
     OperationRequestRecord,
     ProfileVersionRecord,
     ScenarioLoadRecord,
@@ -30,8 +33,8 @@ from ratereplay_persistence.models import (
 )
 from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_persistence.scenarios import ScenarioService
-from ratereplay_tariffs.compiler import compile_tariff
-from ratereplay_tariffs.hashing import canonical_content_sha256
+from ratereplay_tariffs.admission import load_all_admitted_tariffs
+from ratereplay_worker.scenario_worker import ScenarioWorker
 from sqlalchemy import delete, func, select
 
 from benchmarks.scripts.m4_performance import _facts, _scenario
@@ -75,67 +78,81 @@ def test_migrated_postgres_publishes_one_owner_scoped_verified_scenario(
     scenario = _scenario(workload, 1)
     validated = validate_and_decompose_scenario(scenario)
     account, dated = _facts()
-    bundle = compile_tariff(
-        ROOT,
-        ROOT / "tariffs/definitions/pge-etoud-2026-07.json",
+    tariff = next(
+        item
+        for item in load_all_admitted_tariffs(ROOT)
+        if item.lock.tariff_version_id == scenario.tariff_version_id
     )
-    exact = optimize_exact(validated, bundle, account, dated_facts=dated)
-    heuristic = optimize_off_peak_heuristic(
-        validated,
-        bundle,
-        account,
-        dated_facts=dated,
-    )
-    result = build_scenario_result(
-        validated,
-        bundle,
-        account,
-        dated,
-        exact,
-        heuristic,
-    )
-    operation_hash = canonical_content_sha256(
-        b"RateReplay.PostgresScenarioIntegration.v1",
-        scenario.model_dump(mode="json"),
+    configuration = default_solver_configuration(max_deterministic_time_per_stage=5.0)
+    attestation_ids = tuple(
+        sorted(str(load.load_id) for load in scenario.loads if load.mode == "SHIFT_EXISTING")
     )
     scenarios = ScenarioService(sessions)
-    stored = scenarios.publish(
+    stored = scenarios.submit(
         owner_user_id=owner_id,
         profile_version_id=installed.profile.id,
         idempotency_key="postgres-scenario-request",
-        operation_request_hash=operation_hash,
+        tariff=tariff,
+        account_facts=account,
+        dated_facts=dated,
         validated=validated,
-        result=result,
+        attestation_load_ids=attestation_ids,
+        solver_configuration=configuration,
+        environment_lock_hash="e" * 64,
         now=now,
     )
-    repeated = scenarios.publish(
+    repeated = scenarios.submit(
         owner_user_id=owner_id,
         profile_version_id=installed.profile.id,
         idempotency_key="postgres-scenario-request",
-        operation_request_hash=operation_hash,
+        tariff=tariff,
+        account_facts=account,
+        dated_facts=dated,
         validated=validated,
-        result=result,
+        attestation_load_ids=attestation_ids,
+        solver_configuration=configuration,
+        environment_lock_hash="e" * 64,
         now=now,
     )
-    semantic_reuse = scenarios.publish(
+    assert stored.calculation.repeated_operation is False
+    assert repeated.calculation.repeated_operation is True
+    assert repeated.scenario_id == stored.scenario_id
+    worker = ScenarioWorker(
+        worker_id="postgres-scenario-worker",
+        session_factory=sessions,
+        jobs=JobService(sessions),
+        artifacts=ArtifactService(sessions, FilesystemObjectStore(tmp_path / "artifacts")),
+        admitted_tariffs={tariff.lock.tariff_version_id: tariff},
+        environment_lock_hash="e" * 64,
+    )
+    assert worker.run_once(now=now)
+    semantic_reuse = scenarios.submit(
         owner_user_id=owner_id,
         profile_version_id=installed.profile.id,
         idempotency_key="postgres-scenario-semantic-reuse",
-        operation_request_hash=operation_hash,
+        tariff=tariff,
+        account_facts=account,
+        dated_facts=dated,
         validated=validated,
-        result=result,
+        attestation_load_ids=attestation_ids,
+        solver_configuration=configuration,
+        environment_lock_hash="e" * 64,
         now=now,
     )
-    assert stored.repeated is False
-    assert repeated.repeated is True
-    assert semantic_reuse.repeated is True
+    assert semantic_reuse.calculation.semantic_reuse is True
     assert repeated.scenario_id == semantic_reuse.scenario_id == stored.scenario_id
 
     with sessions() as database:
         scenario_row = database.get(ScenarioRecord, stored.scenario_id)
-        result_row = database.get(ScenarioResultRecord, stored.result_id)
         assert scenario_row is not None and scenario_row.state == "SUCCEEDED"
-        assert result_row is not None and result_row.result_hash == result.result_sha256
+        job = database.get(JobRecord, stored.job_id)
+        assert job is not None and job.state == "SUCCEEDED"
+        assert job.terminal_result_id is not None
+        result_id = job.terminal_result_id
+        result_row = database.get(ScenarioResultRecord, result_id)
+        assert result_row is not None
+        result = ScenarioOptimizationResult.model_validate_json(result_row.result_json)
+        assert result_row.result_hash == result.result_sha256
         assert (
             database.scalar(
                 select(func.count(ScenarioLoadRecord.id)).where(
@@ -157,7 +174,7 @@ def test_migrated_postgres_publishes_one_owner_scoped_verified_scenario(
         )
         manifest = database.scalar(
             select(CalculationManifestRecord).where(
-                CalculationManifestRecord.scenario_result_id == stored.result_id
+                CalculationManifestRecord.scenario_result_id == result_id
             )
         )
         assert manifest is not None
@@ -174,16 +191,19 @@ def test_migrated_postgres_publishes_one_owner_scoped_verified_scenario(
         )
         database.execute(
             delete(CalculationManifestRecord).where(
-                CalculationManifestRecord.scenario_result_id == stored.result_id
+                CalculationManifestRecord.scenario_result_id == result_id
             )
         )
-        database.execute(
-            delete(ScenarioResultRecord).where(ScenarioResultRecord.id == stored.result_id)
-        )
+        database.execute(delete(ScenarioResultRecord).where(ScenarioResultRecord.id == result_id))
         database.execute(
             delete(ScenarioLoadRecord).where(ScenarioLoadRecord.scenario_id == stored.scenario_id)
         )
         database.execute(delete(ScenarioRecord).where(ScenarioRecord.id == stored.scenario_id))
+        database.execute(
+            delete(JobResultClaimRecord).where(
+                JobResultClaimRecord.accepted_job_id == stored.job_id
+            )
+        )
         database.execute(delete(JobAttemptRecord).where(JobAttemptRecord.job_id == stored.job_id))
         database.execute(delete(JobRecord).where(JobRecord.id == stored.job_id))
         database.execute(

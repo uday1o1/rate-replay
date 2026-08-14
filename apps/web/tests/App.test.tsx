@@ -280,6 +280,25 @@ const scenarioSelected = [7200, 0, 0, 0, 0, 0, 0, 0];
 const referenceVerified = verifiedSchedule(scenarioReference, 2500);
 const selectedVerified = verifiedSchedule(scenarioSelected, 2000);
 
+const scenarioSubmission = {
+  scenario_id: "scenario-one",
+  job: {
+    job_id: "scenario-job-one",
+    state: "QUEUED",
+    failure_code: null,
+    terminal_result_type: null,
+    terminal_result_id: null,
+  },
+};
+
+const successfulScenarioJob = {
+  job_id: "scenario-job-one",
+  state: "SUCCEEDED",
+  failure_code: null,
+  terminal_result_type: "SCENARIO",
+  terminal_result_id: "scenario-result-one",
+};
+
 const optimalScenario = {
   scenario_id: "scenario-one",
   state: "SUCCEEDED",
@@ -759,7 +778,9 @@ describe("App", () => {
       .mockResolvedValueOnce(response(200, tariffDetail))
       .mockResolvedValueOnce(response(201, replayResource))
       .mockResolvedValueOnce(response(200, profileScenarioSlots))
-      .mockResolvedValueOnce(response(201, optimalScenario));
+      .mockResolvedValueOnce(response(202, scenarioSubmission))
+      .mockResolvedValueOnce(response(200, successfulScenarioJob))
+      .mockResolvedValueOnce(response(200, optimalScenario));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("crypto", { randomUUID: () => "scenario-uuid" });
     render(<App />);
@@ -816,8 +837,12 @@ describe("App", () => {
 
     const slotCall = fetchMock.mock.calls[6] as [string, RequestInit];
     const scenarioCall = fetchMock.mock.calls[7] as [string, RequestInit];
+    const scenarioJobCall = fetchMock.mock.calls[8] as [string, RequestInit];
+    const scenarioResultCall = fetchMock.mock.calls[9] as [string, RequestInit];
     expect(slotCall[0]).toBe("/v1/profiles/profile-one/scenario-slots");
     expect(scenarioCall[0]).toBe("/v1/scenarios");
+    expect(scenarioJobCall[0]).toBe("/v1/jobs/scenario-job-one");
+    expect(scenarioResultCall[0]).toBe("/v1/scenarios/scenario-one");
     const scenarioBody = JSON.parse(scenarioCall[1].body as string) as {
       tariff_version_id: string;
       loads: Array<{
@@ -932,7 +957,9 @@ describe("App", () => {
       .mockResolvedValueOnce(response(200, tariffDetail))
       .mockResolvedValueOnce(response(201, replayResource))
       .mockResolvedValueOnce(response(200, profileScenarioSlots))
-      .mockResolvedValueOnce(response(201, bestFoundScenario));
+      .mockResolvedValueOnce(response(202, scenarioSubmission))
+      .mockResolvedValueOnce(response(200, successfulScenarioJob))
+      .mockResolvedValueOnce(response(200, bestFoundScenario));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("crypto", { randomUUID: () => "scenario-uuid" });
     render(<App />);
@@ -983,15 +1010,14 @@ describe("App", () => {
       .mockResolvedValueOnce(response(200, tariffDetail))
       .mockResolvedValueOnce(response(201, replayResource))
       .mockResolvedValueOnce(response(200, profileScenarioSlots))
+      .mockResolvedValueOnce(response(202, scenarioSubmission))
       .mockResolvedValueOnce(
-        response(500, {
-          schema_version: "problem-v1",
-          code: "EXACT_SOLVER_MODEL_INVALID",
-          message:
-            "The exact model failed validation and no schedule was published.",
-          request_id: "request-one",
-          field_paths: [],
-          witness: { solver_status: "MODEL_INVALID" },
+        response(200, {
+          ...successfulScenarioJob,
+          state: "FAILED",
+          failure_code: "EXACT_SOLVER_MODEL_INVALID",
+          terminal_result_type: null,
+          terminal_result_id: null,
         }),
       );
     vi.stubGlobal("fetch", fetchMock);
@@ -1026,9 +1052,9 @@ describe("App", () => {
       }),
     ).toBeVisible();
     expect(
-      within(screen.getByRole("alert")).getByText(/no schedule was published/i),
+      within(screen.getByRole("alert")).getByText(/published no schedule/i),
     ).toBeVisible();
-    expect(screen.getByText("MODEL_INVALID")).toBeVisible();
+    expect(screen.getByText("FAILED")).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "Optimal" }),
     ).not.toBeInTheDocument();

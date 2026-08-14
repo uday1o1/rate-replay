@@ -9,9 +9,8 @@ from typing import Any, cast
 
 import pytest
 from ratereplay_ingestion.simulated import load_locked_simulated_profile
-from ratereplay_optimizer.results import build_scenario_result
 from ratereplay_optimizer.scenario import validate_and_decompose_scenario
-from ratereplay_optimizer.solver import optimize_exact, optimize_off_peak_heuristic
+from ratereplay_optimizer.solver import default_solver_configuration
 from ratereplay_persistence.artifacts import ArtifactService
 from ratereplay_persistence.database import make_engine, make_session_factory
 from ratereplay_persistence.imports import ImportService
@@ -37,9 +36,9 @@ from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_persistence.reports import ReportService
 from ratereplay_persistence.scenarios import ScenarioService
 from ratereplay_reports.redacted import RedactedReport
-from ratereplay_tariffs.compiler import compile_tariff
-from ratereplay_tariffs.hashing import canonical_content_sha256
+from ratereplay_tariffs.admission import load_all_admitted_tariffs
 from ratereplay_worker.report_worker import ReportWorker
+from ratereplay_worker.scenario_worker import ScenarioWorker
 from sqlalchemy import delete, select
 
 from benchmarks.scripts.m4_performance import _facts, _scenario
@@ -59,6 +58,7 @@ def test_migrated_postgres_publishes_one_fenced_redacted_report(tmp_path: Path) 
     now = datetime.now(UTC)
     report_job_id: str | None = None
     export_id: str | None = None
+    scenario_result_id: str | None = None
     installed = None
     stored = None
     try:
@@ -86,31 +86,46 @@ def test_migrated_postgres_publishes_one_fenced_redacted_report(tmp_path: Path) 
         )
         validated = validate_and_decompose_scenario(_scenario(workload, 1))
         account, dated = _facts()
-        bundle = compile_tariff(
-            ROOT,
-            ROOT / "tariffs/definitions/pge-etoud-2026-07.json",
+        tariff = next(
+            item
+            for item in load_all_admitted_tariffs(ROOT)
+            if item.lock.tariff_version_id == validated.scenario.tariff_version_id
         )
-        result = build_scenario_result(
-            validated,
-            bundle,
-            account,
-            dated,
-            optimize_exact(validated, bundle, account, dated_facts=dated),
-            optimize_off_peak_heuristic(validated, bundle, account, dated_facts=dated),
+        configuration = default_solver_configuration(max_deterministic_time_per_stage=5.0)
+        attestation_ids = tuple(
+            sorted(
+                str(load.load_id)
+                for load in validated.scenario.loads
+                if load.mode == "SHIFT_EXISTING"
+            )
         )
-        operation_hash = canonical_content_sha256(
-            b"RateReplay.PostgresReportIntegration.v1",
-            validated.scenario.model_dump(mode="json"),
-        )
-        stored = ScenarioService(sessions).publish(
+        stored = ScenarioService(sessions).submit(
             owner_user_id=owner_id,
             profile_version_id=installed.profile.id,
             idempotency_key="postgres-report-scenario",
-            operation_request_hash=operation_hash,
+            tariff=tariff,
+            account_facts=account,
+            dated_facts=dated,
             validated=validated,
-            result=result,
+            attestation_load_ids=attestation_ids,
+            solver_configuration=configuration,
+            environment_lock_hash="e" * 64,
             now=now,
         )
+        scenario_worker = ScenarioWorker(
+            worker_id="postgres-report-scenario-worker",
+            session_factory=sessions,
+            jobs=JobService(sessions),
+            artifacts=ArtifactService(sessions, objects),
+            admitted_tariffs={tariff.lock.tariff_version_id: tariff},
+            environment_lock_hash="e" * 64,
+        )
+        assert scenario_worker.run_once(now=now)
+        with sessions() as database:
+            scenario_job = database.get(JobRecord, stored.job_id)
+            assert scenario_job is not None and scenario_job.state == "SUCCEEDED"
+            assert scenario_job.terminal_result_id is not None
+            scenario_result_id = scenario_job.terminal_result_id
         reports = ReportService(sessions, environment_lock_hash="e" * 64)
         submission = reports.submit(
             owner_user_id=owner_id,
@@ -185,14 +200,17 @@ def test_migrated_postgres_publishes_one_fenced_redacted_report(tmp_path: Path) 
                         delete(JobAttemptRecord).where(JobAttemptRecord.job_id == report_job_id)
                     )
                     database.execute(delete(JobRecord).where(JobRecord.id == report_job_id))
-                database.execute(
-                    delete(CalculationManifestRecord).where(
-                        CalculationManifestRecord.scenario_result_id == stored.result_id
+                if scenario_result_id is not None:
+                    database.execute(
+                        delete(CalculationManifestRecord).where(
+                            CalculationManifestRecord.scenario_result_id == scenario_result_id
+                        )
                     )
-                )
-                database.execute(
-                    delete(ScenarioResultRecord).where(ScenarioResultRecord.id == stored.result_id)
-                )
+                    database.execute(
+                        delete(ScenarioResultRecord).where(
+                            ScenarioResultRecord.id == scenario_result_id
+                        )
+                    )
                 load_ids = select(ScenarioLoadRecord.id).where(
                     ScenarioLoadRecord.scenario_id == stored.scenario_id
                 )
@@ -208,6 +226,11 @@ def test_migrated_postgres_publishes_one_fenced_redacted_report(tmp_path: Path) 
                 )
                 database.execute(
                     delete(ScenarioRecord).where(ScenarioRecord.id == stored.scenario_id)
+                )
+                database.execute(
+                    delete(JobResultClaimRecord).where(
+                        JobResultClaimRecord.accepted_job_id == stored.job_id
+                    )
                 )
                 database.execute(
                     delete(JobAttemptRecord).where(JobAttemptRecord.job_id == stored.job_id)

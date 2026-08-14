@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,11 +10,16 @@ from typing import Any, cast
 
 import httpx
 import pytest
-import ratereplay_api.scenario_routes as scenario_routes
 from fastapi import FastAPI
 from ratereplay_api.config import AppSettings
 from ratereplay_api.main import create_app
-from ratereplay_optimizer.solver import ExactOptimizationResult, ExactSearchStatus
+from ratereplay_optimizer.solver import (
+    ExactOptimizationResult,
+    ExactSearchStatus,
+    optimize_exact,
+)
+from ratereplay_persistence.artifacts import ArtifactService
+from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.models import (
     CalculationManifestRecord,
     ImportReadingRecord,
@@ -25,7 +30,9 @@ from ratereplay_persistence.models import (
     ScenarioRecord,
     ScenarioReferenceScheduleRecord,
     ScenarioResultRecord,
+    UserRecord,
 )
+from ratereplay_worker.scenario_worker import ScenarioWorker
 from sqlalchemy import func, select
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -203,6 +210,19 @@ def _headers(csrf: str, key: str) -> dict[str, str]:
     }
 
 
+def _run_scenario_worker(test_app: FastAPI) -> None:
+    app_state = cast(Any, test_app.state)
+    worker = ScenarioWorker(
+        worker_id="scenario-api-test-worker",
+        session_factory=app_state.session_factory,
+        jobs=JobService(app_state.session_factory),
+        artifacts=ArtifactService(app_state.session_factory, app_state.object_store),
+        admitted_tariffs=app_state.admitted_tariffs,
+        environment_lock_hash=app_state.environment_lock_hash,
+    )
+    assert worker.run_once(now=datetime.now(UTC)) is True
+
+
 @pytest.mark.anyio
 async def test_authenticated_scenario_runs_complete_verified_user_path(
     client: httpx.AsyncClient,
@@ -225,9 +245,23 @@ async def test_authenticated_scenario_runs_complete_verified_user_path(
         headers=_headers(csrf, "scenario-user-path"),
         json=payload,
     )
-    assert created.status_code == 201, created.text
-    body = created.json()
-    assert body["repeated"] is False
+    assert created.status_code == 202, created.text
+    submission = created.json()
+    assert submission["job"]["repeated"] is False
+    assert submission["job"]["state"] == "QUEUED"
+    pending = await client.get(f"/v1/scenarios/{submission['scenario_id']}")
+    assert pending.status_code == 409
+    assert pending.json()["code"] == "SCENARIO_RESULT_INCOMPLETE"
+
+    _run_scenario_worker(test_app)
+
+    completed = await client.get(f"/v1/jobs/{submission['job']['job_id']}")
+    assert completed.status_code == 200
+    assert completed.json()["state"] == "SUCCEEDED"
+    assert completed.json()["terminal_result_type"] == "SCENARIO"
+    fetched = await client.get(f"/v1/scenarios/{submission['scenario_id']}")
+    assert fetched.status_code == 200
+    body = fetched.json()
     assert body["state"] == "SUCCEEDED"
     assert body["result"]["calculation_time_mode"] == "HISTORICAL_REPLAY"
     assert body["result"]["historical_addition_label"] == "HISTORICAL_COUNTERFACTUAL_NOT_FORECAST"
@@ -245,12 +279,12 @@ async def test_authenticated_scenario_runs_complete_verified_user_path(
         headers=_headers(csrf, "scenario-user-path"),
         json=payload,
     )
-    assert repeated.status_code == 201
-    assert repeated.json()["repeated"] is True
+    assert repeated.status_code == 202
+    assert repeated.json()["job"]["repeated"] is True
     assert repeated.json()["scenario_id"] == body["scenario_id"]
-    fetched = await client.get(f"/v1/scenarios/{body['scenario_id']}")
-    assert fetched.status_code == 200
-    assert fetched.json()["result"] == body["result"]
+    result_resource = await client.get(f"/v1/results/{completed.json()['terminal_result_id']}")
+    assert result_resource.status_code == 200
+    assert result_resource.json()["result"] == body["result"]
     cancelled = await client.post(
         f"/v1/scenarios/{body['scenario_id']}/cancel",
         headers={"Origin": ORIGIN, "X-CSRF-Token": csrf},
@@ -267,7 +301,7 @@ async def test_authenticated_scenario_runs_complete_verified_user_path(
             database.scalar(select(func.count()).select_from(ScenarioReferenceScheduleRecord)) == 1
         )
         assert database.scalar(select(func.count()).select_from(CalculationManifestRecord)) == 1
-        job = database.get(JobRecord, body["job_id"])
+        job = database.get(JobRecord, submission["job"]["job_id"])
         assert job is not None and job.kind == "SCENARIO" and job.state == "SUCCEEDED"
 
 
@@ -340,7 +374,8 @@ async def test_scenario_profile_and_result_resources_are_owner_scoped(
         headers=_headers(csrf, "scenario-owner-path"),
         json=payload,
     )
-    assert created.status_code == 201, created.text
+    assert created.status_code == 202, created.text
+    _run_scenario_worker(test_app)
 
     transport = httpx.ASGITransport(app=test_app)
     async with httpx.AsyncClient(transport=transport, base_url=ORIGIN) as other:
@@ -360,11 +395,13 @@ async def test_best_found_status_is_successful_but_never_labeled_optimal(
     owner_id, csrf = await _register(client, "scenario_best_found_owner")
     profile_id = _seed_hourly_july_profile(test_app, owner_id)
     payload = await _scenario_payload(client, profile_id)
-    route_module = cast(Any, scenario_routes)
-    original = route_module.optimize_exact
+    original = cast(
+        Callable[..., ExactOptimizationResult],
+        optimize_exact,
+    )
 
     def force_best_found(*args: object, **kwargs: object) -> ExactOptimizationResult:
-        result = cast(ExactOptimizationResult, original(*args, **kwargs))
+        result = original(*args, **kwargs)
         first_stage = result.stage_records[0].model_copy(
             update={"status": "FEASIBLE", "fixed_optimum": None}
         )
@@ -380,15 +417,22 @@ async def test_best_found_status_is_successful_but_never_labeled_optimal(
             relative_cost_gap=1.0 / max(1, abs(selected_cost)),
         )
 
-    monkeypatch.setattr(scenario_routes, "optimize_exact", force_best_found)
+    monkeypatch.setattr(
+        "ratereplay_worker.scenario_worker.optimize_exact",
+        force_best_found,
+    )
     response = await client.post(
         "/v1/scenarios",
         headers=_headers(csrf, "scenario-best-found"),
         json=payload,
     )
 
-    assert response.status_code == 201, response.text
-    result = response.json()["result"]
+    assert response.status_code == 202, response.text
+    _run_scenario_worker(test_app)
+    completed = await client.get(f"/v1/jobs/{response.json()['job']['job_id']}")
+    assert completed.json()["state"] == "SUCCEEDED"
+    fetched = await client.get(f"/v1/scenarios/{response.json()['scenario_id']}")
+    result = fetched.json()["result"]
     assert result["exact"]["search_status"] == "BEST_FOUND"
     assert result["exact"]["first_open_stage"] == 1
     assert result["exact"]["highest_objective_stage_proved_optimal"] == 0
@@ -398,12 +442,12 @@ async def test_best_found_status_is_successful_but_never_labeled_optimal(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("solver_status", "http_status"),
+    "solver_status",
     [
-        ("UNKNOWN", 503),
-        ("MODEL_INVALID", 500),
-        ("MODEL_CONTRACT_VIOLATION", 500),
-        ("UNVERIFIED_INCUMBENT", 500),
+        "UNKNOWN",
+        "MODEL_INVALID",
+        "MODEL_CONTRACT_VIOLATION",
+        "UNVERIFIED_INCUMBENT",
     ],
 )
 async def test_unsuccessful_solver_statuses_remain_distinct_and_unpublished(
@@ -411,28 +455,149 @@ async def test_unsuccessful_solver_statuses_remain_distinct_and_unpublished(
     test_app: FastAPI,
     monkeypatch: pytest.MonkeyPatch,
     solver_status: ExactSearchStatus,
-    http_status: int,
 ) -> None:
     owner_id, csrf = await _register(client, f"scenario_status_{solver_status.lower()}")
     profile_id = _seed_hourly_july_profile(test_app, owner_id)
     payload = await _scenario_payload(client, profile_id)
-    route_module = cast(Any, scenario_routes)
-    original = route_module.optimize_exact
+    original = cast(
+        Callable[..., ExactOptimizationResult],
+        optimize_exact,
+    )
 
     def forced_status(*args: object, **kwargs: object) -> ExactOptimizationResult:
-        result = cast(ExactOptimizationResult, original(*args, **kwargs))
+        result = original(*args, **kwargs)
         return replace(result, search_status=solver_status)
 
-    monkeypatch.setattr(scenario_routes, "optimize_exact", forced_status)
+    monkeypatch.setattr(
+        "ratereplay_worker.scenario_worker.optimize_exact",
+        forced_status,
+    )
     response = await client.post(
         "/v1/scenarios",
         headers=_headers(csrf, f"scenario-status-{solver_status.lower()}"),
         json=payload,
     )
 
-    assert response.status_code == http_status
-    assert response.json()["code"] == f"EXACT_SOLVER_{solver_status}"
+    assert response.status_code == 202
+    _run_scenario_worker(test_app)
+    completed = await client.get(f"/v1/jobs/{response.json()['job']['job_id']}")
+    assert completed.json()["state"] == "FAILED"
+    assert completed.json()["failure_code"] == f"EXACT_SOLVER_{solver_status}"
     app_state = cast(Any, test_app.state)
     with app_state.session_factory() as database:
-        assert database.scalar(select(func.count()).select_from(ScenarioRecord)) == 0
-        assert database.scalar(select(func.count()).select_from(JobRecord)) == 0
+        scenario = database.get(ScenarioRecord, response.json()["scenario_id"])
+        assert scenario is not None and scenario.state == "FAILED"
+        assert database.scalar(select(func.count()).select_from(ScenarioResultRecord)) == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tampered_request", ["{}", "[]"])
+async def test_scenario_worker_rejects_tampered_durable_request(
+    client: httpx.AsyncClient,
+    test_app: FastAPI,
+    tampered_request: str,
+) -> None:
+    owner_id, csrf = await _register(client, "tampered_scenario_owner")
+    profile_id = _seed_hourly_july_profile(test_app, owner_id)
+    submitted = await client.post(
+        "/v1/scenarios",
+        headers=_headers(csrf, "tampered-scenario-one"),
+        json=await _scenario_payload(client, profile_id),
+    )
+    assert submitted.status_code == 202
+    state = cast(Any, test_app.state)
+    job_id = submitted.json()["job"]["job_id"]
+    with state.session_factory.begin() as database:
+        job = database.get(JobRecord, job_id)
+        assert job is not None
+        job.request_json = tampered_request
+
+    _run_scenario_worker(test_app)
+
+    completed = await client.get(f"/v1/jobs/{job_id}")
+    assert completed.json()["state"] == "FAILED"
+    assert completed.json()["failure_code"] == "SCENARIO_REQUEST_INVALID"
+    with state.session_factory() as database:
+        scenario = database.get(ScenarioRecord, submitted.json()["scenario_id"])
+        assert scenario is not None and scenario.state == "FAILED"
+        assert database.scalar(select(func.count()).select_from(ScenarioResultRecord)) == 0
+
+
+@pytest.mark.anyio
+async def test_scenario_finalizer_loses_fence_after_account_generation_change(
+    client: httpx.AsyncClient,
+    test_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner_id, csrf = await _register(client, "fenced_scenario_owner")
+    profile_id = _seed_hourly_july_profile(test_app, owner_id)
+    submitted = await client.post(
+        "/v1/scenarios",
+        headers=_headers(csrf, "fenced-scenario-one"),
+        json=await _scenario_payload(client, profile_id),
+    )
+    assert submitted.status_code == 202
+    state = cast(Any, test_app.state)
+    original = cast(
+        Callable[..., ExactOptimizationResult],
+        optimize_exact,
+    )
+
+    def fence_during_calculation(*args: Any, **kwargs: Any) -> ExactOptimizationResult:
+        with state.session_factory.begin() as database:
+            owner = database.get(UserRecord, owner_id)
+            assert owner is not None
+            owner.lifecycle_generation += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "ratereplay_worker.scenario_worker.optimize_exact",
+        fence_during_calculation,
+    )
+
+    _run_scenario_worker(test_app)
+
+    job_id = submitted.json()["job"]["job_id"]
+    completed = await client.get(f"/v1/jobs/{job_id}")
+    assert completed.json()["state"] == "CANCELLED"
+    assert completed.json()["failure_code"] == "SCOPE_FENCED"
+    with state.session_factory() as database:
+        scenario = database.get(ScenarioRecord, submitted.json()["scenario_id"])
+        assert scenario is not None and scenario.state == "CANCELLED"
+        assert database.scalar(select(func.count()).select_from(ScenarioResultRecord)) == 0
+
+
+@pytest.mark.anyio
+async def test_scenario_can_be_cancelled_before_worker_execution(
+    client: httpx.AsyncClient,
+    test_app: FastAPI,
+) -> None:
+    owner_id, csrf = await _register(client, "cancelled_scenario_owner")
+    profile_id = _seed_hourly_july_profile(test_app, owner_id)
+    submitted = await client.post(
+        "/v1/scenarios",
+        headers=_headers(csrf, "cancelled-scenario-one"),
+        json=await _scenario_payload(client, profile_id),
+    )
+    assert submitted.status_code == 202
+    cancelled = await client.post(
+        f"/v1/scenarios/{submitted.json()['scenario_id']}/cancel",
+        headers={"Origin": ORIGIN, "X-CSRF-Token": csrf},
+    )
+    assert cancelled.status_code == 202
+    state = cast(Any, test_app.state)
+    worker = ScenarioWorker(
+        worker_id="cancelled-scenario-test-worker",
+        session_factory=state.session_factory,
+        jobs=JobService(state.session_factory),
+        artifacts=ArtifactService(state.session_factory, state.object_store),
+        admitted_tariffs=state.admitted_tariffs,
+        environment_lock_hash=state.environment_lock_hash,
+    )
+    assert worker.run_once(now=datetime.now(UTC)) is False
+    completed = await client.get(f"/v1/jobs/{submitted.json()['job']['job_id']}")
+    assert completed.json()["state"] == "CANCELLED"
+    with state.session_factory() as database:
+        scenario = database.get(ScenarioRecord, submitted.json()["scenario_id"])
+        assert scenario is not None and scenario.state == "CANCELLED"
+        assert database.scalar(select(func.count()).select_from(ScenarioResultRecord)) == 0
