@@ -1,0 +1,157 @@
+{
+  "protocol_version": "user-comprehension-protocol-v1",
+  "demo_manifest": {
+    "path": "artifacts/demo/manifest.v1.json",
+    "sha256": "8bdac2156589cf07522c4784813acf268a5334b03d079f3a364c9514c2967559"
+  },
+  "result_schema_path": "studies/user-comprehension/result.schema.v1.json",
+  "cohort_size": 5,
+  "pass_threshold": 4,
+  "requirements": {
+    "first_time_users_only": true,
+    "implementation_documents_unread": true,
+    "uncoached": true,
+    "all_participants_recorded": true,
+    "fresh_participants_after_failed_run": true,
+    "sensitive_source_data_prohibited": true
+  },
+  "workflow_steps": [
+    {
+      "step_id": "import_review",
+      "instruction": "Review the simulated import and decide whether it is ready for calculation."
+    },
+    {
+      "step_id": "bill_replay",
+      "instruction": "Review the historical bill replay and its reconciliation."
+    },
+    {
+      "step_id": "plan_comparison",
+      "instruction": "Review the historical plan comparison and explain what is being compared."
+    },
+    {
+      "step_id": "load_scheduling",
+      "instruction": "Review the flexible-load schedule, its reference, and the solver result."
+    },
+    {
+      "step_id": "report_review",
+      "instruction": "Review the redacted report and its limitations."
+    }
+  ],
+  "questions": [
+    {
+      "question_id": "residual",
+      "prompt": "What does the unexplained residual mean, and why does RateReplay leave it visible?",
+      "accepted_answer_id": "ENTERED_MINUS_SUPPORTED_AND_EXPLICIT_UNSUPPORTED",
+      "answer_options": [
+        {
+          "answer_id": "ENTERED_MINUS_SUPPORTED_AND_EXPLICIT_UNSUPPORTED",
+          "rubric": "The entered bill minus supported calculated charges and explicit user-entered unsupported lines; it remains visible because the app does not invent a charge to force a match."
+        },
+        {
+          "answer_id": "OFFICIAL_UTILITY_ADJUSTMENT",
+          "rubric": "The participant treats the residual as an official utility adjustment or validated charge."
+        },
+        {
+          "answer_id": "FORECAST_ERROR",
+          "rubric": "The participant treats the residual as a future forecast error."
+        },
+        {
+          "answer_id": "UNKNOWN_OR_OTHER",
+          "rubric": "The response is absent, materially incomplete, or does not match another option."
+        }
+      ]
+    },
+    {
+      "question_id": "unsupported_scope",
+      "prompt": "How does RateReplay treat the unsupported bill item when it compares other plans?",
+      "accepted_answer_id": "CURRENT_RECONCILIATION_ONLY_EXCLUDED_FROM_ALTERNATIVES",
+      "answer_options": [
+        {
+          "answer_id": "CURRENT_RECONCILIATION_ONLY_EXCLUDED_FROM_ALTERNATIVES",
+          "rubric": "The item is shown only in the current-bill reconciliation and is excluded from alternative-plan costs; a tariff-dependent unsupported component would block ranking."
+        },
+        {
+          "answer_id": "COPIED_TO_EVERY_PLAN",
+          "rubric": "The participant says the unsupported amount is copied into every alternative plan."
+        },
+        {
+          "answer_id": "HIDDEN_FROM_CURRENT_BILL",
+          "rubric": "The participant says the unsupported amount is omitted from the current replay."
+        },
+        {
+          "answer_id": "UNKNOWN_OR_OTHER",
+          "rubric": "The response is absent, materially incomplete, or does not match another option."
+        }
+      ]
+    },
+    {
+      "question_id": "reference_schedule",
+      "prompt": "Where did the reference schedule come from, and what role does it play?",
+      "accepted_answer_id": "USER_SUPPLIED_UNOPTIMIZED_COMPARISON_BASELINE",
+      "answer_options": [
+        {
+          "answer_id": "USER_SUPPLIED_UNOPTIMIZED_COMPARISON_BASELINE",
+          "rubric": "It is the complete user-supplied unoptimized schedule and is the baseline against which candidate schedules are compared; it is not inferred from household behavior."
+        },
+        {
+          "answer_id": "INFERRED_FROM_HOUSEHOLD_BEHAVIOR",
+          "rubric": "The participant says RateReplay inferred the reference from household behavior."
+        },
+        {
+          "answer_id": "GENERATED_BY_THE_EXACT_SOLVER",
+          "rubric": "The participant says the solver generated the reference schedule."
+        },
+        {
+          "answer_id": "UNKNOWN_OR_OTHER",
+          "rubric": "The response is absent, materially incomplete, or does not match another option."
+        }
+      ]
+    },
+    {
+      "question_id": "historical_addition",
+      "prompt": "What does historical addition mean in this result?",
+      "accepted_answer_id": "PAST_PERIOD_COUNTERFACTUAL_NOT_FORECAST",
+      "answer_options": [
+        {
+          "answer_id": "PAST_PERIOD_COUNTERFACTUAL_NOT_FORECAST",
+          "rubric": "It is a counterfactual placed on the admitted past service timestamps and is not a future usage, rate, or savings forecast."
+        },
+        {
+          "answer_id": "FUTURE_USAGE_FORECAST",
+          "rubric": "The participant treats the result as a prediction of future energy use."
+        },
+        {
+          "answer_id": "CURRENT_RATE_PROJECTION",
+          "rubric": "The participant treats the result as a projection under current or future rates."
+        },
+        {
+          "answer_id": "UNKNOWN_OR_OTHER",
+          "rubric": "The response is absent, materially incomplete, or does not match another option."
+        }
+      ]
+    },
+    {
+      "question_id": "solver_status",
+      "prompt": "What exact solver status did the demo show, and what does that status establish?",
+      "accepted_answer_id": "OPTIMAL_ALL_FOUR_STAGES_PROVED",
+      "answer_options": [
+        {
+          "answer_id": "OPTIMAL_ALL_FOUR_STAGES_PROVED",
+          "rubric": "The demo is labeled optimal because all four declared objective stages were proved optimal and the selected schedule passed independent verification."
+        },
+        {
+          "answer_id": "BEST_FOUND_WITH_OPEN_BOUND",
+          "rubric": "The participant says the frozen demo is only best found with an open objective stage or bound."
+        },
+        {
+          "answer_id": "HEURISTIC_BILL_OPTIMAL",
+          "rubric": "The participant treats the off-peak proxy heuristic as a proved bill optimum."
+        },
+        {
+          "answer_id": "UNKNOWN_OR_OTHER",
+          "rubric": "The response is absent, materially incomplete, or does not match another option."
+        }
+      ]
+    }
+  ]
+}

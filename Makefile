@@ -3,7 +3,7 @@ UV_CACHE_DIR ?= /private/tmp/rate-replay-uv-cache
 PNPM_STORE_DIR ?= /private/tmp/rate-replay-pnpm-store
 COMPOSE ?= $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-backup integration-object-store integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4 demo-artifacts demo-artifacts-check
+.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-backup integration-object-store integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4 qualification-m6-study demo-artifacts demo-artifacts-check user-study-protocol-check
 
 bootstrap:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync --frozen --all-groups
@@ -44,7 +44,7 @@ web-build:
 compose-config:
 	$(COMPOSE) -f compose.yaml config --quiet
 
-check: format-check lint typecheck test security web-build compose-config demo-artifacts-check
+check: format-check lint typecheck test security web-build compose-config demo-artifacts-check user-study-protocol-check
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_evidence.py
 
 demo-artifacts:
@@ -52,6 +52,12 @@ demo-artifacts:
 
 demo-artifacts-check:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/generate_demo_artifacts.py --check
+
+user-study-protocol-check:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/user_comprehension_study.py protocol
+
+qualification-m6-study:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/user_comprehension_study.py validate --results-dir evidence/user-study
 
 clean-checkout-check:
 	./scripts/clean-checkout-check.sh

@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ratereplay.local/schemas/user-comprehension-run-v1.json",
+  "title": "RateReplay frozen user-comprehension run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "protocol_version",
+    "protocol_sha256",
+    "demo_manifest_sha256",
+    "run_id",
+    "attempt_number",
+    "previous_run",
+    "environment",
+    "run_attestation",
+    "participants"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "user-comprehension-run-v1"
+    },
+    "protocol_version": {
+      "const": "user-comprehension-protocol-v1"
+    },
+    "protocol_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "demo_manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^m6-comprehension-v1-run-[0-9]{2}$"
+    },
+    "attempt_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 99
+    },
+    "previous_run": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["run_id", "sha256"],
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "pattern": "^m6-comprehension-v1-run-[0-9]{2}$"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      ]
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["git_commit", "demo_url", "browser_name", "browser_version"],
+      "properties": {
+        "git_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "demo_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "browser_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "browser_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      }
+    },
+    "run_attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "all_participants_included",
+        "implementation_documents_not_shared",
+        "no_coaching_given",
+        "responses_paraphrased_and_anonymized",
+        "no_sensitive_source_data_recorded"
+      ],
+      "properties": {
+        "all_participants_included": {
+          "const": true
+        },
+        "implementation_documents_not_shared": {
+          "const": true
+        },
+        "no_coaching_given": {
+          "const": true
+        },
+        "responses_paraphrased_and_anonymized": {
+          "const": true
+        },
+        "no_sensitive_source_data_recorded": {
+          "const": true
+        }
+      }
+    },
+    "participants": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/participant"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "participant_id",
+        "first_time_user",
+        "implementation_documents_read",
+        "coaching_received",
+        "duration_seconds",
+        "workflow",
+        "answers",
+        "anonymized_observations"
+      ],
+      "properties": {
+        "participant_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{2,31}$"
+        },
+        "first_time_user": {
+          "const": true
+        },
+        "implementation_documents_read": {
+          "const": false
+        },
+        "coaching_received": {
+          "const": false
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 14400
+        },
+        "workflow": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/workflow_observation"
+          }
+        },
+        "answers": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/answer"
+          }
+        },
+        "anonymized_observations": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "workflow_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step_id", "completed_independently", "wrong_turns"],
+      "properties": {
+        "step_id": {
+          "enum": [
+            "import_review",
+            "bill_replay",
+            "plan_comparison",
+            "load_scheduling",
+            "report_review"
+          ]
+        },
+        "completed_independently": {
+          "type": "boolean"
+        },
+        "wrong_turns": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      }
+    },
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question_id", "answer_id", "response_summary"],
+      "properties": {
+        "question_id": {
+          "enum": [
+            "residual",
+            "unsupported_scope",
+            "reference_schedule",
+            "historical_addition",
+            "solver_status"
+          ]
+        },
+        "answer_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "response_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}
