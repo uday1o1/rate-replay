@@ -244,6 +244,47 @@ def _validate_m1_evidence() -> None:
     _require(recovery["duplicate_terminal_results"] == 0, "M1_DUPLICATE_TERMINAL")
 
 
+def _validate_m4_performance_charter() -> None:
+    charter = _json("benchmarks/charters/performance-v2.json")
+    workload = _json("benchmarks/workloads/m4-july-optimization.json")
+    manifest = charter["workload_manifest"]
+    _require(
+        charter["charter_version"] == "performance-acceptance-v2",
+        "M4_CHARTER_VERSION_DRIFT",
+    )
+    _require(
+        charter["supersedes"] == "benchmarks/charters/performance-v1.json",
+        "M4_CHARTER_HISTORY_MISSING",
+    )
+    _require(
+        manifest["july_optimization_sha256"] == _sha256(ROOT / manifest["july_optimization_path"]),
+        "M4_OPTIMIZATION_WORKLOAD_HASH_MISMATCH",
+    )
+    _require(
+        workload["profile_sha256"] == _sha256(ROOT / workload["profile_path"]),
+        "M4_OPTIMIZATION_PROFILE_HASH_MISMATCH",
+    )
+    _require(manifest["optimization_load_counts"] == [0, 1, 5], "M4_LOAD_COUNTS_DRIFT")
+    _require(
+        charter["solver_limits"]
+        == workload["solver_configuration"]
+        | {
+            "exact_objective_stages": 4,
+            "heuristic_objective_stages": 2,
+            "wall_clock_limit": None,
+        },
+        "M4_SOLVER_LIMIT_DRIFT",
+    )
+    _require(
+        charter["thresholds"]["july_optimization_one_load_p95_ms"] == 10_000,
+        "M4_OPTIMIZATION_THRESHOLD_DRIFT",
+    )
+    _require(
+        charter["thresholds"]["scenario_worker_recovery_maximum_ms"] == 30_000,
+        "M4_SCENARIO_RECOVERY_THRESHOLD_DRIFT",
+    )
+
+
 def _validate_m2_evidence() -> None:
     qualification = _json("evidence/correctness/m2-e1-qualification.json")
     complete_golden = _json("tariffs/golden/e1-july-2026-complete-bill.json")
@@ -410,6 +451,7 @@ def main() -> None:
     _validate_tariffs()
     _validate_generated_evidence()
     _validate_m1_evidence()
+    _validate_m4_performance_charter()
     _validate_m2_evidence()
     _validate_m3_evidence()
     print("Repository evidence locks are internally consistent.")

@@ -1,0 +1,39 @@
+{
+  "workload_version": "m4-july-optimization-v1",
+  "calculation_time_mode": "HISTORICAL_REPLAY",
+  "profile_path": "data/demo/july-2026-simulated-profile.json",
+  "profile_sha256": "47b449f47039960cde24666a5ed2723781b7773d624dbdd2b74de78e02da19ce",
+  "service_window": ["2026-07-01", "2026-08-01"],
+  "tariff_version_ids": ["pge-e1-2026-07", "pge-etoud-2026-07"],
+  "load_counts": [0, 1, 5],
+  "reference_expansion": {
+    "version": "complete-reference-expansion-v1",
+    "rule": "Emit one entry for every canonical profile slot in order and fill undeclared entries with zero watt-hours."
+  },
+  "load_template": {
+    "kind": "EV",
+    "mode": "SHIFT_EXISTING",
+    "execution_type": "INTERRUPTIBLE_MODULATING",
+    "maximum_power_w": 7200,
+    "minimum_power_when_active_w": 0,
+    "occurrence": {
+      "earliest_start_utc": "2026-07-07T00:00:00Z",
+      "deadline_utc": "2026-07-07T07:00:00Z",
+      "required_energy_wh": 7200,
+      "positive_reference_slots": [
+        ["2026-07-07T00:00:00Z", 1800],
+        ["2026-07-07T00:15:00Z", 1800],
+        ["2026-07-07T00:30:00Z", 1800],
+        ["2026-07-07T00:45:00Z", 1800]
+      ]
+    }
+  },
+  "solver_configuration": {
+    "configuration_version": "deterministic-cp-sat-v1",
+    "num_search_workers": 1,
+    "random_seed": 20260813,
+    "max_deterministic_time_per_stage": 5.0,
+    "randomize_search": false,
+    "log_search_progress": false
+  }
+}
