@@ -7,6 +7,7 @@ from scripts.validate_evidence import (
     _validate_m3_evidence,
     _validate_m4_correctness_evidence,
     _validate_m4_performance_charter,
+    _validate_synthetic_study_qa,
     _validate_tariffs,
 )
 from scripts.validate_m3_goldens import validate as validate_m3_goldens
@@ -26,6 +27,10 @@ def test_tariff_sources_and_admission_matrix_are_consistent() -> None:
 
 def test_generated_evidence_is_content_addressed() -> None:
     _validate_generated_evidence()
+
+
+def test_synthetic_study_qa_cannot_claim_human_evidence() -> None:
+    _validate_synthetic_study_qa()
 
 
 def test_milestone_one_recovery_evidence_matches_frozen_charter() -> None:

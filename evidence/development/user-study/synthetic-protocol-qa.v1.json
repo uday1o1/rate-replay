@@ -1,0 +1,103 @@
+{
+  "schema_version": "synthetic-protocol-qa-v1",
+  "evidence_class": "SYNTHETIC_PERSONA_DEVELOPMENT_ONLY",
+  "human_gate_eligible": false,
+  "genuine_participant_count": 0,
+  "threshold_result": "NOT_EVALUATED",
+  "protocol_version": "user-comprehension-protocol-v1",
+  "protocol_sha256": "dc344900bae33b76ba819d28c4288a7ce066ef3fbb4940cfda5b67e3609b8cac",
+  "demo_manifest_sha256": "8bdac2156589cf07522c4784813acf268a5334b03d079f3a364c9514c2967559",
+  "automated_checks": {
+    "browser_tests_passed": 11,
+    "browser_tests_total": 11,
+    "protocol_tests_passed": 8,
+    "protocol_tests_total": 8,
+    "genuine_gate_expected_code": "USER_STUDY_EVIDENCE_MISSING"
+  },
+  "synthetic_personas": [
+    {
+      "persona_id": "SYN-01",
+      "context": "First electricity-bill comparison with low tariff knowledge.",
+      "focus": [
+        "residual arithmetic",
+        "supported-charge difference",
+        "reference provenance"
+      ]
+    },
+    {
+      "persona_id": "SYN-02",
+      "context": "Mobile EV owner expecting a future recommendation.",
+      "focus": [
+        "historical counterfactual",
+        "heuristic status",
+        "reference provenance"
+      ]
+    },
+    {
+      "persona_id": "SYN-03",
+      "context": "Screen-reader and keyboard-only workflow.",
+      "focus": ["step announcement", "focus order", "heatmap equivalence"]
+    },
+    {
+      "persona_id": "SYN-04",
+      "context": "Low vision and reduced color discrimination at a narrow viewport.",
+      "focus": [
+        "visible focus",
+        "progress visibility",
+        "numeric chart alternative"
+      ]
+    },
+    {
+      "persona_id": "SYN-05",
+      "context": "Privacy-focused technical skeptic unfamiliar with billing terminology.",
+      "focus": [
+        "redaction scope",
+        "verification meaning",
+        "consumer terminology"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "SYNTHETIC-STEP-ANNOUNCEMENT",
+      "severity": "HIGH",
+      "status": "RESOLVED_AUTOMATED",
+      "resolution": "Step navigation focuses and scrolls the labeled live group, and the active progress item is revealed.",
+      "verification": "apps/web/e2e/public-demo.spec.ts keyboard navigation journey"
+    },
+    {
+      "finding_id": "SYNTHETIC-HEATMAP-EQUIVALENCE",
+      "severity": "HIGH",
+      "status": "RESOLVED_AUTOMATED",
+      "resolution": "The heatmap includes a captioned table with every timestamp and all three energy series.",
+      "verification": "apps/web/e2e/public-demo.spec.ts static walkthrough journey"
+    },
+    {
+      "finding_id": "SYNTHETIC-REFERENCE-PROVENANCE",
+      "severity": "HIGH",
+      "status": "RESOLVED_AUTOMATED",
+      "resolution": "The reference is labeled as a locked simulated baseline supplied by the public demo artifact.",
+      "verification": "apps/web/e2e/public-demo.spec.ts static walkthrough journey"
+    },
+    {
+      "finding_id": "SYNTHETIC-SOLVER-VERIFICATION",
+      "severity": "MEDIUM",
+      "status": "RESOLVED_AUTOMATED",
+      "resolution": "Four-stage optimality and independent verification now appear in the same exact-solver explanation.",
+      "verification": "apps/web/e2e/public-demo.spec.ts static walkthrough journey"
+    },
+    {
+      "finding_id": "SYNTHETIC-RECONCILIATION-EQUATION",
+      "severity": "MEDIUM",
+      "status": "RESOLVED_AUTOMATED",
+      "resolution": "The bill replay renders the exact entered, supported, explicit unsupported, and residual identity.",
+      "verification": "apps/web/e2e/public-demo.spec.ts static walkthrough journey"
+    }
+  ],
+  "disposition": {
+    "synthetic_protocol_qa": "COMPLETED",
+    "human_validation_state": "HUMAN_VALIDATION_DEFERRED",
+    "human_threshold": "NOT_APPLICABLE",
+    "may_count_toward_milestone_acceptance": false
+  }
+}

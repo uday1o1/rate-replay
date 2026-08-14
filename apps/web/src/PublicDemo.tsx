@@ -1,4 +1,4 @@
-import { CSSProperties, useEffect, useState } from "react";
+import { CSSProperties, useEffect, useRef, useState } from "react";
 
 import {
   DemoArtifacts,
@@ -16,10 +16,23 @@ const STEPS = [
   "Redacted report",
 ] as const;
 
+const STEP_HEADING_IDS = [
+  "demo-welcome",
+  "demo-import",
+  "demo-replay",
+  "demo-comparison",
+  "demo-scheduling",
+  "demo-report",
+] as const;
+
 export function PublicDemo() {
   const [artifacts, setArtifacts] = useState<DemoArtifacts | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [step, setStep] = useState(0);
+  const stepPanel = useRef<HTMLDivElement>(null);
+  const progress = useRef<HTMLElement>(null);
+  const progressButtons = useRef<Array<HTMLButtonElement | null>>([]);
+  const navigationRequested = useRef(false);
 
   useEffect(() => {
     void loadDemoArtifacts()
@@ -32,6 +45,28 @@ export function PublicDemo() {
         ),
       );
   }, []);
+
+  useEffect(() => {
+    if (!navigationRequested.current || artifacts === null) return;
+    const activeButton = progressButtons.current[step];
+    if (activeButton !== null && activeButton !== undefined) {
+      const left = Math.max(
+        0,
+        activeButton.offsetLeft -
+          ((progress.current?.clientWidth ?? activeButton.clientWidth) -
+            activeButton.clientWidth) /
+            2,
+      );
+      progress.current?.scrollTo?.({ left });
+    }
+    stepPanel.current?.focus({ preventScroll: true });
+    stepPanel.current?.scrollIntoView?.({ block: "start" });
+  }, [artifacts, step]);
+
+  function navigate(nextStep: number) {
+    navigationRequested.current = true;
+    setStep(Math.max(0, Math.min(STEPS.length - 1, nextStep)));
+  }
 
   if (failure !== null) {
     return (
@@ -51,11 +86,21 @@ export function PublicDemo() {
   }
   return (
     <div className="demo-workspace">
-      <nav className="demo-progress" aria-label="Public demo progress">
+      <nav
+        ref={progress}
+        className="demo-progress"
+        aria-label="Public demo progress"
+      >
         <ol>
           {STEPS.map((label, index) => (
             <li key={label} aria-current={index === step ? "step" : undefined}>
-              <button type="button" onClick={() => setStep(index)}>
+              <button
+                ref={(element) => {
+                  progressButtons.current[index] = element;
+                }}
+                type="button"
+                onClick={() => navigate(index)}
+              >
                 <span>{String(index + 1).padStart(2, "0")}</span>
                 {label}
               </button>
@@ -63,17 +108,26 @@ export function PublicDemo() {
           ))}
         </ol>
       </nav>
-      {step === 0 && <Welcome artifacts={artifacts} />}
-      {step === 1 && <ImportReview artifacts={artifacts} />}
-      {step === 2 && <BillReplay artifacts={artifacts} />}
-      {step === 3 && <Comparison artifacts={artifacts} />}
-      {step === 4 && <Scheduling artifacts={artifacts} />}
-      {step === 5 && <RedactedReport report={artifacts.redactedReport} />}
+      <div
+        ref={stepPanel}
+        className="demo-step-shell"
+        role="group"
+        aria-live="polite"
+        aria-labelledby={STEP_HEADING_IDS[step]}
+        tabIndex={-1}
+      >
+        {step === 0 && <Welcome artifacts={artifacts} />}
+        {step === 1 && <ImportReview artifacts={artifacts} />}
+        {step === 2 && <BillReplay artifacts={artifacts} />}
+        {step === 3 && <Comparison artifacts={artifacts} />}
+        {step === 4 && <Scheduling artifacts={artifacts} />}
+        {step === 5 && <RedactedReport report={artifacts.redactedReport} />}
+      </div>
       <div className="demo-actions">
         <button
           type="button"
           disabled={step === 0}
-          onClick={() => setStep((current) => Math.max(0, current - 1))}
+          onClick={() => navigate(step - 1)}
         >
           Previous
         </button>
@@ -81,9 +135,7 @@ export function PublicDemo() {
           <button
             className="primary"
             type="button"
-            onClick={() =>
-              setStep((current) => Math.min(STEPS.length - 1, current + 1))
-            }
+            onClick={() => navigate(step + 1)}
           >
             {step === 0 ? "Start the walkthrough" : "Continue"}
           </button>
@@ -132,8 +184,8 @@ function ImportReview({ artifacts }: { artifacts: DemoArtifacts }) {
       <h2 id="demo-import">The complete July profile is calculation ready</h2>
       <p>
         This NREL-derived vector is always labeled simulated. The production
-        parser contract validated one contiguous half-open billing period before
-        any calculation ran.
+        parser contract validated one contiguous start-inclusive and
+        end-exclusive billing period before any calculation ran.
       </p>
       <dl className="scenario-metrics">
         <Metric label="Quality state" value={value.quality_status} />
@@ -250,6 +302,14 @@ function BillReplay({ artifacts }: { artifacts: DemoArtifacts }) {
           the explicit unsupported line. RateReplay leaves that gap visible
           instead of inventing a charge to force a match.
         </p>
+        <p className="reconciliation-equation">
+          {formatMoney(replay.reconciliation.entered_bill_total_cents)} entered
+          bill = {formatMoney(replay.supported_calculated_cents)} supported +{" "}
+          {formatMoney(replay.reconciliation.user_unsupported_cents)} explicit
+          unsupported +{" "}
+          {formatMoney(replay.reconciliation.unexplained_residual_cents)}
+          residual.
+        </p>
       </div>
     </section>
   );
@@ -364,18 +424,19 @@ function Scheduling({ artifacts }: { artifacts: DemoArtifacts }) {
       <div className="schedule-language-grid">
         <article>
           <p className="eyebrow">Unchanged reference</p>
-          <h3>What the user entered</h3>
+          <h3>Locked simulated baseline</h3>
           <p>
-            This complete schedule is the comparison baseline. It is not
-            inferred from household behavior.
+            The public demo artifact supplies this complete schedule as the
+            comparison baseline. It is not visitor input or an inference from
+            household behavior.
           </p>
         </article>
         <article>
           <p className="eyebrow">Off-peak proxy heuristic</p>
           <h3>{humanize(heuristic.search_status)}</h3>
           <p>
-            {humanize(heuristic.selection_outcome)}. This deterministic proxy
-            makes no bill-optimality claim.
+            {humanize(heuristic.selection_outcome)}. This deterministic proxy is
+            a simple off-peak surrogate and makes no bill-optimality claim.
           </p>
         </article>
         <article>
@@ -385,7 +446,7 @@ function Scheduling({ artifacts }: { artifacts: DemoArtifacts }) {
           </h3>
           <p>
             {exact.search_status === "OPTIMAL"
-              ? "All four objective stages were proved optimal."
+              ? `All four objective stages were proved optimal, and independent verification returned ${humanize(verification.status)}.`
               : `Stage ${exact.first_open_stage ?? "unknown"} remains open, so this is not labeled optimal.`}
           </p>
         </article>
@@ -490,6 +551,34 @@ function ScheduleHeatmap({ slots }: { slots: HeatmapSlot[] }) {
           </div>
         ))}
       </div>
+      <details className="heatmap-table">
+        <summary>Schedule values table</summary>
+        <div className="table-scroll">
+          <table>
+            <caption>
+              Reference, heuristic, and exact energy for every displayed slot
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Slot start</th>
+                <th scope="col">Reference Wh</th>
+                <th scope="col">Heuristic Wh</th>
+                <th scope="col">Exact Wh</th>
+              </tr>
+            </thead>
+            <tbody>
+              {slots.map((slot) => (
+                <tr key={`table-${slot.slot_start_utc}`}>
+                  <th scope="row">{formatTime(slot.slot_start_utc)}</th>
+                  <td>{slot.reference_energy_wh.toLocaleString()}</td>
+                  <td>{slot.heuristic_energy_wh.toLocaleString()}</td>
+                  <td>{slot.selected_energy_wh.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </div>
   );
 }

@@ -205,6 +205,36 @@ def _validate_generated_evidence() -> None:
     )
 
 
+def _validate_synthetic_study_qa() -> None:
+    qa = _json("evidence/development/user-study/synthetic-protocol-qa.v1.json")
+    _require(
+        qa["evidence_class"] == "SYNTHETIC_PERSONA_DEVELOPMENT_ONLY",
+        "SYNTHETIC_STUDY_CLASS_INVALID",
+    )
+    _require(qa["human_gate_eligible"] is False, "SYNTHETIC_STUDY_GATE_ELIGIBLE")
+    _require(qa["genuine_participant_count"] == 0, "SYNTHETIC_STUDY_GENUINE_COUNT_INVALID")
+    _require(qa["threshold_result"] == "NOT_EVALUATED", "SYNTHETIC_STUDY_THRESHOLD_INVALID")
+    _require(len(qa["synthetic_personas"]) == 5, "SYNTHETIC_STUDY_PERSONA_COUNT_INVALID")
+    _require(
+        all(persona["persona_id"].startswith("SYN-") for persona in qa["synthetic_personas"]),
+        "SYNTHETIC_STUDY_PERSONA_ID_INVALID",
+    )
+    _require(
+        all(finding["status"] == "RESOLVED_AUTOMATED" for finding in qa["findings"]),
+        "SYNTHETIC_STUDY_FINDING_UNRESOLVED",
+    )
+    _require(
+        qa["disposition"]
+        == {
+            "synthetic_protocol_qa": "COMPLETED",
+            "human_validation_state": "HUMAN_VALIDATION_DEFERRED",
+            "human_threshold": "NOT_APPLICABLE",
+            "may_count_toward_milestone_acceptance": False,
+        },
+        "SYNTHETIC_STUDY_DISPOSITION_INVALID",
+    )
+
+
 def _validate_m1_evidence() -> None:
     charter = _json("benchmarks/charters/performance-v1.json")
     recovery = _json("evidence/performance/m1-import-recovery.json")
@@ -599,6 +629,7 @@ def main() -> None:
     _validate_csv()
     _validate_tariffs()
     _validate_generated_evidence()
+    _validate_synthetic_study_qa()
     _validate_m1_evidence()
     _validate_m4_performance_charter()
     _validate_m4_correctness_evidence()

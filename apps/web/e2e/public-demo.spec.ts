@@ -70,6 +70,7 @@ test("completes the content-locked public demo without API or mutable visitor st
     }),
   ).toBeVisible();
   await expect(page.getByText(/leaves that gap visible/i)).toBeVisible();
+  await expect(page.getByText(/entered bill = .* supported/i)).toBeVisible();
 
   await advance(page, "Continue");
   await expect(
@@ -95,6 +96,18 @@ test("completes the content-locked public demo without API or mutable visitor st
   await expect(
     page.getByText(/all four objective stages were proved optimal/i),
   ).toBeVisible();
+  await expect(
+    page.getByText(/independent verification returned valid/i),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Locked simulated baseline" }),
+  ).toBeVisible();
+  await page.getByText("Schedule values table").click();
+  const values = page.getByRole("table", {
+    name: /reference, heuristic, and exact energy/i,
+  });
+  await expect(values).toBeVisible();
+  await expect(values.getByRole("row")).toHaveCount(29);
 
   await advance(page, "Continue");
   const report = page.getByRole("region", {
@@ -206,11 +219,33 @@ test("supports keyboard navigation without page-level overflow at a narrow viewp
         name: "The complete July profile is calculation ready",
       }),
     ).toBeVisible();
+    await expect(page.locator(".demo-step-shell")).toBeFocused();
 
     for (let step = 0; step < 4; step += 1) {
       const next = page.getByRole("button", { name: "Continue" });
       await next.focus();
       await page.keyboard.press("Enter");
+      await expect(page.locator(".demo-step-shell")).toBeFocused();
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const progress = document.querySelector(
+              'nav[aria-label="Public demo progress"]',
+            );
+            const current = progress?.querySelector(
+              'li[aria-current="step"] button',
+            );
+            if (progress === null || current === null || current === undefined)
+              return false;
+            const progressRect = progress.getBoundingClientRect();
+            const currentRect = current.getBoundingClientRect();
+            return (
+              currentRect.left >= progressRect.left &&
+              currentRect.right <= progressRect.right
+            );
+          }),
+        )
+        .toBe(true);
       await expect
         .poll(() =>
           page.evaluate(

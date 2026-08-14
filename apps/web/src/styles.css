@@ -34,6 +34,15 @@ select {
   outline-offset: 3px;
 }
 
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex="-1"]:focus-visible {
+  outline: 3px solid #8b4b12;
+  outline-offset: 3px;
+}
+
 main {
   min-height: 100vh;
   padding: 0 5vw 5rem;
@@ -981,6 +990,11 @@ code {
   min-height: 36rem;
 }
 
+.demo-step-shell {
+  min-width: 0;
+  scroll-margin-top: 1rem;
+}
+
 .demo-lede {
   max-width: 52rem;
   color: #465249;
@@ -1100,7 +1114,7 @@ code {
 .heatmap-slot > span {
   overflow: hidden;
   color: #647067;
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1109,6 +1123,17 @@ code {
 .heat {
   border-radius: 0.25rem;
   opacity: calc(0.12 + var(--heat) * 0.88);
+}
+
+.heatmap-table {
+  margin-top: 1rem;
+}
+
+.reconciliation-equation {
+  padding: 0.8rem 1rem;
+  border-left: 0.3rem solid #347248;
+  background: #f3f6f0;
+  font-weight: 700;
 }
 
 .report-paper {

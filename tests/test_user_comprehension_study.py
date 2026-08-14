@@ -7,6 +7,7 @@ from scripts.user_comprehension_study import (
     ATTESTATION_KEYS,
     COHORT_SIZE,
     PASS_THRESHOLD,
+    RESULT_GLOB,
     RUN_SCHEMA_VERSION,
     WORKFLOW_STEP_IDS,
     StudyValidationError,
@@ -194,3 +195,10 @@ def test_initializer_is_incomplete_and_refuses_to_overwrite(tmp_path: Path) -> N
 def test_missing_evidence_never_passes() -> None:
     with pytest.raises(StudyValidationError, match="USER_STUDY_EVIDENCE_MISSING"):
         validate_run_chain([], load_protocol())
+
+
+def test_development_only_synthetic_artifact_cannot_enter_the_genuine_cohort() -> None:
+    synthetic = Path("evidence/development/user-study/synthetic-protocol-qa.v1.json")
+
+    assert synthetic.match(RESULT_GLOB) is False
+    assert synthetic.parent != Path("evidence/user-study")
