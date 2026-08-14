@@ -1,6 +1,7 @@
-import { FormEvent, useMemo, useState } from "react";
+import { CSSProperties, FormEvent, useMemo, useState } from "react";
 
 import { AccountFacts, TariffSummary } from "./ComparisonWorkspace";
+import { ReportExport } from "./ReportExport";
 import { ApiError, api } from "./api";
 
 type ProfileSlot = {
@@ -21,6 +22,17 @@ type ReferenceSlot = {
   slot_start_utc: string;
   duration_seconds: number;
   energy_wh: number;
+};
+
+type InterruptibleExecutionSpec = {
+  execution_type: "INTERRUPTIBLE_MODULATING";
+  maximum_power_w: number;
+  minimum_power_when_active_w: number;
+};
+
+type FixedShapeExecutionSpec = {
+  execution_type: "CONTIGUOUS_FIXED_SHAPE";
+  fixed_slot_shape_wh: number[];
 };
 
 type ScenarioRequest = {
@@ -46,11 +58,7 @@ type ScenarioRequest = {
     physical_asset_key: string;
     kind: string;
     mode: "SHIFT_EXISTING" | "HISTORICAL_ADDITION";
-    execution_spec: {
-      execution_type: "INTERRUPTIBLE_MODULATING";
-      maximum_power_w: number;
-      minimum_power_when_active_w: number;
-    };
+    execution_spec: InterruptibleExecutionSpec | FixedShapeExecutionSpec;
     occurrences: Array<{
       occurrence_id: string;
       required_energy_wh: number;
@@ -203,6 +211,9 @@ export function ScenarioWorkspace({
   const [result, setResult] = useState<ScenarioResource | null>(null);
   const [issue, setIssue] = useState<ScenarioIssue | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [executionType, setExecutionType] = useState<
+    "INTERRUPTIBLE_MODULATING" | "CONTIGUOUS_FIXED_SHAPE"
+  >("INTERRUPTIBLE_MODULATING");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -345,6 +356,26 @@ export function ScenarioWorkspace({
             </select>
           </label>
           <label>
+            Execution model
+            <select
+              name="execution_type"
+              value={executionType}
+              onChange={(event) =>
+                setExecutionType(
+                  event.currentTarget.value as
+                    "INTERRUPTIBLE_MODULATING" | "CONTIGUOUS_FIXED_SHAPE",
+                )
+              }
+            >
+              <option value="INTERRUPTIBLE_MODULATING">
+                Interruptible or modulating
+              </option>
+              <option value="CONTIGUOUS_FIXED_SHAPE">
+                Contiguous fixed appliance cycle
+              </option>
+            </select>
+          </label>
+          <label>
             Physical asset key
             <input
               name="physical_asset_key"
@@ -352,36 +383,56 @@ export function ScenarioWorkspace({
               required
             />
           </label>
-          <label>
-            Required meter-side energy, kWh
-            <input
-              name="required_energy_kwh"
-              inputMode="decimal"
-              pattern="[0-9]+(\.[0-9]{1,3})?"
-              defaultValue="7.2"
-              required
-            />
-          </label>
-          <label>
-            Maximum average power, W
-            <input
-              name="maximum_power_w"
-              type="number"
-              min="1"
-              defaultValue="7200"
-              required
-            />
-          </label>
-          <label>
-            Minimum active power, W
-            <input
-              name="minimum_power_w"
-              type="number"
-              min="0"
-              defaultValue="0"
-              required
-            />
-          </label>
+          {executionType === "INTERRUPTIBLE_MODULATING" ? (
+            <>
+              <label>
+                Required meter-side energy, kWh
+                <input
+                  name="required_energy_kwh"
+                  inputMode="decimal"
+                  pattern="[0-9]+(\.[0-9]{1,3})?"
+                  defaultValue="7.2"
+                  required
+                />
+              </label>
+              <label>
+                Maximum average power, W
+                <input
+                  name="maximum_power_w"
+                  type="number"
+                  min="1"
+                  defaultValue="7200"
+                  required
+                />
+              </label>
+              <label>
+                Minimum active power, W
+                <input
+                  name="minimum_power_w"
+                  type="number"
+                  min="0"
+                  defaultValue="0"
+                  required
+                />
+              </label>
+            </>
+          ) : (
+            <label className="fixed-shape-field">
+              Cycle energy by contiguous slot, Wh
+              <input
+                name="fixed_shape_wh"
+                inputMode="numeric"
+                pattern="[0-9]+(,[0-9]+)*"
+                maxLength={512}
+                defaultValue="500,1000,750"
+                required
+              />
+              <span>
+                Enter one nonnegative integer per canonical interval. The cycle
+                keeps this exact shape and order at every allowed start.
+              </span>
+            </label>
+          )}
           <label>
             Earliest start, exact UTC boundary
             <input
@@ -494,7 +545,16 @@ export function ScenarioWorkspace({
         <IssueView issue={issue} />
       )}
 
-      {result !== null && <ScenarioResultView resource={result} />}
+      {result !== null && (
+        <>
+          <ScenarioResultView resource={result} />
+          <ReportExport
+            scenarioId={result.scenario_id}
+            csrf={csrf}
+            onMessage={onMessage}
+          />
+        </>
+      )}
     </section>
   );
 }
@@ -515,16 +575,29 @@ function buildPreview(
   const slots = profile.slots;
   const mode = entryText(data.get("mode")) as
     "SHIFT_EXISTING" | "HISTORICAL_ADDITION";
-  const requiredEnergyWh = exactKwhToWh(data.get("required_energy_kwh"));
-  const maximumPowerW = positiveInteger(
-    data.get("maximum_power_w"),
-    "Maximum power",
-  );
-  const minimumPowerW = nonnegativeInteger(
-    data.get("minimum_power_w"),
-    "Minimum power",
-  );
-  if (minimumPowerW > maximumPowerW) {
+  const executionType = entryText(data.get("execution_type")) as
+    "INTERRUPTIBLE_MODULATING" | "CONTIGUOUS_FIXED_SHAPE";
+  const fixedShape =
+    executionType === "CONTIGUOUS_FIXED_SHAPE"
+      ? parseFixedShape(data.get("fixed_shape_wh"))
+      : null;
+  const requiredEnergyWh =
+    fixedShape === null
+      ? exactKwhToWh(data.get("required_energy_kwh"))
+      : sum(fixedShape);
+  const maximumPowerW =
+    fixedShape === null
+      ? positiveInteger(data.get("maximum_power_w"), "Maximum power")
+      : null;
+  const minimumPowerW =
+    fixedShape === null
+      ? nonnegativeInteger(data.get("minimum_power_w"), "Minimum power")
+      : null;
+  if (
+    maximumPowerW !== null &&
+    minimumPowerW !== null &&
+    minimumPowerW > maximumPowerW
+  ) {
     return failedPreview(slots, "MINIMUM_POWER_EXCEEDS_MAXIMUM", {
       minimum_power_w: minimumPowerW,
       maximum_power_w: maximumPowerW,
@@ -563,34 +636,46 @@ function buildPreview(
     });
   }
   const referenceEnergy = Array<number>(slots.length).fill(0);
-  let remainingWh = requiredEnergyWh;
-  for (
-    let index = referenceStart;
-    index < deadline && remainingWh > 0;
-    index += 1
-  ) {
-    const slot = slots[index];
-    if (slot === undefined) break;
-    const capacityWh = Math.floor(
-      (maximumPowerW * slot.duration_seconds) / 3600,
-    );
-    const energyWh = Math.min(remainingWh, capacityWh);
-    if (
-      energyWh > 0 &&
-      energyWh * 3600 < minimumPowerW * slot.duration_seconds
-    ) {
-      return failedPreview(slots, "REFERENCE_MINIMUM_POWER_VIOLATED", {
-        slot_index: index,
-        energy_wh: energyWh,
+  if (fixedShape !== null) {
+    if (referenceStart + fixedShape.length > deadline) {
+      return failedPreview(slots, "FIXED_SHAPE_REFERENCE_MISMATCH", {
+        reference_start_slot_index: referenceStart,
+        fixed_shape_slot_count: fixedShape.length,
+        deadline_slot_index: deadline,
       });
     }
-    referenceEnergy[index] = energyWh;
-    remainingWh -= energyWh;
-  }
-  if (remainingWh !== 0) {
-    return failedPreview(slots, "REFERENCE_ENERGY_DOES_NOT_FIT_WINDOW", {
-      remaining_energy_wh: remainingWh,
-    });
+    referenceEnergy.splice(referenceStart, fixedShape.length, ...fixedShape);
+  } else {
+    let remainingWh = requiredEnergyWh;
+    for (
+      let index = referenceStart;
+      index < deadline && remainingWh > 0;
+      index += 1
+    ) {
+      const slot = slots[index];
+      if (slot === undefined || maximumPowerW === null) break;
+      const capacityWh = Math.floor(
+        (maximumPowerW * slot.duration_seconds) / 3600,
+      );
+      const energyWh = Math.min(remainingWh, capacityWh);
+      if (
+        energyWh > 0 &&
+        minimumPowerW !== null &&
+        energyWh * 3600 < minimumPowerW * slot.duration_seconds
+      ) {
+        return failedPreview(slots, "REFERENCE_MINIMUM_POWER_VIOLATED", {
+          slot_index: index,
+          energy_wh: energyWh,
+        });
+      }
+      referenceEnergy[index] = energyWh;
+      remainingWh -= energyWh;
+    }
+    if (remainingWh !== 0) {
+      return failedPreview(slots, "REFERENCE_ENERGY_DOES_NOT_FIT_WINDOW", {
+        remaining_energy_wh: remainingWh,
+      });
+    }
   }
   const siteCap = optionalPositiveInteger(
     data.get("site_import_cap_w"),
@@ -645,6 +730,22 @@ function buildPreview(
   }
   const loadId = crypto.randomUUID();
   const occurrenceId = crypto.randomUUID();
+  let executionSpec: InterruptibleExecutionSpec | FixedShapeExecutionSpec;
+  if (fixedShape === null) {
+    if (maximumPowerW === null || minimumPowerW === null) {
+      throw new Error("Interruptible power fields are unavailable.");
+    }
+    executionSpec = {
+      execution_type: "INTERRUPTIBLE_MODULATING",
+      maximum_power_w: maximumPowerW,
+      minimum_power_when_active_w: minimumPowerW,
+    };
+  } else {
+    executionSpec = {
+      execution_type: "CONTIGUOUS_FIXED_SHAPE",
+      fixed_slot_shape_wh: fixedShape,
+    };
+  }
   const request: ScenarioRequest = {
     request_schema_version: "scenario-operation-v1",
     profile_version_id: profile.profile_version_id,
@@ -669,11 +770,7 @@ function buildPreview(
         physical_asset_key: entryText(data.get("physical_asset_key")),
         kind: entryText(data.get("kind")),
         mode,
-        execution_spec: {
-          execution_type: "INTERRUPTIBLE_MODULATING",
-          maximum_power_w: maximumPowerW,
-          minimum_power_when_active_w: minimumPowerW,
-        },
+        execution_spec: executionSpec,
         occurrences: [
           {
             occurrence_id: occurrenceId,
@@ -786,16 +883,30 @@ function ScenarioResultView({ resource }: { resource: ScenarioResource }) {
   const exact = result.exact;
   const selected = exact.selected;
   const reference = exact.reference;
+  const heuristic = result.heuristic.selected;
   const decomposition = result.decomposition;
   const changedSlots = selected.schedule.occurrences.flatMap((occurrence) => {
     const referenceOccurrence = reference.schedule.occurrences.find(
       (candidate) => candidate.occurrence_id === occurrence.occurrence_id,
     );
+    const heuristicOccurrence = heuristic.schedule.occurrences.find(
+      (candidate) => candidate.occurrence_id === occurrence.occurrence_id,
+    );
     return occurrence.slots.flatMap((slot, index) => {
       const referenceSlot = referenceOccurrence?.slots[index];
-      return referenceSlot?.energy_wh === slot.energy_wh
+      const heuristicSlot = heuristicOccurrence?.slots[index];
+      const referenceEnergy = referenceSlot?.energy_wh ?? 0;
+      const heuristicEnergy = heuristicSlot?.energy_wh ?? 0;
+      return referenceEnergy === slot.energy_wh &&
+        referenceEnergy === heuristicEnergy
         ? []
-        : [{ ...slot, reference_energy_wh: referenceSlot?.energy_wh ?? 0 }];
+        : [
+            {
+              ...slot,
+              reference_energy_wh: referenceEnergy,
+              heuristic_energy_wh: heuristicEnergy,
+            },
+          ];
     });
   });
   return (
@@ -896,26 +1007,35 @@ function ScenarioResultView({ resource }: { resource: ScenarioResource }) {
           billing engine.
         </p>
       </div>
+      <ScheduleHeatmap
+        reference={reference.schedule}
+        heuristic={heuristic.schedule}
+        exact={selected.schedule}
+      />
       <div className="table-scroll">
         <table>
-          <caption>Slots changed from the complete reference schedule</caption>
+          <caption>
+            Accessible schedule data for every slot changed by either result
+          </caption>
           <thead>
             <tr>
               <th scope="col">UTC slot</th>
               <th scope="col">Reference Wh</th>
+              <th scope="col">Heuristic Wh</th>
               <th scope="col">Selected Wh</th>
             </tr>
           </thead>
           <tbody>
             {changedSlots.length === 0 ? (
               <tr>
-                <td colSpan={3}>The verified reference remained selected.</td>
+                <td colSpan={4}>The verified reference remained selected.</td>
               </tr>
             ) : (
-              changedSlots.slice(0, 50).map((slot) => (
+              changedSlots.map((slot) => (
                 <tr key={slot.slot_start_utc}>
                   <th scope="row">{slot.slot_start_utc}</th>
                   <td>{slot.reference_energy_wh.toLocaleString()}</td>
+                  <td>{slot.heuristic_energy_wh.toLocaleString()}</td>
                   <td>{slot.energy_wh.toLocaleString()}</td>
                 </tr>
               ))
@@ -942,6 +1062,89 @@ function ScenarioResultView({ resource }: { resource: ScenarioResource }) {
         </dl>
       </details>
     </article>
+  );
+}
+
+function ScheduleHeatmap({
+  reference,
+  heuristic,
+  exact,
+}: {
+  reference: Schedule;
+  heuristic: Schedule;
+  exact: Schedule;
+}) {
+  const referenceSlots = reference.occurrences.flatMap(
+    (occurrence) => occurrence.slots,
+  );
+  const heuristicSlots = heuristic.occurrences.flatMap(
+    (occurrence) => occurrence.slots,
+  );
+  const exactSlots = exact.occurrences.flatMap(
+    (occurrence) => occurrence.slots,
+  );
+  const maximum = Math.max(
+    1,
+    ...referenceSlots.map((slot) => slot.energy_wh),
+    ...heuristicSlots.map((slot) => slot.energy_wh),
+    ...exactSlots.map((slot) => slot.energy_wh),
+  );
+  return (
+    <div
+      className="demo-heatmap"
+      aria-label="Reference, heuristic, and exact private schedule heatmap"
+    >
+      <div className="heatmap-legend" aria-hidden="true">
+        <span className="reference-key">Reference</span>
+        <span className="heuristic-key">Heuristic</span>
+        <span className="exact-key">Exact</span>
+      </div>
+      <div
+        className="heatmap-scroll"
+        style={{
+          gridTemplateColumns: `repeat(${referenceSlots.length}, minmax(2.3rem, 1fr))`,
+        }}
+      >
+        {referenceSlots.map((slot, index) => (
+          <div className="heatmap-slot" key={`${slot.slot_start_utc}-${index}`}>
+            <span>{formatSlotLabel(slot.slot_start_utc)}</span>
+            <HeatCell
+              kind="reference"
+              value={slot.energy_wh}
+              maximum={maximum}
+            />
+            <HeatCell
+              kind="heuristic"
+              value={heuristicSlots[index]?.energy_wh ?? 0}
+              maximum={maximum}
+            />
+            <HeatCell
+              kind="exact"
+              value={exactSlots[index]?.energy_wh ?? 0}
+              maximum={maximum}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HeatCell({
+  kind,
+  value,
+  maximum,
+}: {
+  kind: "reference" | "heuristic" | "exact";
+  value: number;
+  maximum: number;
+}) {
+  return (
+    <div
+      className={`heat ${kind}`}
+      style={{ "--heat": value / maximum } as CSSProperties}
+      title={`${humanize(kind)} ${value.toLocaleString()} Wh`}
+    />
   );
 }
 
@@ -986,6 +1189,23 @@ function exactKwhToWh(value: FormDataEntryValue | null): number {
     throw new Error("Required energy is outside the supported exact range.");
   }
   return wattHours;
+}
+
+function parseFixedShape(value: FormDataEntryValue | null): number[] {
+  const text = entryText(value).trim();
+  if (!/^\d+(?:,\d+)*$/.test(text)) {
+    throw new Error(
+      "Fixed shape must be a comma-separated list of nonnegative integer watt-hours.",
+    );
+  }
+  const shape = text.split(",").map((entry) => Number(entry));
+  if (
+    shape.some((energy) => !Number.isSafeInteger(energy) || energy < 0) ||
+    sum(shape) <= 0
+  ) {
+    throw new Error("Fixed shape must contain positive total energy.");
+  }
+  return shape;
 }
 
 function positiveInteger(
@@ -1053,4 +1273,13 @@ function formatWitness(value: unknown): string {
   if (Array.isArray(value)) return value.map(String).join(", ");
   if (typeof value === "object" && value !== null) return JSON.stringify(value);
   return String(value);
+}
+
+function formatSlotLabel(value: string): string {
+  return new Date(value).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    timeZone: "UTC",
+  });
 }

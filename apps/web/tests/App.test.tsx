@@ -299,6 +299,67 @@ const successfulScenarioJob = {
   terminal_result_id: "scenario-result-one",
 };
 
+const reportSubmission = {
+  job_id: "report-job-one",
+  kind: "REPORT",
+  state: "QUEUED",
+  failure_code: null,
+  terminal_result_type: null,
+  terminal_result_id: null,
+};
+
+const successfulReportJob = {
+  ...reportSubmission,
+  state: "SUCCEEDED",
+  terminal_result_type: "REPORT",
+  terminal_result_id: "report-export-one",
+};
+
+const redactedReport = {
+  schema_version: "redacted-report-v1",
+  redaction_policy_version: "redacted-report-policy-v1",
+  report_template_version: "redacted-report-template-v1",
+  calculation_time_mode: "HISTORICAL_REPLAY",
+  historical_addition_label: "HISTORICAL_COUNTERFACTUAL_NOT_FORECAST",
+  billing_period: { start: "2026-07-01", end: "2026-08-01" },
+  aggregate_measured_energy_wh: 4000,
+  aggregate_reference_flexible_energy_wh: 7200,
+  aggregate_shifted_energy_wh: 7200,
+  selected_supported_cost_cents: 2000,
+  reference_supported_cost_cents: 2500,
+  supported_cost_difference_cents: 500,
+  signed_unexplained_residual_cents: null,
+  supported_charge_components: [
+    { component_key: "bundled_energy", amount_cents: 2000 },
+  ],
+  unsupported_component_codes: [],
+  tariff_provenance: {
+    tariff_version_id: "pge-etoud-2026-07",
+    tariff_ir_version: "tariff-ir-v2",
+    compiler_content_sha256: "a".repeat(64),
+  },
+  solver: {
+    search_status: "OPTIMAL",
+    selected_source: "SOLVER_INCUMBENT",
+    verification_status: "VALID",
+    verifier_version: "independent-schedule-verifier-v1",
+    highest_objective_stage_proved_optimal: 4,
+    first_open_stage: null,
+  },
+  limitations: ["Historical counterfactual, not a forecast."],
+  report_sha256: "7".repeat(64),
+};
+
+const reportResource = {
+  schema_version: "report-resource-v1",
+  export_id: "report-export-one",
+  scenario_id: "scenario-one",
+  scenario_result_id: "scenario-result-one",
+  job_id: "report-job-one",
+  created_at: "2026-08-14T00:00:00Z",
+  report: redactedReport,
+};
+
 const optimalScenario = {
   scenario_id: "scenario-one",
   state: "SUCCEEDED",
@@ -373,6 +434,31 @@ const bestFoundScenario = {
     manifest: {
       ...optimalScenario.result.manifest,
       warning_codes: ["EXACT_BEST_FOUND_OPEN_BOUND"],
+    },
+  },
+};
+
+const existingReference = [0, 0, 0, 100, 200, 200, 0, 0];
+const existingScenario = {
+  ...optimalScenario,
+  scenario_id: "scenario-existing",
+  result: {
+    ...optimalScenario.result,
+    decomposition: {
+      fixed_background: resultEnergySlots(
+        existingReference.map((value) => 500 - value),
+      ),
+      shift_existing_reference: resultEnergySlots(existingReference),
+      historical_addition_reference: resultEnergySlots(
+        Array<number>(8).fill(0),
+      ),
+      reconstructed_measured_profile: resultEnergySlots(
+        Array<number>(8).fill(500),
+      ),
+      unchanged_reference_profile: resultEnergySlots(
+        Array<number>(8).fill(500),
+      ),
+      exact_measured_reconstruction: true,
     },
   },
 };
@@ -870,7 +956,10 @@ describe("App", () => {
       .mockResolvedValueOnce(response(200, profileScenarioSlots))
       .mockResolvedValueOnce(response(202, scenarioSubmission))
       .mockResolvedValueOnce(response(200, successfulScenarioJob))
-      .mockResolvedValueOnce(response(200, optimalScenario));
+      .mockResolvedValueOnce(response(200, optimalScenario))
+      .mockResolvedValueOnce(response(202, reportSubmission))
+      .mockResolvedValueOnce(response(200, successfulReportJob))
+      .mockResolvedValueOnce(response(200, reportResource));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("crypto", { randomUUID: () => "scenario-uuid" });
     render(<App />);
@@ -920,10 +1009,33 @@ describe("App", () => {
     expect(screen.getByText("$25.00")).toBeVisible();
     expect(screen.getByText("$20.00")).toBeVisible();
     expect(screen.getByText(/Exact measured reconstruction/i)).toBeVisible();
+    expect(screen.getAllByText("4 kWh").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("11.2 kWh").length).toBeGreaterThanOrEqual(2);
     expect(
       screen.getByText(/This heuristic is not bill-optimal/i),
     ).toBeVisible();
+    expect(
+      screen.getByLabelText(
+        "Reference, heuristic, and exact private schedule heatmap",
+      ),
+    ).toBeVisible();
     expect(screen.getAllByText(/not a forecast/i).length).toBeGreaterThan(0);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Generate redacted report" }),
+    );
+    expect(
+      await screen.findByRole("heading", {
+        name: "Redacted historical scheduling report",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(/no utility identifier/i)).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "Download displayed redacted JSON",
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText(/exact UTC slot/i)).not.toBeInTheDocument();
 
     const slotCall = fetchMock.mock.calls[6] as [string, RequestInit];
     const scenarioCall = fetchMock.mock.calls[7] as [string, RequestInit];
@@ -933,6 +1045,21 @@ describe("App", () => {
     expect(scenarioCall[0]).toBe("/v1/scenarios");
     expect(scenarioJobCall[0]).toBe("/v1/jobs/scenario-job-one");
     expect(scenarioResultCall[0]).toBe("/v1/scenarios/scenario-one");
+    const reportSubmissionCall = fetchMock.mock.calls[10] as [
+      string,
+      RequestInit,
+    ];
+    const reportJobCall = fetchMock.mock.calls[11] as [string, RequestInit];
+    const reportResultCall = fetchMock.mock.calls[12] as [string, RequestInit];
+    expect(reportSubmissionCall[0]).toBe("/v1/reports/scenario-one/exports");
+    expect(reportSubmissionCall[1].method).toBe("POST");
+    expect(
+      (reportSubmissionCall[1].headers as Record<string, string>)[
+        "X-CSRF-Token"
+      ],
+    ).toBe("csrf-token");
+    expect(reportJobCall[0]).toBe("/v1/jobs/report-job-one");
+    expect(reportResultCall[0]).toBe("/v1/reports/scenario-one");
     const scenarioBody = JSON.parse(scenarioCall[1].body as string) as {
       tariff_version_id: string;
       loads: Array<{
@@ -952,6 +1079,107 @@ describe("App", () => {
       submittedReference.reduce((total, slot) => total + slot.energy_wh, 0),
     ).toBe(7200);
     expect(scenarioBody.shift_existing_attestation_load_ids).toEqual([]);
+  });
+
+  it("submits an attested contiguous appliance cycle and reconstructs the existing profile", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(response(201, replayResource))
+      .mockResolvedValueOnce(response(200, profileScenarioSlots))
+      .mockResolvedValueOnce(response(202, scenarioSubmission))
+      .mockResolvedValueOnce(response(200, successfulScenarioJob))
+      .mockResolvedValueOnce(response(200, existingScenario));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "scenario-uuid" });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.click(
+      await screen.findByLabelText(/I attest that every locked account fact/i),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create historical replay" }),
+    );
+
+    fireEvent.change(await screen.findByLabelText("Load treatment"), {
+      target: { value: "SHIFT_EXISTING" },
+    });
+    fireEvent.change(screen.getByLabelText("Load kind"), {
+      target: { value: "DISHWASHER" },
+    });
+    fireEvent.change(screen.getByLabelText("Execution model"), {
+      target: { value: "CONTIGUOUS_FIXED_SHAPE" },
+    });
+    fireEvent.change(
+      screen.getByLabelText(/Cycle energy by contiguous slot, Wh/i),
+      { target: { value: "100,200,200" } },
+    );
+    fireEvent.click(
+      screen.getByLabelText(/complete user-supplied reference represents/i),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Preview reference" }));
+    expect(await screen.findByText("0.5 kWh")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run verified optimization" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Optimal" }),
+    ).toBeVisible();
+    expect(screen.getAllByText("4 kWh").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("0.5 kWh").length).toBeGreaterThanOrEqual(2);
+    const scenarioCall = fetchMock.mock.calls[7] as [string, RequestInit];
+    const scenarioBody = JSON.parse(scenarioCall[1].body as string) as {
+      loads: Array<{
+        kind: string;
+        mode: string;
+        load_id: string;
+        execution_spec: {
+          execution_type: string;
+          fixed_slot_shape_wh: number[];
+        };
+        occurrences: Array<{
+          required_energy_wh: number;
+          reference_schedule: Array<{ energy_wh: number }>;
+        }>;
+      }>;
+      shift_existing_attestation_load_ids: string[];
+    };
+    expect(scenarioBody.loads[0]).toMatchObject({
+      kind: "DISHWASHER",
+      mode: "SHIFT_EXISTING",
+      execution_spec: {
+        execution_type: "CONTIGUOUS_FIXED_SHAPE",
+        fixed_slot_shape_wh: [100, 200, 200],
+      },
+    });
+    expect(scenarioBody.loads[0]?.occurrences[0]?.required_energy_wh).toBe(500);
+    expect(
+      scenarioBody.loads[0]?.occurrences[0]?.reference_schedule.map(
+        (slot) => slot.energy_wh,
+      ),
+    ).toEqual(existingReference);
+    expect(scenarioBody.shift_existing_attestation_load_ids).toEqual([
+      scenarioBody.loads[0]?.load_id,
+    ]);
   });
 
   it("explains aggregate-cap and reference-window failures before submission", async () => {

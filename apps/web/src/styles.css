@@ -358,6 +358,17 @@ dd {
   margin-top: 1.5rem;
 }
 
+.fixed-shape-field {
+  grid-column: span 2;
+}
+
+.fixed-shape-field span {
+  color: #647067;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
 .scenario-fields {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -369,6 +380,16 @@ dd {
   margin-top: 2rem;
   padding-top: 2rem;
   border-top: 1px solid #c5cbc3;
+}
+
+.report-export {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid #c5cbc3;
+}
+
+.report-export > .report-paper {
+  margin-top: 1.5rem;
 }
 
 .scenario-preview h3 {
@@ -955,6 +976,10 @@ code {
   .manifest dl,
   .source-list li {
     grid-template-columns: 1fr;
+  }
+
+  .fixed-shape-field {
+    grid-column: auto;
   }
 
   .demo-trust-grid,

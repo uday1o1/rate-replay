@@ -494,14 +494,22 @@ function ScheduleHeatmap({ slots }: { slots: HeatmapSlot[] }) {
   );
 }
 
-export function RedactedReport({ report }: { report: DemoRedactedReport }) {
+export function RedactedReport({
+  report,
+  headingId = "demo-report",
+  stepLabel = "05 - Aggregate-only export",
+}: {
+  report: DemoRedactedReport;
+  headingId?: string;
+  stepLabel?: string;
+}) {
   return (
     <section
       className="panel demo-panel report-paper"
-      aria-labelledby="demo-report"
+      aria-labelledby={headingId}
     >
-      <p className="step">05 - Aggregate-only export</p>
-      <h2 id="demo-report">Redacted historical scheduling report</h2>
+      <p className="step">{stepLabel}</p>
+      <h2 id={headingId}>Redacted historical scheduling report</h2>
       <p>
         This export is deny-by-default. It contains no utility identifier, raw
         interval history, daily series, occurrence window, or exact reference or
