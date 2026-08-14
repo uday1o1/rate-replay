@@ -25,6 +25,13 @@ QUALIFICATION_COMMANDS: Final = (
     "make qualification-m3",
     "make qualification-m4",
 )
+REQUIRED_OUTPUT_MARKERS: Final = (
+    "Repository evidence locks are internally consistent.",
+    "Milestone 3 qualification passed:",
+    "Milestone 4 qualification passed:",
+    "Public demo artifacts are reproducible and current.",
+    "No known vulnerabilities found",
+)
 ALLOWED_EXECUTABLES: Final = frozenset({"docker", "git"})
 
 
@@ -142,15 +149,8 @@ def qualify() -> dict[str, Any]:
             )
         ).stdout
         verification = _run(("docker", "run", "--rm", tag)).stdout
-        _require(
-            "Repository evidence locks are internally consistent." in verification, "CHECK_MISSING"
-        )
-        _require("M3_QUALIFICATION_PASS" in verification, "M3_QUALIFICATION_MISSING")
-        _require("M4_QUALIFICATION_PASS" in verification, "M4_QUALIFICATION_MISSING")
-        _require(
-            "Public demo artifacts are reproducible and current." in verification, "DEMO_MISSING"
-        )
-        _require("No known vulnerabilities found" in verification, "DEPENDENCY_AUDIT_MISSING")
+        for marker in REQUIRED_OUTPUT_MARKERS:
+            _require(marker in verification, f"QUALIFICATION_OUTPUT_MISSING:{marker}")
 
     environment_values = dict(
         line.split("=", 1) for line in environment.splitlines() if "=" in line

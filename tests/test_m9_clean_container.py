@@ -5,6 +5,7 @@ from pathlib import Path
 from scripts.qualify_m9_clean_container import (
     DOCKERFILE,
     QUALIFICATION_COMMANDS,
+    REQUIRED_OUTPUT_MARKERS,
     _docker_target_architecture,
 )
 
@@ -27,6 +28,13 @@ def test_qualification_commands_cover_public_and_private_verification() -> None:
         "make dependency-audit",
         "make qualification-m3",
         "make qualification-m4",
+    )
+    assert REQUIRED_OUTPUT_MARKERS == (
+        "Repository evidence locks are internally consistent.",
+        "Milestone 3 qualification passed:",
+        "Milestone 4 qualification passed:",
+        "Public demo artifacts are reproducible and current.",
+        "No known vulnerabilities found",
     )
 
 
