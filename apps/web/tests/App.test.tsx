@@ -380,9 +380,99 @@ const bestFoundScenario = {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.replaceState(null, "", "/");
 });
 
 describe("App", () => {
+  it("completes the static public demo without an API request", async () => {
+    window.history.replaceState(null, "", "/#demo");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "One simulated July story, fully traceable",
+      }),
+    ).toBeVisible();
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start the walkthrough" }),
+    );
+    expect(
+      screen.getByRole("heading", {
+        name: "The complete July profile is calculation ready",
+      }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      screen.getByRole("heading", {
+        name: "Supported charges are separate from the gap",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(/leaves that gap visible/i)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      screen.getByRole("heading", {
+        name: "The ranking passes every eligibility and coverage gate",
+      }),
+    ).toBeVisible();
+    expect(screen.getAllByText("E-TOU-D")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      screen.getByRole("heading", {
+        name: "Move one simulated EV addition on July's actual timestamps",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(/not a future forecast/i)).toBeVisible();
+    expect(
+      screen.getByLabelText("Reference, heuristic, and exact schedule heatmap"),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      screen.getByRole("heading", {
+        name: "Redacted historical scheduling report",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(/no utility identifier/i)).toBeVisible();
+    expect(screen.queryByText(/exact UTC slot/i)).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps simultaneous static demo contexts independent", async () => {
+    window.history.replaceState(null, "", "/#demo");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const first = render(<App />);
+    const second = render(<App />);
+
+    const firstWelcome = await within(first.container).findByRole("heading", {
+      name: "One simulated July story, fully traceable",
+    });
+    const secondWelcome = await within(second.container).findByRole("heading", {
+      name: "One simulated July story, fully traceable",
+    });
+    expect(firstWelcome).toBeVisible();
+    expect(secondWelcome).toBeVisible();
+    fireEvent.click(
+      within(first.container).getByRole("button", {
+        name: "Start the walkthrough",
+      }),
+    );
+    expect(
+      within(first.container).getByRole("heading", {
+        name: "The complete July profile is calculation ready",
+      }),
+    ).toBeVisible();
+    expect(secondWelcome).toBeVisible();
+    expect(
+      within(second.container).queryByRole("heading", {
+        name: "The complete July profile is calculation ready",
+      }),
+    ).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("names the product and explains the private account boundary", async () => {
     vi.stubGlobal(
       "fetch",

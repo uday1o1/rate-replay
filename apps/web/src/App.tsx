@@ -6,6 +6,7 @@ import {
   TariffSummary,
 } from "./ComparisonWorkspace";
 import { api } from "./api";
+import { PublicDemo } from "./PublicDemo";
 import { ScenarioWorkspace } from "./ScenarioWorkspace";
 import "./styles.css";
 
@@ -121,8 +122,13 @@ function csrfCookie(): string | null {
 }
 
 export function App() {
+  const [workspaceMode, setWorkspaceMode] = useState<"private" | "demo">(() =>
+    window.location.hash === "#demo" ? "demo" : "private",
+  );
   const [session, setSession] = useState<Session | null>(null);
-  const [checkingSession, setCheckingSession] = useState(true);
+  const [checkingSession, setCheckingSession] = useState(
+    workspaceMode === "private",
+  );
   const [authMode, setAuthMode] = useState<"register" | "login">("register");
   const [csrf, setCsrf] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
@@ -139,6 +145,11 @@ export function App() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (workspaceMode === "demo") {
+      setCheckingSession(false);
+      return;
+    }
+    setCheckingSession(true);
     void api<Session>("/v1/auth/session")
       .then((value) => {
         setSession(value);
@@ -146,7 +157,7 @@ export function App() {
       })
       .catch(() => setSession(null))
       .finally(() => setCheckingSession(false));
-  }, []);
+  }, [workspaceMode]);
 
   useEffect(() => {
     if (session === null) return;
@@ -406,6 +417,18 @@ export function App() {
     }
   }
 
+  function showDemo() {
+    window.history.replaceState(null, "", "#demo");
+    setWorkspaceMode("demo");
+    setMessage(null);
+  }
+
+  function showPrivateWorkspace() {
+    window.history.replaceState(null, "", window.location.pathname);
+    setWorkspaceMode("private");
+    setMessage(null);
+  }
+
   const warningIds =
     importStatus?.findings
       .map((finding) => finding.warning_id)
@@ -422,8 +445,20 @@ export function App() {
           <span className="brand-mark">RR</span>
           <span>RateReplay</span>
         </a>
-        {session === null ? (
-          <span className="evidence-pill">Historical replay</span>
+        {workspaceMode === "demo" ? (
+          <div className="session-summary">
+            <span>Static simulated demo</span>
+            <button type="button" onClick={showPrivateWorkspace}>
+              Private workspace
+            </button>
+          </div>
+        ) : session === null ? (
+          <div className="header-actions">
+            <span className="evidence-pill">Historical replay</span>
+            <button type="button" onClick={showDemo}>
+              Public demo
+            </button>
+          </div>
         ) : (
           <div className="session-summary">
             <span>{session.user.username}</span>
@@ -438,18 +473,21 @@ export function App() {
         <p className="eyebrow">Trace every supported charge</p>
         <h1>RateReplay</h1>
         <p className="lede">
-          Import your Green Button history, review its quality, and create an
-          immutable profile for auditable electricity analysis.
+          {workspaceMode === "demo"
+            ? "Explore a verified July replay and flexible-load result without an account, upload, or API job."
+            : "Import your Green Button history, review its quality, and create an immutable profile for auditable electricity analysis."}
         </p>
       </section>
 
-      {message !== null && (
+      {workspaceMode === "private" && message !== null && (
         <p className="message" role="status">
           {message}
         </p>
       )}
 
-      {checkingSession ? (
+      {workspaceMode === "demo" ? (
+        <PublicDemo />
+      ) : checkingSession ? (
         <section className="panel" aria-live="polite">
           Checking your application session…
         </section>

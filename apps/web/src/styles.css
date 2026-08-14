@@ -103,6 +103,12 @@ main {
   white-space: nowrap;
 }
 
+.header-actions {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+}
+
 .hero {
   max-width: 58rem;
   padding: clamp(4rem, 8vw, 8rem) 0 clamp(2.5rem, 5vw, 4rem);
@@ -710,6 +716,201 @@ code {
   font-weight: 720;
 }
 
+.demo-workspace {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  max-width: 84rem;
+  gap: 1.25rem;
+  margin-inline: auto;
+}
+
+.demo-progress {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0.35rem;
+  border: 1px solid #c5cbc3;
+  border-radius: 1rem;
+  background: rgb(255 255 252 / 72%);
+}
+
+.demo-progress ol {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(8.5rem, 1fr));
+  gap: 0.4rem;
+  min-width: 55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.demo-progress button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  width: 100%;
+  gap: 0.55rem;
+  align-items: center;
+  border: 0;
+  border-radius: 0.7rem;
+  text-align: left;
+}
+
+.demo-progress li[aria-current="step"] button {
+  color: #f6fff3;
+  background: #245c38;
+}
+
+.demo-progress button span {
+  font-size: 0.7rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+}
+
+.demo-panel {
+  min-height: 36rem;
+}
+
+.demo-lede {
+  max-width: 52rem;
+  color: #465249;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.4rem, 3vw, 2.3rem);
+  line-height: 1.35;
+}
+
+.demo-trust-grid,
+.schedule-language-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 2rem;
+}
+
+.demo-trust-grid div,
+.schedule-language-grid article {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1.2rem;
+  border: 1px solid #c5cbc3;
+  border-radius: 0.8rem;
+  background: #f3f6f0;
+}
+
+.demo-trust-grid strong {
+  color: #245c38;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.45rem;
+  font-weight: 500;
+}
+
+.demo-trust-grid span {
+  color: #59665d;
+  line-height: 1.45;
+}
+
+.artifact-lock {
+  margin-top: 2rem;
+  color: #59665d;
+}
+
+.demo-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.schedule-language-grid h3 {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+}
+
+.schedule-language-grid p {
+  margin: 0;
+}
+
+.demo-heatmap {
+  margin: 2rem 0;
+  padding: 1rem;
+  border: 1px solid #c5cbc3;
+  border-radius: 0.9rem;
+  background: #f7f8f4;
+}
+
+.heatmap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.78rem;
+  font-weight: 720;
+}
+
+.heatmap-legend span::before {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.35rem;
+  border-radius: 0.2rem;
+  content: "";
+  vertical-align: -0.08rem;
+}
+
+.reference-key::before,
+.heat.reference {
+  background: #9d6b35;
+}
+
+.heuristic-key::before,
+.heat.heuristic {
+  background: #54779d;
+}
+
+.exact-key::before,
+.heat.exact {
+  background: #347248;
+}
+
+.heatmap-scroll {
+  display: grid;
+  grid-template-columns: repeat(28, minmax(2.3rem, 1fr));
+  gap: 0.3rem;
+  min-width: 58rem;
+}
+
+.demo-heatmap {
+  overflow-x: auto;
+}
+
+.heatmap-slot {
+  display: grid;
+  grid-template-rows: auto repeat(3, 3.2rem);
+  gap: 0.2rem;
+}
+
+.heatmap-slot > span {
+  overflow: hidden;
+  color: #647067;
+  font-size: 0.62rem;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heat {
+  border-radius: 0.25rem;
+  opacity: calc(0.12 + var(--heat) * 0.88);
+}
+
+.report-paper {
+  border-top: 0.45rem solid #245c38;
+}
+
+.demo-failure {
+  border-color: #c58e85;
+  background: #fbebe7;
+}
+
 @media (max-width: 760px) {
   main {
     padding-inline: 1rem;
@@ -733,6 +934,11 @@ code {
     max-width: 7rem;
   }
 
+  .header-actions .evidence-pill,
+  .session-summary span {
+    display: none;
+  }
+
   .quality-report dl {
     grid-template-columns: 1fr;
   }
@@ -749,6 +955,15 @@ code {
   .manifest dl,
   .source-list li {
     grid-template-columns: 1fr;
+  }
+
+  .demo-trust-grid,
+  .schedule-language-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-panel {
+    min-height: auto;
   }
 
   .result-summary {
