@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, Protocol
 
 import typer
+from prometheus_client import start_http_server
 from ratereplay_domain.environment import environment_lock_hash
 from ratereplay_domain.telemetry import Telemetry, TelemetryConfiguration
 from ratereplay_persistence.artifacts import ArtifactService
@@ -89,12 +90,64 @@ def _configured_telemetry() -> Telemetry:
     )
 
 
+def _worker_metrics_port() -> int:
+    configured = os.getenv("RATEREPLAY_WORKER_METRICS_PORT", "9100")
+    try:
+        port = int(configured)
+    except ValueError as error:
+        raise RuntimeError("RATEREPLAY_WORKER_METRICS_PORT must be an integer") from error
+    if not 1 <= port <= 65535:
+        raise RuntimeError("RATEREPLAY_WORKER_METRICS_PORT must be between 1 and 65535")
+    return port
+
+
+def _worker_metrics_address() -> str:
+    address = os.getenv("RATEREPLAY_WORKER_METRICS_ADDRESS", "127.0.0.1")
+    if address not in {"0.0.0.0", "127.0.0.1"}:  # noqa: S104  # nosec B104
+        raise RuntimeError("RATEREPLAY_WORKER_METRICS_ADDRESS must be 127.0.0.1 or 0.0.0.0")
+    return address
+
+
 class PollableWorker(Protocol):
     def run_once(self, *, now: datetime) -> bool: ...
 
 
+class MetricsServer(Protocol):
+    def shutdown(self) -> None: ...
+
+    def server_close(self) -> None: ...
+
+
 def _run_worker_poll(telemetry: Telemetry, kind: str, worker: PollableWorker) -> bool:
     return telemetry.run_worker(kind, lambda: worker.run_once(now=datetime.now(UTC)))
+
+
+def _poll_all_once(
+    telemetry: Telemetry,
+    workers: tuple[tuple[str, PollableWorker], ...],
+    jobs: JobService,
+    coordinator: DeletionCoordinator,
+    scheduler: RetentionScheduler,
+    *,
+    schedule_retention: bool,
+    now: datetime,
+) -> bool:
+    coordinator.reconcile(now=now)
+    if schedule_retention:
+        scheduler.schedule(now=now)
+        scheduler.schedule_raw_expirations(now=now)
+    for snapshot in jobs.operational_snapshots(now=now):
+        telemetry.set_job_snapshot(
+            kind=snapshot.kind,
+            queue_depth=snapshot.queue_depth,
+            oldest_lease_age_seconds=snapshot.oldest_lease_age_seconds,
+            retry_attempts=snapshot.retry_attempts,
+        )
+    processed = False
+    for kind, worker in workers:
+        if _run_worker_poll(telemetry, kind, worker):
+            processed = True
+    return processed
 
 
 @app.callback()
@@ -568,6 +621,86 @@ def run() -> None:
     finally:
         telemetry.shutdown()
         engine.dispose()
+
+
+@app.command("run-all")
+def run_all(
+    once: Annotated[
+        bool,
+        typer.Option(help="Poll every durable worker exactly once, then exit."),
+    ] = False,
+) -> None:
+    """Run every durable worker, reconciliation, retention scheduling, and metrics."""
+
+    telemetry = _configured_telemetry()
+    engines: list[Engine] = []
+    metrics_server: MetricsServer | None = None
+    try:
+        import_worker, import_engine = _configured_worker(telemetry)
+        engines.append(import_engine)
+        deletion_worker, deletion_engine = _configured_deletion_worker(telemetry)
+        engines.append(deletion_engine)
+        retention_worker, retention_engine = _configured_retention_worker(telemetry)
+        engines.append(retention_engine)
+        report_worker, report_engine = _configured_report_worker(telemetry)
+        engines.append(report_engine)
+        replay_worker, replay_engine = _configured_replay_worker(telemetry)
+        engines.append(replay_engine)
+        comparison_worker, comparison_engine = _configured_comparison_worker(telemetry)
+        engines.append(comparison_engine)
+        scenario_worker, scenario_engine = _configured_scenario_worker(telemetry)
+        engines.append(scenario_engine)
+        coordinator, reconciliation_engine = _configured_deletion_reconciler()
+        engines.append(reconciliation_engine)
+        scheduler, scheduler_engine = _configured_retention_scheduler()
+        engines.append(scheduler_engine)
+        workers: tuple[tuple[str, PollableWorker], ...] = (
+            ("IMPORT", import_worker),
+            ("DELETION", deletion_worker),
+            ("RETENTION", retention_worker),
+            ("REPORT", report_worker),
+            ("REPLAY", replay_worker),
+            ("COMPARISON", comparison_worker),
+            ("SCENARIO", scenario_worker),
+        )
+        jobs = JobService(make_session_factory(import_engine))
+        metrics_port = _worker_metrics_port()
+        metrics_address = _worker_metrics_address()
+        server, _thread = start_http_server(
+            metrics_port,
+            addr=metrics_address,
+            registry=telemetry.registry,
+        )
+        metrics_server = server
+        next_retention_schedule = 0.0
+        while True:
+            monotonic_now = time.monotonic()
+            schedule_retention = monotonic_now >= next_retention_schedule
+            processed = _poll_all_once(
+                telemetry,
+                workers,
+                jobs,
+                coordinator,
+                scheduler,
+                schedule_retention=schedule_retention,
+                now=datetime.now(UTC),
+            )
+            if schedule_retention:
+                next_retention_schedule = monotonic_now + RETENTION_SCHEDULER_POLL_SECONDS
+            if once:
+                typer.echo("processed" if processed else "idle")
+                return
+            if not processed:
+                time.sleep(WORKER_POLL_SECONDS)
+    except KeyboardInterrupt:
+        typer.echo("stopped")
+    finally:
+        if metrics_server is not None:
+            metrics_server.shutdown()
+            metrics_server.server_close()
+        telemetry.shutdown()
+        for engine in engines:
+            engine.dispose()
 
 
 @app.command("reconcile-deletions-once")

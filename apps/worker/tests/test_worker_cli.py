@@ -6,17 +6,23 @@ import sys
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from ratereplay_domain.telemetry import Telemetry, TelemetryConfiguration
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
-from ratereplay_persistence.deletions import _scope_token
+from ratereplay_persistence.deletions import DeletionCoordinator, _scope_token
+from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.keyrings import VersionedKeyring
 from ratereplay_persistence.models import JobRecord, UserRecord
 from ratereplay_persistence.object_store import FilesystemObjectStore
+from ratereplay_persistence.retention import RetentionScheduler
 from ratereplay_worker import cli as worker_cli
 from ratereplay_worker.cli import app
 from sqlalchemy import text
+from sqlalchemy.engine import Engine
 from typer.testing import CliRunner
 
 
@@ -32,6 +38,7 @@ def test_worker_cli_exposes_one_shot_and_continuous_modes() -> None:
     assert result.exit_code == 0
     assert "run-once" in result.output
     assert "run" in result.output
+    assert "run-all" in result.output
     assert "reconcile-deletions-once" in result.output
     assert "reconcile-deletions" in result.output
     assert "run-deletion-once" in result.output
@@ -55,6 +62,198 @@ def test_worker_cli_exposes_one_shot_and_continuous_modes() -> None:
     assert "migrate-deletion-ledger-v1" in result.output
     assert "verify-restore-qualification" in result.output
     assert "verify-restore-exposure" in result.output
+
+
+def test_run_all_poll_updates_fixed_metrics_and_every_worker() -> None:
+    class FakeWorker:
+        def __init__(self, processed: bool) -> None:
+            self.processed = processed
+            self.calls = 0
+
+        def run_once(self, *, now: datetime) -> bool:
+            assert now.tzinfo is not None
+            self.calls += 1
+            return self.processed
+
+    class FakeJobs:
+        def operational_snapshots(self, *, now: datetime) -> tuple[SimpleNamespace, ...]:
+            assert now.tzinfo is not None
+            return (
+                SimpleNamespace(
+                    kind="SCENARIO",
+                    queue_depth=2,
+                    oldest_lease_age_seconds=3.5,
+                    retry_attempts=1,
+                ),
+            )
+
+    class FakeCoordinator:
+        calls = 0
+
+        def reconcile(self, *, now: datetime) -> None:
+            assert now.tzinfo is not None
+            self.calls += 1
+
+    class FakeScheduler:
+        schedule_calls = 0
+        raw_calls = 0
+
+        def schedule(self, *, now: datetime) -> None:
+            assert now.tzinfo is not None
+            self.schedule_calls += 1
+
+        def schedule_raw_expirations(self, *, now: datetime) -> None:
+            assert now.tzinfo is not None
+            self.raw_calls += 1
+
+    telemetry = Telemetry(
+        TelemetryConfiguration(service_name="ratereplay-worker", environment="test")
+    )
+    first = FakeWorker(True)
+    second = FakeWorker(False)
+    coordinator = FakeCoordinator()
+    scheduler = FakeScheduler()
+    try:
+        processed = worker_cli._poll_all_once(
+            telemetry,
+            (("IMPORT", first), ("REPORT", second)),
+            cast(JobService, FakeJobs()),
+            cast(DeletionCoordinator, coordinator),
+            cast(RetentionScheduler, scheduler),
+            schedule_retention=True,
+            now=datetime.now(UTC),
+        )
+        metrics = telemetry.prometheus_bytes().decode("utf-8")
+    finally:
+        telemetry.shutdown()
+    assert processed
+    assert first.calls == second.calls == 1
+    assert coordinator.calls == 1
+    assert scheduler.schedule_calls == scheduler.raw_calls == 1
+    assert 'kind="SCENARIO"' in metrics
+    assert 'kind="IMPORT",outcome="processed"' in metrics
+    assert 'kind="REPORT",outcome="idle"' in metrics
+
+
+def test_worker_metrics_listener_configuration_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RATEREPLAY_WORKER_METRICS_PORT", "0")
+    with pytest.raises(RuntimeError, match="between 1 and 65535"):
+        worker_cli._worker_metrics_port()
+    monkeypatch.setenv("RATEREPLAY_WORKER_METRICS_ADDRESS", "public.example")
+    with pytest.raises(RuntimeError, match=r"127\.0\.0\.1 or 0\.0\.0\.0"):
+        worker_cli._worker_metrics_address()
+
+
+def test_run_all_cli_starts_every_component_and_closes_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeWorker:
+        calls = 0
+
+        def run_once(self, *, now: datetime) -> bool:
+            assert now.tzinfo is not None
+            self.calls += 1
+            return False
+
+    class FakeJobs:
+        def operational_snapshots(self, *, now: datetime) -> tuple[SimpleNamespace, ...]:
+            assert now.tzinfo is not None
+            return ()
+
+    class FakeCoordinator:
+        calls = 0
+
+        def reconcile(self, *, now: datetime) -> None:
+            assert now.tzinfo is not None
+            self.calls += 1
+
+    class FakeScheduler:
+        schedule_calls = 0
+        raw_calls = 0
+
+        def schedule(self, *, now: datetime) -> None:
+            assert now.tzinfo is not None
+            self.schedule_calls += 1
+
+        def schedule_raw_expirations(self, *, now: datetime) -> None:
+            assert now.tzinfo is not None
+            self.raw_calls += 1
+
+    class FakeEngine:
+        disposed = False
+
+        def dispose(self) -> None:
+            self.disposed = True
+
+    class FakeMetricsServer:
+        shutdown_called = False
+        close_called = False
+
+        def shutdown(self) -> None:
+            self.shutdown_called = True
+
+        def server_close(self) -> None:
+            self.close_called = True
+
+    workers: list[FakeWorker] = []
+    engines: list[FakeEngine] = []
+
+    def configured_worker(_telemetry: Telemetry) -> tuple[FakeWorker, Engine]:
+        worker = FakeWorker()
+        engine = FakeEngine()
+        workers.append(worker)
+        engines.append(engine)
+        return worker, cast(Engine, engine)
+
+    coordinator = FakeCoordinator()
+    scheduler = FakeScheduler()
+
+    def configured_coordinator() -> tuple[DeletionCoordinator, Engine]:
+        engine = FakeEngine()
+        engines.append(engine)
+        return cast(DeletionCoordinator, coordinator), cast(Engine, engine)
+
+    def configured_scheduler() -> tuple[RetentionScheduler, Engine]:
+        engine = FakeEngine()
+        engines.append(engine)
+        return cast(RetentionScheduler, scheduler), cast(Engine, engine)
+
+    metrics_server = FakeMetricsServer()
+    telemetry = Telemetry(
+        TelemetryConfiguration(service_name="ratereplay-worker", environment="test")
+    )
+    monkeypatch.setattr(worker_cli, "_configured_telemetry", lambda: telemetry)
+    for name in (
+        "_configured_worker",
+        "_configured_deletion_worker",
+        "_configured_retention_worker",
+        "_configured_report_worker",
+        "_configured_replay_worker",
+        "_configured_comparison_worker",
+        "_configured_scenario_worker",
+    ):
+        monkeypatch.setattr(worker_cli, name, configured_worker)
+    monkeypatch.setattr(worker_cli, "_configured_deletion_reconciler", configured_coordinator)
+    monkeypatch.setattr(worker_cli, "_configured_retention_scheduler", configured_scheduler)
+    monkeypatch.setattr(worker_cli, "make_session_factory", lambda _engine: object())
+    monkeypatch.setattr(worker_cli, "JobService", lambda _sessions: FakeJobs())
+    monkeypatch.setattr(
+        worker_cli,
+        "start_http_server",
+        lambda _port, **_kwargs: (metrics_server, object()),
+    )
+
+    result = CliRunner().invoke(app, ["run-all", "--once"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "idle"
+    assert len(workers) == 7 and all(worker.calls == 1 for worker in workers)
+    assert coordinator.calls == 1
+    assert scheduler.schedule_calls == scheduler.raw_calls == 1
+    assert len(engines) == 9 and all(engine.disposed for engine in engines)
+    assert metrics_server.shutdown_called and metrics_server.close_called
 
 
 def test_retention_cli_schedules_idempotently_and_runs_system_job(
