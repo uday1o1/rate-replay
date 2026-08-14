@@ -7,8 +7,9 @@ import httpx
 import pytest
 from ratereplay_api.config import AppSettings
 from ratereplay_api.main import create_app
-from ratereplay_persistence.models import UserRecord
-from sqlalchemy import delete
+from ratereplay_persistence.audit import verify_audit_event
+from ratereplay_persistence.models import AuditEventRecord, UserRecord
+from sqlalchemy import delete, select
 
 ORIGIN = "https://app.ratereplay.test"
 
@@ -56,6 +57,23 @@ async def test_register_login_logout_against_migrated_postgres() -> None:
             )
             assert logged_out.status_code == 204, logged_out.text
             assert (await client.get("/v1/auth/session")).status_code == 401
+        with app.state.session_factory() as database:
+            user = database.scalar(
+                select(UserRecord).where(UserRecord.username_canonical == username)
+            )
+            assert user is not None
+            events = database.scalars(
+                select(AuditEventRecord).where(AuditEventRecord.owner_user_id == user.id)
+            ).all()
+            assert [event.event_type for event in events].count("AUTH_REGISTERED") == 2
+            assert [event.event_type for event in events].count("AUTH_LOGIN_SUCCEEDED") == 1
+            assert [event.event_type for event in events].count("AUTH_LOGOUT") == 1
+            assert all(verify_audit_event(event) for event in events)
+            audit_text = " ".join(
+                str(value) for event in events for value in event.__dict__.values()
+            )
+            assert username not in audit_text
+            assert password not in audit_text
     finally:
         with app.state.session_factory.begin() as database:
             database.execute(delete(UserRecord).where(UserRecord.username_canonical == username))

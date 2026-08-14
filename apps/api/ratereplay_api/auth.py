@@ -11,9 +11,11 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerificationError
+from ratereplay_persistence.audit import append_audit_event
 from ratereplay_persistence.models import SessionRecord, UserRecord
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -143,7 +145,13 @@ class AuthService:
             hashlib.sha256,
         ).hexdigest()
 
-    def _new_session(self, database: Session, user: UserRecord) -> SessionGrant:
+    def _new_session(
+        self,
+        database: Session,
+        user: UserRecord,
+        *,
+        event_type: Literal["AUTH_REGISTERED", "AUTH_LOGIN_SUCCEEDED"],
+    ) -> SessionGrant:
         now = self.now
         session_token = secrets.token_urlsafe(32)
         csrf_token = secrets.token_urlsafe(32)
@@ -160,6 +168,16 @@ class AuthService:
             absolute_expires_at=absolute_expires_at,
         )
         database.add(record)
+        append_audit_event(
+            database,
+            owner_user_id=user.id,
+            event_type=event_type,
+            subject_type="SESSION",
+            subject_id=record.id,
+            sequence=0,
+            outcome="SUCCEEDED",
+            now=now,
+        )
         database.commit()
         return SessionGrant(
             user_id=user.id,
@@ -190,7 +208,17 @@ class AuthService:
                 message="That username is unavailable.",
                 field_paths=("username",),
             ) from error
-        return self._new_session(database, user)
+        append_audit_event(
+            database,
+            owner_user_id=user.id,
+            event_type="AUTH_REGISTERED",
+            subject_type="ACCOUNT",
+            subject_id=user.id,
+            sequence=0,
+            outcome="SUCCEEDED",
+            now=self.now,
+        )
+        return self._new_session(database, user, event_type="AUTH_REGISTERED")
 
     def login(
         self,
@@ -224,7 +252,7 @@ class AuthService:
             )
             if prior is not None and prior.revoked_at is None:
                 prior.revoked_at = self.now
-        return self._new_session(database, user)
+        return self._new_session(database, user, event_type="AUTH_LOGIN_SUCCEEDED")
 
     def authenticate(self, database: Session, *, session_token: str | None) -> AuthenticatedSession:
         if session_token is None:
@@ -273,7 +301,18 @@ class AuthService:
     def logout(self, database: Session, *, authenticated: AuthenticatedSession) -> None:
         record = database.get(SessionRecord, authenticated.session_id)
         if record is not None and record.revoked_at is None:
-            record.revoked_at = self.now
+            now = self.now
+            record.revoked_at = now
+            append_audit_event(
+                database,
+                owner_user_id=authenticated.user_id,
+                event_type="AUTH_LOGOUT",
+                subject_type="SESSION",
+                subject_id=authenticated.session_id,
+                sequence=0,
+                outcome="SUCCEEDED",
+                now=now,
+            )
             database.commit()
 
     @staticmethod

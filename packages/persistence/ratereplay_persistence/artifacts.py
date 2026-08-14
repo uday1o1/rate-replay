@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from ratereplay_persistence.audit import append_audit_event
 from ratereplay_persistence.jobs import JobLease, current_fenced_job
 from ratereplay_persistence.models import (
     JobAttemptRecord,
@@ -454,6 +455,16 @@ def _complete_job(
     job.terminal_result_type = claim.result_type
     job.terminal_result_id = claim.result_id
     job.terminal_semantic_hash = claim.semantic_hash
+    append_audit_event(
+        database,
+        owner_user_id=job.owner_user_id,
+        event_type="JOB_SUCCEEDED",
+        subject_type="JOB",
+        subject_id=job.id,
+        sequence=lease.fencing_generation,
+        outcome="SUCCEEDED",
+        now=now,
+    )
 
 
 def _claim_result(claim: JobResultClaimRecord, *, repeated: bool) -> FinalizedResult:

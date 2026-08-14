@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from ratereplay_persistence.audit import append_audit_event
 from ratereplay_persistence.calculations import (
     CalculationSubmission,
     CalculationSubmissionError,
@@ -152,6 +153,16 @@ class ScenarioService:
             job.completed_at = now
             scenario.state = "CANCELLED"
             scenario.completed_at = now
+            append_audit_event(
+                database,
+                owner_user_id=owner_user_id,
+                event_type="JOB_CANCELLED",
+                subject_type="JOB",
+                subject_id=job.id,
+                sequence=job.fencing_generation,
+                outcome="CANCELLED",
+                now=now,
+            )
 
     def _ensure_scenario(
         self,

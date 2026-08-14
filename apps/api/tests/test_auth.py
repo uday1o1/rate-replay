@@ -11,7 +11,8 @@ from fastapi import FastAPI
 from ratereplay_api.auth import AuthService
 from ratereplay_api.config import AppSettings
 from ratereplay_api.main import create_app
-from ratereplay_persistence.models import SessionRecord, UserRecord
+from ratereplay_persistence.audit import verify_audit_event
+from ratereplay_persistence.models import AuditEventRecord, SessionRecord, UserRecord
 from sqlalchemy import select
 
 ORIGIN = "https://app.ratereplay.test"
@@ -88,6 +89,15 @@ async def test_registration_canonicalizes_username_and_sets_hardened_cookie(
         assert user.username_canonical == "owner_one"
         assert PASSWORD not in user.password_hash
         assert user.password_hash.startswith("$argon2id$v=19$m=65536,t=3,p=4$")
+        events = database.scalars(
+            select(AuditEventRecord).order_by(AuditEventRecord.subject_type)
+        ).all()
+        assert len(events) == 2
+        assert all(verify_audit_event(event) for event in events)
+        assert {event.subject_type for event in events} == {"ACCOUNT", "SESSION"}
+        audit_text = " ".join(str(value) for event in events for value in event.__dict__.values())
+        assert "owner_one" not in audit_text
+        assert PASSWORD not in audit_text
 
 
 @pytest.mark.anyio
@@ -193,6 +203,8 @@ async def test_logout_requires_origin_and_csrf_then_revokes_server_session(
     with app.state.session_factory() as database:
         record = database.scalar(select(SessionRecord))
         assert record is not None and record.revoked_at is not None
+        events = database.scalars(select(AuditEventRecord)).all()
+        assert {event.event_type for event in events} == {"AUTH_REGISTERED", "AUTH_LOGOUT"}
 
 
 @pytest.mark.anyio

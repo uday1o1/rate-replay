@@ -12,6 +12,11 @@ from typing import Final
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from ratereplay_persistence.audit import (
+    AuditEventType,
+    AuditOutcome,
+    append_audit_event,
+)
 from ratereplay_persistence.models import (
     ImportRecord,
     JobAttemptRecord,
@@ -141,6 +146,16 @@ class JobService:
                         lease_expires_at=job.lease_expires_at,
                     )
                 )
+                append_audit_event(
+                    database,
+                    owner_user_id=job.owner_user_id,
+                    event_type="JOB_LEASED",
+                    subject_type="JOB",
+                    subject_id=job.id,
+                    sequence=job.fencing_generation,
+                    outcome="LEASED",
+                    now=now,
+                )
                 return JobLease(
                     job_id=job.id,
                     import_id=job.import_id,
@@ -228,17 +243,47 @@ class JobService:
                     attempt.failure_code = job.failure_code
                 job.lease_owner = None
                 job.lease_expires_at = None
+                append_audit_event(
+                    database,
+                    owner_user_id=job.owner_user_id,
+                    event_type="JOB_CANCELLED",
+                    subject_type="JOB",
+                    subject_id=job.id,
+                    sequence=job.fencing_generation,
+                    outcome="CANCELLED",
+                    now=now,
+                )
                 return True
             if retryable and job.attempt_count < job.max_attempts:
                 job.state = "QUEUED"
                 job.not_before = now + _retry_delay(job.id, job.attempt_count)
                 if job.kind == "IMPORT" and imported is not None:
                     imported.state = "QUEUED"
+                append_audit_event(
+                    database,
+                    owner_user_id=job.owner_user_id,
+                    event_type="JOB_RETRY_SCHEDULED",
+                    subject_type="JOB",
+                    subject_id=job.id,
+                    sequence=job.fencing_generation,
+                    outcome="RETRY_SCHEDULED",
+                    now=now,
+                )
             else:
                 job.state = "FAILED"
                 job.failure_code = code if not retryable else "ATTEMPT_BUDGET_EXHAUSTED"
                 job.completed_at = now
                 _mark_import_terminal(job, imported, job.failure_code)
+                append_audit_event(
+                    database,
+                    owner_user_id=job.owner_user_id,
+                    event_type="JOB_FAILED",
+                    subject_type="JOB",
+                    subject_id=job.id,
+                    sequence=job.fencing_generation,
+                    outcome="FAILED",
+                    now=now,
+                )
             job.lease_owner = None
             job.lease_expires_at = None
             return True
@@ -264,6 +309,16 @@ class JobService:
             if job.kind == "IMPORT" and imported is not None:
                 imported.state = "FAILED"
                 imported.failure_code = job.failure_code
+            append_audit_event(
+                database,
+                owner_user_id=job.owner_user_id,
+                event_type="JOB_CANCELLED",
+                subject_type="JOB",
+                subject_id=job.id,
+                sequence=job.fencing_generation,
+                outcome="CANCELLED",
+                now=now,
+            )
             return True
 
     def complete_system(self, lease: JobLease, *, now: datetime) -> bool:
@@ -295,6 +350,16 @@ class JobService:
             job.completed_at = now
             job.lease_owner = None
             job.lease_expires_at = None
+            append_audit_event(
+                database,
+                owner_user_id=job.owner_user_id,
+                event_type="JOB_SUCCEEDED",
+                subject_type="JOB",
+                subject_id=job.id,
+                sequence=job.fencing_generation,
+                outcome="SUCCEEDED",
+                now=now,
+            )
             return True
 
     def rescue_expired(self, *, now: datetime) -> int:
@@ -308,6 +373,8 @@ class JobService:
                 )
             ).all()
             for job in rows:
+                audit_event_type: AuditEventType
+                audit_outcome: AuditOutcome
                 definition = JOB_DEFINITIONS.get(job.kind)
                 user, imported, profile = _load_scope(database, job)
                 attempt = database.scalar(
@@ -326,16 +393,32 @@ class JobService:
                     job.state = "CANCELLED"
                     job.failure_code = "SCOPE_FENCED"
                     job.completed_at = now
+                    audit_event_type = "JOB_CANCELLED"
+                    audit_outcome = "CANCELLED"
                 elif job.attempt_count >= job.max_attempts:
                     job.state = "FAILED"
                     job.failure_code = "ATTEMPT_BUDGET_EXHAUSTED"
                     job.completed_at = now
                     _mark_import_terminal(job, imported, job.failure_code)
+                    audit_event_type = "JOB_FAILED"
+                    audit_outcome = "FAILED"
                 else:
                     job.state = "QUEUED"
                     job.not_before = now
                     if job.kind == "IMPORT" and imported is not None:
                         imported.state = "QUEUED"
+                    audit_event_type = "JOB_RETRY_SCHEDULED"
+                    audit_outcome = "RETRY_SCHEDULED"
+                append_audit_event(
+                    database,
+                    owner_user_id=job.owner_user_id,
+                    event_type=audit_event_type,
+                    subject_type="JOB",
+                    subject_id=job.id,
+                    sequence=job.fencing_generation,
+                    outcome=audit_outcome,
+                    now=now,
+                )
                 job.lease_owner = None
                 job.lease_expires_at = None
                 rescued += 1

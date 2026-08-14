@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from ratereplay_persistence.audit import append_audit_event
 from ratereplay_persistence.calculations import (
     CalculationSubmission,
     CalculationSubmissionError,
@@ -244,6 +245,26 @@ class ReplayService:
                         manifest,
                         operation,
                     ]
+                )
+                append_audit_event(
+                    database,
+                    owner_user_id=owner_user_id,
+                    event_type="JOB_SUBMITTED",
+                    subject_type="JOB",
+                    subject_id=job_id,
+                    sequence=0,
+                    outcome="ACCEPTED",
+                    now=now,
+                )
+                append_audit_event(
+                    database,
+                    owner_user_id=owner_user_id,
+                    event_type="JOB_SUCCEEDED",
+                    subject_type="JOB",
+                    subject_id=job_id,
+                    sequence=1,
+                    outcome="SUCCEEDED",
+                    now=now,
                 )
                 database.commit()
             except IntegrityError as error:

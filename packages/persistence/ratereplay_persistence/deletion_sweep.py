@@ -22,6 +22,7 @@ from ratereplay_persistence.deletions import (
 )
 from ratereplay_persistence.jobs import JobLease, current_fenced_job
 from ratereplay_persistence.models import (
+    AuditEventRecord,
     CalculationManifestRecord,
     ComparisonResultRecord,
     DeletionAuditRecord,
@@ -626,6 +627,11 @@ def _sweep_owner_rows(
         else ()
     )
     counts = {
+        "audit_events": _count(
+            database,
+            AuditEventRecord,
+            AuditEventRecord.owner_user_id == owner_user_id,
+        ),
         "calculation_manifests": _count(
             database,
             CalculationManifestRecord,
@@ -724,6 +730,9 @@ def _sweep_owner_rows(
     database.execute(
         delete(OperationRequestRecord).where(OperationRequestRecord.owner_user_id == owner_user_id)
     )
+    database.execute(
+        delete(AuditEventRecord).where(AuditEventRecord.owner_user_id == owner_user_id)
+    )
     if import_ids:
         database.execute(
             delete(ImportFindingRecord).where(ImportFindingRecord.import_id.in_(import_ids))
@@ -750,6 +759,7 @@ def _prohibited_row_count(
     deletion_job_id: str,
 ) -> int:
     direct = (
+        (AuditEventRecord, AuditEventRecord.owner_user_id == owner_user_id),
         (SessionRecord, SessionRecord.user_id == owner_user_id),
         (OperationRequestRecord, OperationRequestRecord.owner_user_id == owner_user_id),
         (ImportRecord, ImportRecord.owner_user_id == owner_user_id),

@@ -7,10 +7,12 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+from ratereplay_persistence.audit import verify_audit_event
 from ratereplay_persistence.database import make_engine, make_session_factory
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.models import (
+    AuditEventRecord,
     ImportFindingRecord,
     ImportReadingRecord,
     ImportRecord,
@@ -78,6 +80,16 @@ def test_migrated_postgres_durable_import_and_fenced_publication(tmp_path: Path)
         assert job.fencing_generation == 1
         assert imported is not None and imported.state == "READY"
         assert reading_count == 362
+        events = database.scalars(
+            select(AuditEventRecord).where(AuditEventRecord.owner_user_id == user_id)
+        ).all()
+        assert {event.event_type for event in events} == {
+            "IMPORT_SUBMITTED",
+            "JOB_LEASED",
+            "JOB_SUBMITTED",
+            "JOB_SUCCEEDED",
+        }
+        assert all(verify_audit_event(event) for event in events)
 
     with sessions.begin() as database:
         database.execute(

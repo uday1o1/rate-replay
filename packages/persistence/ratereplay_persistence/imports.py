@@ -18,6 +18,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from ratereplay_persistence.audit import append_audit_event
 from ratereplay_persistence.models import (
     ImportFindingRecord,
     ImportReadingRecord,
@@ -270,6 +271,16 @@ class ImportService:
                                 for reading in artifact.content.readings
                             ]
                         )
+                        append_audit_event(
+                            database,
+                            owner_user_id=owner_user_id,
+                            event_type="PROFILE_INSTALLED",
+                            subject_type="PROFILE",
+                            subject_id=profile.id,
+                            sequence=0,
+                            outcome="SUCCEEDED",
+                            now=resolved_now,
+                        )
                     database.add(
                         OperationRequestRecord(
                             id=secrets.token_hex(16),
@@ -362,6 +373,26 @@ class ImportService:
                         created_at=now,
                     ),
                 ]
+            )
+            append_audit_event(
+                database,
+                owner_user_id=owner_user_id,
+                event_type="IMPORT_SUBMITTED",
+                subject_type="IMPORT",
+                subject_id=import_id,
+                sequence=0,
+                outcome="ACCEPTED",
+                now=now,
+            )
+            append_audit_event(
+                database,
+                owner_user_id=owner_user_id,
+                event_type="JOB_SUBMITTED",
+                subject_type="JOB",
+                subject_id=job_id,
+                sequence=0,
+                outcome="ACCEPTED",
+                now=now,
             )
             try:
                 database.commit()
@@ -464,6 +495,16 @@ class ImportService:
             if attempt is not None:
                 attempt.state = "SUCCEEDED"
                 attempt.completed_at = now.astimezone(UTC)
+            append_audit_event(
+                database,
+                owner_user_id=record.owner_user_id,
+                event_type="JOB_SUCCEEDED",
+                subject_type="JOB",
+                subject_id=job.id,
+                sequence=fencing_generation,
+                outcome="SUCCEEDED",
+                now=now,
+            )
             return True
 
     def draft(self, *, owner_user_id: str, import_id: str) -> NormalizedDraft:
@@ -567,6 +608,16 @@ class ImportService:
             record.state = "CONFIRMED"
             record.confirmed_at = now.astimezone(UTC)
             record.profile_version_id = existing.id
+            append_audit_event(
+                database,
+                owner_user_id=owner_user_id,
+                event_type="IMPORT_CONFIRMED",
+                subject_type="IMPORT",
+                subject_id=import_id,
+                sequence=record.lifecycle_generation,
+                outcome="SUCCEEDED",
+                now=now,
+            )
             raw = database.scalar(
                 select(RawObjectRecord).where(RawObjectRecord.import_id == import_id)
             )

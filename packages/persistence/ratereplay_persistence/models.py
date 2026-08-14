@@ -140,6 +140,35 @@ class OperationRequestRecord(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class AuditEventRecord(Base):
+    """Owner-scoped, content-hashed event with no free-form data surface."""
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        CheckConstraint("sequence >= 0", name="ck_audit_event_sequence"),
+        UniqueConstraint(
+            "owner_user_id",
+            "event_type",
+            "subject_type",
+            "subject_id",
+            "sequence",
+            name="uq_audit_event_transition",
+        ),
+        Index("ix_audit_events_owner_recorded", "owner_user_id", "recorded_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    event_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+
+
 class ImportReadingRecord(Base):
     __tablename__ = "interval_readings"
     __table_args__ = (
@@ -714,6 +743,7 @@ def _prevent_scenario_content_update(
 
 
 for _immutable_model in (
+    AuditEventRecord,
     ImportReadingRecord,
     ImportFindingRecord,
     ReplayResultRecord,
@@ -725,5 +755,12 @@ for _immutable_model in (
     JobResultClaimRecord,
 ):
     event.listen(_immutable_model, "before_update", _prevent_immutable_update)
+
+
+def _prevent_immutable_delete(_mapper: object, _connection: object, target: object) -> None:
+    raise RuntimeError(f"{type(target).__name__} is append-only")
+
+
+event.listen(AuditEventRecord, "before_delete", _prevent_immutable_delete)
 
 event.listen(ScenarioRecord, "before_update", _prevent_scenario_content_update)
