@@ -90,6 +90,8 @@ make qualification-m7-deployment
 ```
 
 The command builds the candidate and frozen rollback images, performs all security scans, checks the migration head, starts an isolated release Compose project, exercises the public HTTPS path, injects the three failures, verifies observability, and rolls the API and worker back.
+Before building, it snapshots only untagged image IDs carrying the RateReplay source label and removes only new IDs from that set before service startup.
+This bounded cleanup prevents its own intermediate build layers from starving the isolated database without pruning unrelated Docker resources.
 It always removes the isolated project, named test volumes, and generated local secrets before exiting.
 It writes `evidence/reliability/m7-local-deployment.json` only after every assertion passes.
 The artifact is self-hashed and records source commits, image identities, tool versions, input digests, fault outcomes, rollback duration, and the claims that remain withheld.

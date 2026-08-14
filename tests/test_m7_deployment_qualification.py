@@ -8,6 +8,7 @@ import pytest
 from scripts.qualify_m7_deployment import (
     QualificationError,
     _inject_unexpected_process_crash,
+    _remove_created_dangling_images,
     _self_hash,
     parse_published_services,
     summarize_trivy_report,
@@ -15,7 +16,7 @@ from scripts.qualify_m7_deployment import (
 )
 
 
-def test_worker_crash_injection_targets_pid_one_without_operator_stop(
+def test_worker_crash_injection_targets_workload_child_without_operator_stop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
@@ -40,6 +41,31 @@ def test_worker_crash_injection_targets_pid_one_without_operator_stop(
     assert command[:5] == ("docker", "exec", "worker-container", "python", "-c")
     assert "os.kill(pids[0], 9)" in command[5]
     assert "int(open(path+'/stat').read().split()[3]) == 1" in command[5]
+
+
+def test_build_cleanup_removes_only_new_project_dangling_images(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    removed: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(
+        "scripts.qualify_m7_deployment._dangling_project_images",
+        lambda: frozenset({"existing", "new-b", "new-a"}),
+    )
+
+    def fake_run(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        removed.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("scripts.qualify_m7_deployment._run", fake_run)
+
+    created = _remove_created_dangling_images(frozenset({"existing"}))
+
+    assert created == ("new-a", "new-b")
+    assert removed == [
+        ("docker", "image", "rm", "new-a"),
+        ("docker", "image", "rm", "new-b"),
+    ]
 
 
 def test_compose_port_parser_ignores_exposed_only_ports() -> None:
@@ -83,6 +109,7 @@ def test_deployment_evidence_self_hash_and_gate_fields_fail_closed() -> None:
             "ignored_critical_findings": 0,
             "critical_findings": 0,
             "dependency_audit_passed": True,
+            "ephemeral_build_images_removed": 2,
         },
         "topology": {"published_services": ["proxy"], "https_ready": True},
         "failure_injections": [

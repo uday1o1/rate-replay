@@ -35,6 +35,7 @@ CLAIMS_WITHHELD: Final = (
     "PRODUCTION_NETWORK_ISOLATION",
     "PRODUCTION_ORCHESTRATOR_ROLLBACK",
 )
+PROJECT_IMAGE_SOURCE: Final = "https://github.com/uday1o1/rate-replay"
 
 
 class QualificationError(RuntimeError):
@@ -99,6 +100,11 @@ def validate_deployment_evidence(payload: dict[str, Any]) -> None:
     _require(security.get("ignored_critical_findings") == 0, "IGNORED_CRITICAL")
     _require(security.get("critical_findings") == 0, "CRITICAL_FINDING")
     _require(security.get("dependency_audit_passed") is True, "DEPENDENCY_AUDIT")
+    removed_images = security.get("ephemeral_build_images_removed")
+    _require(
+        isinstance(removed_images, int) and removed_images >= 0,
+        "BUILD_IMAGE_CLEANUP_EVIDENCE",
+    )
     topology = cast(dict[str, Any], payload.get("topology"))
     _require(topology.get("published_services") == ["proxy"], "PUBLICATION_SCOPE")
     _require(topology.get("https_ready") is True, "HTTPS_NOT_READY")
@@ -231,6 +237,29 @@ def _build_image(
 
 def _image_id(tag: str) -> str:
     return _run(("docker", "image", "inspect", tag, "--format", "{{.Id}}")).stdout.strip()
+
+
+def _dangling_project_images() -> frozenset[str]:
+    completed = _run(
+        (
+            "docker",
+            "image",
+            "ls",
+            "--quiet",
+            "--filter",
+            "dangling=true",
+            "--filter",
+            f"label=org.opencontainers.image.source={PROJECT_IMAGE_SOURCE}",
+        )
+    )
+    return frozenset(line.strip() for line in completed.stdout.splitlines() if line.strip())
+
+
+def _remove_created_dangling_images(before: frozenset[str]) -> tuple[str, ...]:
+    created = tuple(sorted(_dangling_project_images() - before))
+    for image_id in created:
+        _run(("docker", "image", "rm", image_id))
+    return created
 
 
 def summarize_trivy_report(report: dict[str, Any]) -> dict[str, Any]:
@@ -730,6 +759,7 @@ def main() -> None:
     )
     try:
         stable_context = _prepare_stable_context(runtime, stable_commit)
+        dangling_before_build = _dangling_project_images()
         source_short = source_commit[:12]
         stable_short = stable_commit[:12]
         tags = {
@@ -764,6 +794,7 @@ def main() -> None:
                 source_commit=source_commit,
                 tag=tags[key],
             )
+        removed_build_images = _remove_created_dangling_images(dangling_before_build)
         _run(("docker", "volume", "inspect", "ratereplay-trivy-cache"), check=False)
         _run(("docker", "volume", "create", "ratereplay-trivy-cache"), check=False)
         scans = {key: _scan_image(tag) for key, tag in tags.items()}
@@ -825,6 +856,7 @@ def main() -> None:
                 "container_scans": scans,
                 "critical_findings": critical_findings,
                 "dependency_audit_passed": True,
+                "ephemeral_build_images_removed": len(removed_build_images),
                 "ignored_critical_findings": 0,
                 "credential_pattern_scan_passed": True,
                 "static_analysis_passed": True,
