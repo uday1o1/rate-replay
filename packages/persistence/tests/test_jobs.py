@@ -151,6 +151,8 @@ def test_active_compute_lease_is_fenced_by_profile_generation(harness: JobHarnes
     assert lease is not None and lease.kind == "REPLAY"
     assert lease.profile_version_id == PROFILE_ID
     assert harness.jobs.start(lease, now=NOW)
+    with pytest.raises(ValueError, match="SYSTEM_SCOPE retention"):
+        harness.jobs.complete_system(lease, now=NOW)
     with harness.sessions.begin() as database:
         profile = database.get(ProfileVersionRecord, PROFILE_ID)
         assert profile is not None
@@ -185,6 +187,11 @@ def test_system_retention_job_has_no_user_data_scope(harness: JobHarness) -> Non
     assert lease.scope_mode == "SYSTEM_SCOPE"
     assert lease.import_id is None and lease.profile_version_id is None
     assert harness.jobs.start(lease, now=NOW)
+    assert harness.jobs.complete_system(lease, now=NOW)
+    assert not harness.jobs.complete_system(lease, now=NOW)
+    with harness.sessions() as database:
+        job = database.get(JobRecord, "retention-job")
+        assert job is not None and job.state == "SUCCEEDED"
 
 
 def test_deletion_job_runs_only_at_exact_deleting_generation(harness: JobHarness) -> None:

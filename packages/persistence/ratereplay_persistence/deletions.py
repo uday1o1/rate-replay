@@ -441,20 +441,23 @@ class DeletionCoordinator:
             return intent
 
     def _ensure_prepared(self, intent: DeletionIntentRecord, *, now: datetime) -> LedgerEvent:
-        arguments = self._prepared_arguments(intent, occurred_at=now)
-        chain = self._ledger.chain(intent.deletion_id)
-        if chain:
-            prepared = chain[0]
-            self._validate_event(prepared, intent)
-        else:
-            prepared = self._ledger.append(**arguments)
         with self._session_factory.begin() as database:
-            current = database.get(DeletionIntentRecord, intent.deletion_id)
+            current = database.scalar(
+                select(DeletionIntentRecord)
+                .where(DeletionIntentRecord.deletion_id == intent.deletion_id)
+                .with_for_update()
+            )
             if current is None:
                 raise DeletionServiceError(
                     "DELETION_CONTROL_CORRUPT",
                     "Prepared deletion intent is missing",
                 )
+            chain = self._ledger.chain(current.deletion_id)
+            if chain:
+                prepared = chain[0]
+                self._validate_event(prepared, current)
+            else:
+                prepared = self._ledger.append(**self._prepared_arguments(current, occurred_at=now))
             self._validate_event(prepared, current)
             self._store_ledger_receipt(database, prepared)
             if current.state == "INTENT_CREATED":

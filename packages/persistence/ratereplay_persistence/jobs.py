@@ -266,6 +266,37 @@ class JobService:
                 imported.failure_code = job.failure_code
             return True
 
+    def complete_system(self, lease: JobLease, *, now: datetime) -> bool:
+        """Complete a fenced system-scope retention job without publishing user data."""
+
+        if lease.kind != "RETENTION" or lease.scope_mode != "SYSTEM_SCOPE":
+            raise ValueError("Only a SYSTEM_SCOPE retention lease can use system completion")
+        now = now.astimezone(UTC)
+        with self._session_factory.begin() as database:
+            job = current_fenced_job(
+                database,
+                lease,
+                now=now,
+                expected_states=frozenset({"RUNNING"}),
+            )
+            if job is None:
+                return False
+            attempt = database.scalar(
+                select(JobAttemptRecord).where(
+                    JobAttemptRecord.job_id == job.id,
+                    JobAttemptRecord.fencing_generation == lease.fencing_generation,
+                )
+            )
+            if attempt is None:
+                return False
+            attempt.state = "SUCCEEDED"
+            attempt.completed_at = now
+            job.state = "SUCCEEDED"
+            job.completed_at = now
+            job.lease_owner = None
+            job.lease_expires_at = None
+            return True
+
     def rescue_expired(self, *, now: datetime) -> int:
         now = now.astimezone(UTC)
         rescued = 0

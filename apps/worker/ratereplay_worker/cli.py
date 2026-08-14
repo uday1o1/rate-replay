@@ -27,6 +27,7 @@ from ratereplay_persistence.restore import (
     verify_restore_qualification_artifact,
     write_restore_qualification_artifact,
 )
+from ratereplay_persistence.retention import DatabaseRetentionService, RetentionScheduler
 from ratereplay_tariffs.admission import load_all_admitted_tariffs
 from ratereplay_tariffs.comparison import load_required_component_keys
 from sqlalchemy.engine import Engine
@@ -36,10 +37,12 @@ from ratereplay_worker.deletion_worker import DeletionWorker
 from ratereplay_worker.import_worker import ImportWorker
 from ratereplay_worker.replay_worker import ReplayWorker
 from ratereplay_worker.report_worker import ReportWorker
+from ratereplay_worker.retention_worker import RetentionWorker
 from ratereplay_worker.scenario_worker import ScenarioWorker
 
 app = typer.Typer(no_args_is_help=True)
 WORKER_POLL_SECONDS = 1.0
+RETENTION_SCHEDULER_POLL_SECONDS = 60.0
 
 
 @app.callback()
@@ -116,6 +119,43 @@ def _configured_deletion_worker() -> tuple[DeletionWorker, Engine]:
         ),
     )
     return worker, engine
+
+
+def _configured_retention_scheduler() -> tuple[RetentionScheduler, Engine]:
+    database_url = os.getenv("RATEREPLAY_DATABASE_URL")
+    if database_url is None:
+        typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
+        raise typer.Exit(code=2)
+    engine = make_engine(database_url)
+    return RetentionScheduler(make_session_factory(engine)), engine
+
+
+def _configured_retention_worker() -> tuple[RetentionWorker, Engine]:
+    database_url = os.getenv("RATEREPLAY_DATABASE_URL")
+    if database_url is None:
+        typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
+        raise typer.Exit(code=2)
+    ledger_root = Path(
+        os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
+    )
+    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
+    ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
+    engine = make_engine(database_url)
+    sessions = make_session_factory(engine)
+    objects = FilesystemObjectStore(object_root)
+    ledger = FilesystemDeletionLedger(ledger_root, integrity_key=ledger_key)
+    return (
+        RetentionWorker(
+            worker_id=f"{socket.gethostname()}-{os.getpid()}",
+            session_factory=sessions,
+            jobs=JobService(sessions),
+            imports=ImportService(sessions, objects),
+            artifacts=ArtifactService(sessions, objects),
+            deletions=DeletionSweepService(sessions, objects, ledger),
+            database_retention=DatabaseRetentionService(sessions, ledger),
+        ),
+        engine,
+    )
 
 
 def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
@@ -344,6 +384,69 @@ def run_deletions() -> None:
     """Poll continuously for durable account deletions."""
 
     worker, engine = _configured_deletion_worker()
+    try:
+        while True:
+            processed = worker.run_once(now=datetime.now(UTC))
+            if not processed:
+                time.sleep(WORKER_POLL_SECONDS)
+    except KeyboardInterrupt:
+        typer.echo("stopped")
+    finally:
+        engine.dispose()
+
+
+@app.command("schedule-retention-once")
+def schedule_retention_once() -> None:
+    """Create the canonical system retention job for the current UTC hour."""
+
+    scheduler, engine = _configured_retention_scheduler()
+    try:
+        now = datetime.now(UTC)
+        submission = scheduler.schedule(now=now)
+        raw_deadlines = scheduler.schedule_raw_expirations(now=now)
+        typer.echo(
+            f"job_id={submission.job_id} repeated={str(submission.repeated).lower()} "
+            f"scheduled_for={submission.scheduled_for.isoformat()} "
+            f"raw_deadline_jobs={len(raw_deadlines)}"
+        )
+    finally:
+        engine.dispose()
+
+
+@app.command("schedule-retention")
+def schedule_retention() -> None:
+    """Continuously ensure each hourly system retention job exists."""
+
+    scheduler, engine = _configured_retention_scheduler()
+    try:
+        while True:
+            now = datetime.now(UTC)
+            scheduler.schedule(now=now)
+            scheduler.schedule_raw_expirations(now=now)
+            time.sleep(RETENTION_SCHEDULER_POLL_SECONDS)
+    except KeyboardInterrupt:
+        typer.echo("stopped")
+    finally:
+        engine.dispose()
+
+
+@app.command("run-retention-once")
+def run_retention_once() -> None:
+    """Lease and execute at most one durable system retention job."""
+
+    worker, engine = _configured_retention_worker()
+    try:
+        processed = worker.run_once(now=datetime.now(UTC))
+        typer.echo("processed" if processed else "idle")
+    finally:
+        engine.dispose()
+
+
+@app.command("run-retention")
+def run_retention() -> None:
+    """Poll continuously for durable system retention jobs."""
+
+    worker, engine = _configured_retention_worker()
     try:
         while True:
             processed = worker.run_once(now=datetime.now(UTC))

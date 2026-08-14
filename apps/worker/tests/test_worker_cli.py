@@ -5,7 +5,7 @@ import pytest
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
 from ratereplay_persistence.deletions import _scope_token
-from ratereplay_persistence.models import UserRecord
+from ratereplay_persistence.models import JobRecord, UserRecord
 from ratereplay_worker.cli import app
 from typer.testing import CliRunner
 
@@ -32,8 +32,47 @@ def test_worker_cli_exposes_one_shot_and_continuous_modes() -> None:
     assert "run-comparisons" in result.output
     assert "run-report-once" in result.output
     assert "run-reports" in result.output
+    assert "schedule-retention-once" in result.output
+    assert "schedule-retention" in result.output
+    assert "run-retention-once" in result.output
+    assert "run-retention" in result.output
     assert "qualify-restore" in result.output
     assert "verify-restore-qualification" in result.output
+
+
+def test_retention_cli_schedules_idempotently_and_runs_system_job(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "retention.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path}"
+    engine = make_engine(database_url)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    ledger_key_file = tmp_path / "ledger.key"
+    ledger_key_file.write_bytes(b"l" * 32)
+    monkeypatch.setenv("RATEREPLAY_DATABASE_URL", database_url)
+    monkeypatch.setenv("RATEREPLAY_OBJECT_STORE_ROOT", str(tmp_path / "objects"))
+    monkeypatch.setenv("RATEREPLAY_DELETION_LEDGER_ROOT", str(tmp_path / "ledger"))
+    monkeypatch.setenv("RATEREPLAY_DELETION_LEDGER_KEY_FILE", str(ledger_key_file))
+
+    runner = CliRunner()
+    scheduled = runner.invoke(app, ["schedule-retention-once"])
+    repeated = runner.invoke(app, ["schedule-retention-once"])
+    processed = runner.invoke(app, ["run-retention-once"])
+    idle = runner.invoke(app, ["run-retention-once"])
+
+    assert scheduled.exit_code == 0 and "repeated=false" in scheduled.output
+    assert repeated.exit_code == 0 and "repeated=true" in repeated.output
+    assert processed.exit_code == 0 and processed.output.strip() == "processed"
+    assert idle.exit_code == 0 and idle.output.strip() == "idle"
+    engine = make_engine(database_url)
+    sessions = make_session_factory(engine)
+    with sessions() as database:
+        jobs = database.query(JobRecord).all()
+        assert len(jobs) == 1
+        assert jobs[0].kind == "RETENTION" and jobs[0].state == "SUCCEEDED"
+    engine.dispose()
 
 
 def test_deletion_reconciler_requires_separate_control_keys(
