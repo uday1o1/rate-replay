@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request, status
+from fastapi import APIRouter, Depends, Header, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from ratereplay_optimizer.lowering import OptimizationLoweringError
 from ratereplay_optimizer.models import (
@@ -218,34 +219,13 @@ def _problem(
     )
 
 
-def _resource(
-    scenario: ScenarioRecord,
-    scenario_result: ScenarioResultRecord,
-    *,
-    repeated: bool,
-) -> ScenarioResourceResponse:
-    return ScenarioResourceResponse(
-        scenario_id=scenario.id,
-        result_id=scenario_result.id,
-        job_id=scenario.job_id,
-        owner_user_id=scenario.owner_user_id,
-        profile_version_id=scenario.profile_version_id,
-        tariff_version_id=scenario.tariff_version_id,
-        state=scenario.state,
-        lifecycle_state=scenario.lifecycle_state,
-        created_at=_iso(scenario.created_at),
-        repeated=repeated,
-        result=ScenarioOptimizationResult.model_validate_json(scenario_result.result_json),
-    )
-
-
-def _stored_resource(
+def _encoded_stored_resource(
     database: Session,
     owner_user_id: str,
     scenario_id: str,
-    *,
-    repeated: bool,
-) -> ScenarioResourceResponse:
+) -> Response:
+    """Return immutable worker JSON without rebuilding its large Pydantic graph."""
+
     scenario = database.scalar(
         select(ScenarioRecord).where(
             ScenarioRecord.id == scenario_id,
@@ -270,7 +250,37 @@ def _stored_resource(
             code="SCENARIO_RESULT_INCOMPLETE",
             message="Scenario result is incomplete",
         )
-    return _resource(scenario, scenario_result, repeated=repeated)
+    expected_hash_field = f'"result_sha256":"{scenario_result.result_hash}"'
+    if not (
+        scenario_result.result_json.startswith("{")
+        and scenario_result.result_json.endswith("}")
+        and expected_hash_field in scenario_result.result_json[-256:]
+    ):
+        raise ApiProblem(
+            status_code=500,
+            code="SCENARIO_RESULT_INVALID",
+            message="Stored scenario result failed integrity validation",
+        )
+    metadata = {
+        "schema_version": "scenario-resource-v1",
+        "scenario_id": scenario.id,
+        "result_id": scenario_result.id,
+        "job_id": scenario.job_id,
+        "owner_user_id": scenario.owner_user_id,
+        "profile_version_id": scenario.profile_version_id,
+        "tariff_version_id": scenario.tariff_version_id,
+        "state": scenario.state,
+        "lifecycle_state": scenario.lifecycle_state,
+        "created_at": _iso(scenario.created_at),
+        "repeated": False,
+    }
+    encoded_metadata = json.dumps(metadata, separators=(",", ":"), ensure_ascii=False)
+    content = encoded_metadata[:-1] + ',"result":' + scenario_result.result_json + "}"
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 router = APIRouter(tags=["scenarios"])
@@ -422,8 +432,8 @@ def get_scenario(
     scenario_id: str,
     authenticated: Annotated[AuthenticatedSession, Depends(get_authenticated_session)],
     database: Annotated[Session, Depends(get_database)],
-) -> ScenarioResourceResponse:
-    return _stored_resource(database, authenticated.user_id, scenario_id, repeated=False)
+) -> Response:
+    return _encoded_stored_resource(database, authenticated.user_id, scenario_id)
 
 
 @router.post(

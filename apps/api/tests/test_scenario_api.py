@@ -33,7 +33,7 @@ from ratereplay_persistence.models import (
     UserRecord,
 )
 from ratereplay_worker.scenario_worker import ScenarioWorker
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 ROOT = Path(__file__).resolve().parents[3]
 ORIGIN = "https://app.ratereplay.test"
@@ -303,6 +303,12 @@ async def test_authenticated_scenario_runs_complete_verified_user_path(
         assert database.scalar(select(func.count()).select_from(CalculationManifestRecord)) == 1
         job = database.get(JobRecord, submission["job"]["job_id"])
         assert job is not None and job.kind == "SCENARIO" and job.state == "SUCCEEDED"
+
+    with app_state.session_factory.begin() as database:
+        database.execute(update(ScenarioResultRecord).values(result_hash="0" * 64))
+    corrupted = await client.get(f"/v1/scenarios/{submission['scenario_id']}")
+    assert corrupted.status_code == 500
+    assert corrupted.json()["code"] == "SCENARIO_RESULT_INVALID"
 
 
 @pytest.mark.anyio

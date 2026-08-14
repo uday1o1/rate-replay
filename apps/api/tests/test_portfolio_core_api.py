@@ -239,6 +239,7 @@ async def test_private_account_completes_portfolio_core_through_public_api(
     assert scenario_job.json()["state"] == "SUCCEEDED"
     scenario_response = await client.get(f"/v1/scenarios/{scenario_submission['scenario_id']}")
     assert scenario_response.status_code == 200
+    assert scenario_response.headers["cache-control"] == "private, no-store"
     scenario_resource = scenario_response.json()
     scenario = scenario_resource["result"]
     assert scenario["historical_addition_label"] == ("HISTORICAL_COUNTERFACTUAL_NOT_FORECAST")

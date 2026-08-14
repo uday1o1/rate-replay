@@ -26,6 +26,7 @@ import httpx
 from benchmarks.scripts.m8_performance import _synthetic_csv
 from scripts.qualify_m7_deployment import (
     ComposeDeployment,
+    _build_image,
     _create_runtime,
     _image_id,
     _inject_unexpected_process_crash,
@@ -209,7 +210,10 @@ def _release_image_tags(source_commit: str) -> dict[str, str]:
     }
 
 
-def _verify_release_images(m7: dict[str, Any]) -> dict[str, str]:
+def _verify_release_images(
+    m7: dict[str, Any],
+    evaluation_commit: str,
+) -> tuple[dict[str, str], dict[str, str]]:
     source_commit = cast(str, m7["source_commit"])
     tags = _release_image_tags(source_commit)
     expected = cast(dict[str, str], m7["images"])
@@ -230,7 +234,29 @@ def _verify_release_images(m7: dict[str, Any]) -> dict[str, str]:
             )
         ).stdout.strip()
         _require(revision == source_commit, f"RELEASE_IMAGE_REVISION:{key}")
-    return tags
+    current_app_tag = f"ratereplay-m8-app:{evaluation_commit[:12]}"
+    current_app = _run(("docker", "image", "inspect", current_app_tag), check=False)
+    if current_app.returncode != 0:
+        _build_image(
+            context=ROOT,
+            dockerfile="containers/app.Dockerfile",
+            source_commit=evaluation_commit,
+            tag=current_app_tag,
+        )
+    tags["app_candidate"] = current_app_tag
+    observed["app_candidate"] = _image_id(current_app_tag)
+    revision = _run(
+        (
+            "docker",
+            "image",
+            "inspect",
+            current_app_tag,
+            "--format",
+            '{{index .Config.Labels "org.opencontainers.image.revision"}}',
+        )
+    ).stdout.strip()
+    _require(revision == evaluation_commit, "RELEASE_IMAGE_REVISION:app_candidate")
+    return tags, observed
 
 
 def _headers(origin: str, csrf: str, key: str) -> dict[str, str]:
@@ -893,7 +919,7 @@ def qualify() -> tuple[dict[str, Any], dict[str, Any]]:
     manifest = _json(MANIFEST)
     m7 = _json(M7_EVIDENCE)
     validate_deployment_evidence(m7)
-    tags = _verify_release_images(m7)
+    tags, image_ids = _verify_release_images(m7, evaluation_commit)
     thresholds = cast(dict[str, float], cast(dict[str, Any], manifest["performance"])["thresholds"])
     repetitions = cast(int, cast(dict[str, Any], manifest["performance"])["api_repetitions"])
     warmups = cast(int, cast(dict[str, Any], manifest["performance"])["warmups"])
@@ -985,8 +1011,8 @@ def qualify() -> tuple[dict[str, Any], dict[str, Any]]:
             "evidence_scope": "PUBLIC_SIMULATED_PROFILE_ONLY",
             "manifest_sha256": manifest["manifest_sha256"],
             "evaluation_source_commit": evaluation_commit,
-            "application_source_commit": m7["source_commit"],
-            "application_image_id": cast(dict[str, str], m7["images"])["app_candidate"],
+            "application_source_commit": evaluation_commit,
+            "application_image_id": image_ids["app_candidate"],
             "generated_at": datetime.now(UTC).isoformat(),
             "api_latency": api_latency,
             "failed_repetitions_omitted": False,
@@ -1035,7 +1061,7 @@ def qualify() -> tuple[dict[str, Any], dict[str, Any]]:
             "evidence_scope": "PUBLIC_SIMULATED_AND_SYNTHETIC_ENGINEERING_ONLY",
             "manifest_sha256": manifest["manifest_sha256"],
             "evaluation_source_commit": evaluation_commit,
-            "application_source_commit": m7["source_commit"],
+            "application_source_commit": evaluation_commit,
             "generated_at": generated_at,
             "topology": {
                 "database": f"PostgreSQL {storage['postgres_server_version']}",
@@ -1086,7 +1112,7 @@ def qualify() -> tuple[dict[str, Any], dict[str, Any]]:
             "evidence_scope": "PUBLIC_SIMULATED_AND_SYNTHETIC_ENGINEERING_ONLY",
             "manifest_sha256": manifest["manifest_sha256"],
             "evaluation_source_commit": evaluation_commit,
-            "application_source_commit": m7["source_commit"],
+            "application_source_commit": evaluation_commit,
             "source_branch": branch,
             "source_remote_confirmed": True,
             "generated_at": generated_at,
@@ -1105,7 +1131,7 @@ def qualify() -> tuple[dict[str, Any], dict[str, Any]]:
                 if FAILED_API_OUTPUT.is_file()
                 else None
             ),
-            "images": {key: cast(dict[str, str], m7["images"])[key] for key in tags},
+            "images": image_ids,
             "topology": {
                 "service_count": 8,
                 "published_services": ["proxy"],
