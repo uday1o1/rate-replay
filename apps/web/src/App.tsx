@@ -20,6 +20,78 @@ type ImportStatus = {
   coverage_end_utc_ns: number | null;
   findings: Finding[];
   failure_code: string | null;
+  profile_version_id?: string | null;
+};
+type Profile = {
+  profile_version_id: string;
+  content_hash: string;
+  billing_period_start_utc_ns: number;
+  billing_period_end_utc_ns: number;
+};
+type SourceCoverage = {
+  source_id: string;
+  source_sha256: string;
+  source_url: string;
+  linked_rule_ids: string[];
+};
+type TariffDetail = {
+  admission: {
+    tariff_version_id: string;
+    plan_code: string;
+    admitted_service_windows: [string, string][];
+    compiler_content_sha256: string;
+    scope: {
+      calculation_time_mode: "HISTORICAL_REPLAY";
+      comparison_admitted: false;
+      optimization_admitted: false;
+    };
+  };
+  compilation: {
+    reports: { source_coverage: SourceCoverage[] };
+  };
+};
+type ReplayLine = {
+  rule_id: string;
+  source_id: string;
+  line_item_key: string;
+  quantity_numerator: number;
+  quantity_denominator: number;
+  quantity_unit: string;
+  rate_numerator_microdollars: number;
+  rate_denominator: number;
+  rate_unit: string;
+  rounded_cents: number;
+};
+type UnsupportedLine = {
+  line_item_key: string;
+  description: string;
+  amount_cents: number;
+};
+type ReplayResource = {
+  replay_id: string;
+  repeated: boolean;
+  result: {
+    eligibility: { status: string; reason_codes: string[] };
+    supported_calculated_cents: number;
+    line_items: ReplayLine[];
+    user_unsupported_lines: UnsupportedLine[];
+    reconciliation: null | {
+      user_unsupported_cents: number;
+      unexplained_residual_cents: number;
+      entered_bill_total_cents: number;
+      classification: string;
+    };
+    provenance_sources: SourceCoverage[];
+    manifest: {
+      calculation_time_mode: "HISTORICAL_REPLAY";
+      tariff_compiler_content_sha256: string;
+      replay_input_sha256: string;
+      reconciliation_input_sha256: string | null;
+      reconciliation_policy_sha256: string | null;
+      calculation_sha256: string;
+    };
+    result_sha256: string;
+  };
 };
 
 function csrfCookie(): string | null {
@@ -51,6 +123,9 @@ export function App() {
   const [authMode, setAuthMode] = useState<"register" | "login">("register");
   const [csrf, setCsrf] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [tariff, setTariff] = useState<TariffDetail | null>(null);
+  const [replay, setReplay] = useState<ReplayResource | null>(null);
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<Set<string>>(
     new Set(),
   );
@@ -66,6 +141,25 @@ export function App() {
       .catch(() => setSession(null))
       .finally(() => setCheckingSession(false));
   }, []);
+
+  useEffect(() => {
+    if (session === null) return;
+    void Promise.all([
+      api<{ items: Profile[] }>("/v1/profiles?page_size=1"),
+      api<TariffDetail>("/v1/tariffs/pge-e1-2026-07"),
+    ])
+      .then(([profiles, detail]) => {
+        setProfile(profiles.items[0] ?? null);
+        setTariff(detail);
+      })
+      .catch((error) => {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Tariff workspace could not be loaded.",
+        );
+      });
+  }, [session]);
 
   async function authenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -113,6 +207,8 @@ export function App() {
       );
       const value = await api<ImportStatus>(operation.state_url);
       setImportStatus(value);
+      setProfile(null);
+      setReplay(null);
       setAcknowledgedWarnings(new Set());
       setPgeAttested(false);
       setMessage(
@@ -148,16 +244,20 @@ export function App() {
       return;
     }
     try {
-      await api(`/v1/imports/${importStatus.import_id}/confirm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-        body: JSON.stringify({
-          billing_period_start_utc_ns: importStatus.coverage_start_utc_ns,
-          billing_period_end_utc_ns: importStatus.coverage_end_utc_ns,
-          acknowledged_warning_ids: [...acknowledgedWarnings].sort(),
-          pge_service_attested: pgeAttested,
-        }),
-      });
+      const confirmed = await api<Profile>(
+        `/v1/imports/${importStatus.import_id}/confirm`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          body: JSON.stringify({
+            billing_period_start_utc_ns: importStatus.coverage_start_utc_ns,
+            billing_period_end_utc_ns: importStatus.coverage_end_utc_ns,
+            acknowledged_warning_ids: [...acknowledgedWarnings].sort(),
+            pge_service_attested: pgeAttested,
+          }),
+        },
+      );
+      setProfile(confirmed);
       setMessage(
         "Profile confirmed. The raw upload has entered immediate deletion.",
       );
@@ -166,6 +266,89 @@ export function App() {
       setMessage(
         error instanceof Error ? error.message : "Confirmation failed.",
       );
+    }
+  }
+
+  async function createReplay(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    if (csrf === null || profile === null || tariff === null) {
+      setMessage("Confirm a July 2026 profile before creating a replay.");
+      return;
+    }
+    const data = new FormData(event.currentTarget);
+    try {
+      const currentBill = optionalDollarsToCents(
+        data.get("current_bill_total"),
+      );
+      const unsupportedAmount = optionalDollarsToCents(
+        data.get("unsupported_amount"),
+      );
+      const unsupportedDescription = formEntryText(
+        data.get("unsupported_description"),
+      ).trim();
+      if (unsupportedAmount !== null && unsupportedDescription.length === 0) {
+        throw new Error(
+          "Describe an unsupported bill line before adding its amount.",
+        );
+      }
+      if (unsupportedAmount !== null && currentBill === null) {
+        throw new Error(
+          "Enter the current bill total before adding unsupported lines.",
+        );
+      }
+      const window = tariff.admission.admitted_service_windows[0];
+      if (window === undefined) {
+        throw new Error("The admitted E-1 service window is unavailable.");
+      }
+      const value = await api<ReplayResource>("/v1/replays", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": `browser-replay-${crypto.randomUUID()}`,
+          "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({
+          request_schema_version: "replay-operation-v1",
+          profile_version_id: profile.profile_version_id,
+          tariff_version_id: tariff.admission.tariff_version_id,
+          account_facts: {
+            schema_version: "account-facts-v1",
+            service_window: { start: window[0], end: window[1] },
+            service_provider: "PG&E",
+            service_mode: "BUNDLED",
+            meter_count: 1,
+            primary_meter_only: true,
+            income_tier: "TIER_3",
+            care_enrolled: false,
+            fera_enrolled: false,
+            medical_baseline: false,
+            cca_service: false,
+            direct_access_service: false,
+            active_bill_protection: false,
+            solar_or_export: false,
+            baseline_territory: "T",
+            baseline_quantity_code: "BASIC",
+            qualifying_technologies: [],
+            user_attested_at: new Date().toISOString(),
+          },
+          current_bill_total_cents: currentBill,
+          user_unsupported_lines:
+            unsupportedAmount === null
+              ? []
+              : [
+                  {
+                    line_item_key: "user_entered_other_1",
+                    description: unsupportedDescription,
+                    amount_cents: unsupportedAmount,
+                  },
+                ],
+        }),
+      });
+      setReplay(value);
+      setMessage("Immutable E-1 historical replay created.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Replay failed.");
     }
   }
 
@@ -179,6 +362,9 @@ export function App() {
       setSession(null);
       setCsrf(null);
       setImportStatus(null);
+      setProfile(null);
+      setTariff(null);
+      setReplay(null);
       setAcknowledgedWarnings(new Set());
       setPgeAttested(false);
       setMessage("Signed out and revoked the application session.");
@@ -442,6 +628,252 @@ export function App() {
               </div>
             )}
           </section>
+
+          <section className="panel wide" aria-labelledby="replay-heading">
+            <p className="step">03</p>
+            <h2 id="replay-heading">Replay July E-1</h2>
+            <p>
+              This is a historical calculation for the locked July 2026 service
+              window. It does not compare plans and is not a forecast.
+            </p>
+            {profile === null ? (
+              <p className="coverage-note">
+                Confirm one complete July 2026 profile to unlock replay.
+              </p>
+            ) : (
+              <form
+                className="replay-form"
+                onSubmit={(event) => void createReplay(event)}
+              >
+                <div
+                  className="account-locks"
+                  aria-label="Locked account facts"
+                >
+                  <span>PG&amp;E bundled service</span>
+                  <span>Income Tier 3</span>
+                  <span>Territory T, basic baseline</span>
+                  <span>One primary import-only meter</span>
+                </div>
+                <div className="reconciliation-fields">
+                  <label>
+                    Current bill total in dollars, optional
+                    <input
+                      name="current_bill_total"
+                      inputMode="decimal"
+                      pattern="[0-9]+(\.[0-9]{1,2})?"
+                      placeholder="110.00"
+                    />
+                  </label>
+                  <label>
+                    Unsupported line description, optional
+                    <input
+                      name="unsupported_description"
+                      maxLength={120}
+                      placeholder="Local tax shown on current bill"
+                    />
+                  </label>
+                  <label>
+                    Unsupported line amount in dollars, optional
+                    <input
+                      name="unsupported_amount"
+                      inputMode="decimal"
+                      pattern="-?[0-9]+(\.[0-9]{1,2})?"
+                      placeholder="2.00"
+                    />
+                  </label>
+                </div>
+                <label className="attestation">
+                  <input name="account_attestation" type="checkbox" required />I
+                  attest that every locked account fact above applies for the
+                  displayed July 2026 service window, and that CARE, FERA,
+                  medical baseline, CCA, direct access, solar or export, and
+                  active bill protection do not apply.
+                </label>
+                <button className="primary" type="submit">
+                  Create historical replay
+                </button>
+              </form>
+            )}
+
+            {replay !== null && (
+              <article
+                className="replay-result"
+                aria-labelledby="result-heading"
+              >
+                <div className="result-summary">
+                  <div>
+                    <p className="eyebrow">Supported calculated charges</p>
+                    <h3 id="result-heading">
+                      {formatMoney(replay.result.supported_calculated_cents)}
+                    </h3>
+                  </div>
+                  <span className="status-badge">
+                    {replay.result.eligibility.status}
+                  </span>
+                </div>
+                <div className="table-scroll">
+                  <table>
+                    <caption>Auditable E-1 charge lines</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Charge</th>
+                        <th scope="col">Quantity</th>
+                        <th scope="col">Rate</th>
+                        <th scope="col">Amount</th>
+                        <th scope="col">Source</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {replay.result.line_items.map((line) => (
+                        <tr key={line.line_item_key}>
+                          <th scope="row">{humanize(line.line_item_key)}</th>
+                          <td>
+                            {formatQuantity(line)} {line.quantity_unit}
+                          </td>
+                          <td>{formatRate(line)}</td>
+                          <td>{formatMoney(line.rounded_cents)}</td>
+                          <td>
+                            <code>{line.source_id}</code>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {replay.result.reconciliation === null ? (
+                  <p className="coverage-note">
+                    No current-bill reconciliation was requested.
+                  </p>
+                ) : (
+                  <div
+                    className="reconciliation"
+                    aria-label="Current bill reconciliation"
+                  >
+                    <dl>
+                      <div>
+                        <dt>Entered bill</dt>
+                        <dd>
+                          {formatMoney(
+                            replay.result.reconciliation
+                              .entered_bill_total_cents,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>User unsupported</dt>
+                        <dd>
+                          {formatMoney(
+                            replay.result.reconciliation.user_unsupported_cents,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Unexplained residual</dt>
+                        <dd>
+                          {formatMoney(
+                            replay.result.reconciliation
+                              .unexplained_residual_cents,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Review state</dt>
+                        <dd>
+                          {humanize(
+                            replay.result.reconciliation.classification,
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                    {replay.result.user_unsupported_lines.map((line) => (
+                      <p className="unsupported-line" key={line.line_item_key}>
+                        User-entered unsupported: {line.description}{" "}
+                        <strong>{formatMoney(line.amount_cents)}</strong>
+                      </p>
+                    ))}
+                    <p className="coverage-note">
+                      The residual remains signed and visible. RateReplay does
+                      not move it into a supported charge to force a match.
+                    </p>
+                  </div>
+                )}
+                <details className="manifest">
+                  <summary>Calculation manifest and exact hashes</summary>
+                  <dl>
+                    <div>
+                      <dt>Calculation</dt>
+                      <dd>
+                        <code>{replay.result.manifest.calculation_sha256}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Replay input</dt>
+                      <dd>
+                        <code>
+                          {replay.result.manifest.replay_input_sha256}
+                        </code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Compiler</dt>
+                      <dd>
+                        <code>
+                          {
+                            replay.result.manifest
+                              .tariff_compiler_content_sha256
+                          }
+                        </code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Result</dt>
+                      <dd>
+                        <code>{replay.result.result_sha256}</code>
+                      </dd>
+                    </div>
+                  </dl>
+                </details>
+              </article>
+            )}
+          </section>
+
+          <section
+            className="panel wide provenance"
+            aria-labelledby="provenance-heading"
+          >
+            <p className="step">04</p>
+            <h2 id="provenance-heading">Filed-source provenance</h2>
+            {tariff === null ? (
+              <p>Loading the admitted E-1 source vector.</p>
+            ) : (
+              <>
+                <p>
+                  E-1 is admitted only for historical replay in the locked July
+                  2026 account class. Comparison and optimization are not yet
+                  admitted.
+                </p>
+                <ul className="source-list">
+                  {tariff.compilation.reports.source_coverage.map((source) => (
+                    <li key={source.source_id}>
+                      <a
+                        href={source.source_url}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {source.source_id}
+                      </a>
+                      <span>{source.linked_rule_ids.length} linked rules</span>
+                      <code>{source.source_sha256}</code>
+                    </li>
+                  ))}
+                </ul>
+                <p className="coverage-note">
+                  Compiler content hash:{" "}
+                  <code>{tariff.admission.compiler_content_sha256}</code>
+                </p>
+              </>
+            )}
+          </section>
         </div>
       )}
     </main>
@@ -451,4 +883,59 @@ export function App() {
 function formatUtc(value: number | null): string {
   if (value === null) return "pending coverage";
   return new Date(value / 1_000_000).toISOString().replace(".000Z", "Z");
+}
+
+function optionalDollarsToCents(
+  value: FormDataEntryValue | null,
+): number | null {
+  const text = formEntryText(value).trim();
+  if (text.length === 0) return null;
+  const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  if (match === null) {
+    throw new Error("Dollar amounts must use no more than two decimal places.");
+  }
+  const sign = match[1] === "-" ? -1 : 1;
+  const whole = Number(match[2]);
+  const fractional = Number((match[3] ?? "").padEnd(2, "0"));
+  const cents = whole * 100 + fractional;
+  if (!Number.isSafeInteger(whole) || !Number.isSafeInteger(cents)) {
+    throw new Error("Dollar amount is outside the supported exact range.");
+  }
+  return sign * cents;
+}
+
+function formEntryText(value: FormDataEntryValue | null): string {
+  if (value === null) return "";
+  if (typeof value !== "string") {
+    throw new Error("This field must contain text, not a file.");
+  }
+  return value;
+}
+
+function formatMoney(cents: number): string {
+  const sign = cents < 0 ? "-" : "";
+  const absolute = Math.abs(cents);
+  return `${sign}$${Math.floor(absolute / 100).toLocaleString("en-US")}.${String(
+    absolute % 100,
+  ).padStart(2, "0")}`;
+}
+
+function formatQuantity(line: ReplayLine): string {
+  if (line.quantity_denominator === 1) {
+    return line.quantity_numerator.toLocaleString("en-US");
+  }
+  return `${line.quantity_numerator}/${line.quantity_denominator}`;
+}
+
+function formatRate(line: ReplayLine): string {
+  const value =
+    line.rate_numerator_microdollars / line.rate_denominator / 1_000_000;
+  const suffix = line.rate_unit.replace("microdollars", "USD");
+  return `${value.toFixed(5)} ${suffix}`;
+}
+
+function humanize(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

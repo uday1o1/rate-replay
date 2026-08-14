@@ -49,6 +49,7 @@ main {
 .masthead {
   min-height: 5rem;
   display: flex;
+  gap: 1rem;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid #b9c0b9;
@@ -56,6 +57,7 @@ main {
 
 .brand {
   display: inline-flex;
+  flex: 0 0 auto;
   gap: 0.7rem;
   align-items: center;
   color: inherit;
@@ -87,10 +89,18 @@ main {
 
 .session-summary {
   display: flex;
+  min-width: 0;
   gap: 0.75rem;
   align-items: center;
   color: #465249;
   font-size: 0.85rem;
+}
+
+.session-summary span {
+  overflow: hidden;
+  max-width: 12rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hero {
@@ -129,7 +139,12 @@ h1 {
   gap: 1.25rem;
 }
 
+.wide {
+  grid-column: 1 / -1;
+}
+
 .panel {
+  min-width: 0;
   padding: clamp(1.5rem, 3vw, 2.5rem);
   border: 1px solid #c5cbc3;
   border-radius: 1.2rem;
@@ -313,6 +328,156 @@ dd {
   margin-top: 1rem;
 }
 
+.replay-form {
+  margin-top: 1.5rem;
+}
+
+.account-locks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.account-locks span,
+.status-badge {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid #a9b7aa;
+  border-radius: 999px;
+  color: #315840;
+  background: #f1f6ee;
+  font-size: 0.78rem;
+  font-weight: 720;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reconciliation-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.replay-result {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid #c5cbc3;
+}
+
+.result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+h3 {
+  margin: 0.15rem 0 1rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.6rem, 7vw, 5rem);
+  font-weight: 500;
+  letter-spacing: -0.05em;
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+caption {
+  padding: 0 0 0.7rem;
+  color: #59665d;
+  text-align: left;
+}
+
+th,
+td {
+  padding: 0.85rem 0.7rem;
+  border-bottom: 1px solid #d8ddd6;
+  text-align: left;
+  white-space: nowrap;
+}
+
+thead th {
+  color: #647067;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.reconciliation {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #c6cec4;
+  border-radius: 0.8rem;
+  background: #f7f8f4;
+}
+
+.reconciliation dl,
+.manifest dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.reconciliation dl div,
+.manifest dl div {
+  min-width: 0;
+  padding: 0.8rem;
+  border-radius: 0.6rem;
+  background: #edf1ea;
+}
+
+.unsupported-line {
+  color: #6d4a27;
+}
+
+.manifest {
+  margin-top: 1.2rem;
+}
+
+.manifest summary {
+  cursor: pointer;
+  color: #315840;
+  font-weight: 700;
+}
+
+code {
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  white-space: normal;
+}
+
+.source-list {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.source-list li {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.7fr) minmax(8rem, 0.4fr) minmax(
+      18rem,
+      1.5fr
+    );
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  border-radius: 0.7rem;
+  background: #f0f3ed;
+}
+
+.source-list a {
+  color: #245c38;
+  font-weight: 720;
+}
+
 @media (max-width: 760px) {
   main {
     padding-inline: 1rem;
@@ -323,7 +488,32 @@ dd {
     grid-template-columns: 1fr;
   }
 
+  .masthead {
+    gap: 0.75rem;
+  }
+
+  .session-summary {
+    margin-left: auto;
+    gap: 0.5rem;
+  }
+
+  .session-summary span {
+    max-width: 7rem;
+  }
+
   .quality-report dl {
     grid-template-columns: 1fr;
+  }
+
+  .reconciliation-fields,
+  .reconciliation dl,
+  .manifest dl,
+  .source-list li {
+    grid-template-columns: 1fr;
+  }
+
+  .result-summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
