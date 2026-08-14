@@ -1,0 +1,35 @@
+{
+  "schema_version": "m8-ingestion-scaling-workload-v1",
+  "evidence_scope": "SYNTHETIC_ENGINEERING_ONLY",
+  "prohibited_claims": [
+    "PGE_BILL_CORRECTNESS",
+    "PGE_SAVINGS",
+    "REAL_CUSTOMER_SCALE"
+  ],
+  "generator": {
+    "domain_separator": "RateReplay.M8SyntheticIngestion.v1\\0",
+    "start_utc": "2025-01-01T00:00:00Z",
+    "interval_seconds": 900,
+    "energy_wh_formula": "125 + ((zero_based_index * 17) % 251)",
+    "flow_direction": "IMPORT",
+    "source_unit": "Wh",
+    "source_multiplier": 0
+  },
+  "profiles": [
+    {
+      "profile_id": "one-month-15-minute",
+      "interval_count": 2976,
+      "canonical_readings_sha256": "4e487c3af584c527c1d5211223a348abb186c76f8afc32818a8f2e15eb9377ad"
+    },
+    {
+      "profile_id": "six-month-15-minute",
+      "interval_count": 17376,
+      "canonical_readings_sha256": "2e0ba97a40a125d1f7e87227b54b8d9b3db921486aa691fc72adf8a36650be73"
+    },
+    {
+      "profile_id": "one-year-15-minute",
+      "interval_count": 35040,
+      "canonical_readings_sha256": "43a2588b24364672cced5cf7d91076a21b344d2309c026ed8a00c3e197897262"
+    }
+  ]
+}

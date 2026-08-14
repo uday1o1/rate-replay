@@ -1,0 +1,169 @@
+{
+  "schema_version": "m8-independent-golden-inputs-v1",
+  "rounding": "ROUND_HALF_UP_TO_CENT_PER_LINE",
+  "cases": [
+    {
+      "case_id": "pge-e1-july-2026-territory-t-basic-310kwh",
+      "golden_path": "tariffs/golden/e1-july-2026-complete-bill.json",
+      "source_ids": ["pge-advice-7921-e", "pge-advice-7846-e"],
+      "source_sheets": ["61362-E", "61097-E", "61099-E"],
+      "rule_ids": [
+        "E1_APPLICABILITY_2026_03_01",
+        "E1_BASELINE_T_BASIC_SUMMER_2026_03_01",
+        "E1_TOTAL_ENERGY_2026_06_01",
+        "BSC_TIER3_2026_06_01",
+        "CALIFORNIA_CLIMATE_CREDIT_2026"
+      ],
+      "lines": [
+        {
+          "kind": "ENERGY",
+          "energy_wh": 201500,
+          "rate_microdollars_per_kwh": 325610
+        },
+        {
+          "kind": "ENERGY",
+          "energy_wh": 108500,
+          "rate_microdollars_per_kwh": 407020
+        },
+        { "kind": "DAILY", "days": 31, "rate_microdollars_per_day": 793430 },
+        { "kind": "FIXED", "amount_microdollars": -36180000 }
+      ],
+      "expected_line_cents": [6561, 4416, 2460, -3618],
+      "expected_total_cents": 9819
+    },
+    {
+      "case_id": "pge-etouc-july-2026-hourly-flat-load",
+      "golden_path": "tariffs/golden/etouc-july-2026.json",
+      "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
+      "source_sheets": ["61124-E", "61128-E", "61130-E", "61364-E"],
+      "rule_ids": [
+        "ETOUC_APPLICABILITY_2026_03_01",
+        "ETOUC_BASELINE_T_BASIC_SUMMER_2026_03_01",
+        "ETOUC_PEAK_1600_2100_EVERY_DAY_2026_03_01",
+        "ETOUC_BILL_PROTECTION_2026_03_01",
+        "ETOUC_SUMMER_TOTAL_RATES_2026_06_01",
+        "BSC_TIER3_2026_06_01",
+        "CALIFORNIA_CLIMATE_CREDIT_2026"
+      ],
+      "lines": [
+        {
+          "kind": "ENERGY",
+          "energy_wh": 155000,
+          "rate_microdollars_per_kwh": 522400
+        },
+        {
+          "kind": "ENERGY",
+          "energy_wh": 589000,
+          "rate_microdollars_per_kwh": 399400
+        },
+        {
+          "kind": "ENERGY",
+          "energy_wh": 201500,
+          "rate_microdollars_per_kwh": -81400
+        },
+        { "kind": "DAILY", "days": 31, "rate_microdollars_per_day": 793430 },
+        { "kind": "FIXED", "amount_microdollars": -36180000 }
+      ],
+      "expected_line_cents": [8097, 23525, -1640, 2460, -3618],
+      "expected_total_cents": 28824
+    },
+    {
+      "case_id": "pge-etoud-july-2026-hourly-flat-load",
+      "golden_path": "tariffs/golden/etoud-july-2026.json",
+      "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
+      "source_sheets": ["61134-E", "61137-E", "61365-E"],
+      "rule_ids": [
+        "ETOUD_APPLICABILITY_2026_03_01",
+        "ETOUD_PEAK_1700_2000_NONHOLIDAY_WEEKDAY_2026_03_01",
+        "ETOUD_SUMMER_TOTAL_RATES_2026_06_01",
+        "BSC_TIER3_2026_06_01",
+        "CALIFORNIA_CLIMATE_CREDIT_2026"
+      ],
+      "lines": [
+        {
+          "kind": "ENERGY",
+          "energy_wh": 66000,
+          "rate_microdollars_per_kwh": 477080
+        },
+        {
+          "kind": "ENERGY",
+          "energy_wh": 678000,
+          "rate_microdollars_per_kwh": 342120
+        },
+        { "kind": "DAILY", "days": 31, "rate_microdollars_per_day": 793430 },
+        { "kind": "FIXED", "amount_microdollars": -36180000 }
+      ],
+      "expected_line_cents": [3149, 23196, 2460, -3618],
+      "expected_total_cents": 25187
+    },
+    {
+      "case_id": "pge-eelec-july-2026-hourly-flat-load",
+      "golden_path": "tariffs/golden/eelec-july-2026.json",
+      "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
+      "source_sheets": ["61116-E", "61119-E", "61363-E"],
+      "rule_ids": [
+        "EELEC_APPLICABILITY_2026_03_01",
+        "EELEC_TOU_WINDOWS_2026_03_01",
+        "EELEC_SUMMER_TOTAL_RATES_2026_06_01",
+        "BSC_TIER3_2026_06_01",
+        "CALIFORNIA_CLIMATE_CREDIT_2026"
+      ],
+      "lines": [
+        {
+          "kind": "ENERGY",
+          "energy_wh": 155000,
+          "rate_microdollars_per_kwh": 552140
+        },
+        {
+          "kind": "ENERGY",
+          "energy_wh": 124000,
+          "rate_microdollars_per_kwh": 390260
+        },
+        {
+          "kind": "ENERGY",
+          "energy_wh": 465000,
+          "rate_microdollars_per_kwh": 333580
+        },
+        { "kind": "DAILY", "days": 31, "rate_microdollars_per_day": 793430 },
+        { "kind": "FIXED", "amount_microdollars": -36180000 }
+      ],
+      "expected_line_cents": [8558, 4839, 15511, 2460, -3618],
+      "expected_total_cents": 27750
+    },
+    {
+      "case_id": "pge-ev2a-july-2026-hourly-flat-load",
+      "golden_path": "tariffs/golden/ev2a-july-2026.json",
+      "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
+      "source_sheets": ["61169-E", "61172-E", "61374-E"],
+      "rule_ids": [
+        "EV2A_APPLICABILITY_2026_03_01",
+        "EV2A_ANNUAL_BASELINE_LIMIT_2026_03_01",
+        "EV2A_TOU_WINDOWS_2026_03_01",
+        "EV2A_SUMMER_TOTAL_RATES_2026_06_01",
+        "BSC_TIER3_2026_06_01",
+        "CALIFORNIA_CLIMATE_CREDIT_2026"
+      ],
+      "lines": [
+        {
+          "kind": "ENERGY",
+          "energy_wh": 155000,
+          "rate_microdollars_per_kwh": 538090
+        },
+        {
+          "kind": "ENERGY",
+          "energy_wh": 124000,
+          "rate_microdollars_per_kwh": 427600
+        },
+        {
+          "kind": "ENERGY",
+          "energy_wh": 465000,
+          "rate_microdollars_per_kwh": 225580
+        },
+        { "kind": "DAILY", "days": 31, "rate_microdollars_per_day": 793430 },
+        { "kind": "FIXED", "amount_microdollars": -36180000 }
+      ],
+      "expected_line_cents": [8340, 5302, 10489, 2460, -3618],
+      "expected_total_cents": 22973
+    }
+  ]
+}

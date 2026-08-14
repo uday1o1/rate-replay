@@ -1,0 +1,212 @@
+{
+  "schema_version": "m8-evaluation-run-manifest-v1",
+  "manifest_sha256": "06186b97f28994d05144175d9b7b574ac441bbc2949524c2898d2c27984d0cf9",
+  "frozen_at": "2026-08-14T20:11:21Z",
+  "frozen_before_execution": true,
+  "evidence_scope": "PUBLIC_SIMULATED_AND_INDEPENDENT_GOLDEN_INPUTS_ONLY",
+  "calculation_contract_versions": {
+    "replay": "historical-replay-calculation-v2",
+    "comparison": "tariff-comparison-calculation-v1",
+    "scenario": "verified-scenario-calculation-v1",
+    "report": "redacted-report-contract-v1"
+  },
+  "hardware": {
+    "machine": "Apple M5 developer laptop",
+    "architecture": "arm64",
+    "logical_cpu_count": 10,
+    "memory_gib": 24,
+    "operating_system": "macOS 26.5"
+  },
+  "demo": {
+    "manifest": {
+      "path": "artifacts/demo/manifest.v1.json",
+      "sha256": "8bdac2156589cf07522c4784813acf268a5334b03d079f3a364c9514c2967559"
+    },
+    "schema": {
+      "path": "artifacts/demo/manifest.schema.json",
+      "sha256": "3d61c6858852113901db2064a6cbe96f848ecf7f27c0d39ac39e2f631c4c7494"
+    },
+    "allowlist": {
+      "path": "artifacts/demo/allowlist.v1.json",
+      "sha256": "efa78293fd8ee4eb354aa61a7e67aa590f7db81f8374808aeeb556fb29fbbf5d"
+    },
+    "ranking_coverage_artifact": {
+      "path": "artifacts/demo/objects/ce1f3e6ae3a48a99be4205f126bdefb506a2f25d74ab80fd9b71041c0f7cdf97.json",
+      "sha256": "ce1f3e6ae3a48a99be4205f126bdefb506a2f25d74ab80fd9b71041c0f7cdf97"
+    },
+    "generation_command": "make demo-artifacts",
+    "validation_command": "make demo-artifacts-check"
+  },
+  "source_locks": [
+    {
+      "path": "data/sources.lock.json",
+      "sha256": "95e110d5bbc144b7898ad77eba1c6dea78d42b1d9c4536241bbcf8ac542163cc"
+    },
+    {
+      "path": "tariffs/sources.lock.json",
+      "sha256": "a1843a507e733ee5fe40a15f1e8403602a1ab97eda00eca192167d50140905f7"
+    },
+    {
+      "path": "tariffs/admission/candidate-matrix-v1.json",
+      "sha256": "c9dbd346e881a42908651e812909d7392829473997452e23a37034602d7626ea"
+    }
+  ],
+  "billing_goldens": {
+    "independent_input": {
+      "path": "benchmarks/reference/m8-golden-inputs.v1.json",
+      "sha256": "4b980684b5c56f5d0f4b4bb4f26c2454bc7371b3a982d90b5d87d78c170a07a3"
+    },
+    "independent_runner": {
+      "path": "benchmarks/reference/m8_golden_derivations.py",
+      "sha256": "9bd3d6e4c5252754deb69e3040fb0d43dba4be57b3bb23e217ea38fef39392f6"
+    },
+    "fixtures": [
+      {
+        "path": "tariffs/golden/e1-july-2026-complete-bill.json",
+        "sha256": "1d98537784017ec7208f39f0e5b643c0f2d32a206450c14777897cab34a1d0af"
+      },
+      {
+        "path": "tariffs/golden/e1-july-2026-boundaries.json",
+        "sha256": "94faa707c4d48b01e774beb1c38953319979a2f98923e7f43a3d9fa2d53615b9"
+      },
+      {
+        "path": "tariffs/golden/etouc-july-2026.json",
+        "sha256": "27b72a88367ea181c796c05cfc6ce606ec143bea9d92f81b51d10629e9fa651b"
+      },
+      {
+        "path": "tariffs/golden/etoud-july-2026.json",
+        "sha256": "231d94104ac18d1257faec588fbed1e68fae2b72d2557a5d093cae425b7579c2"
+      },
+      {
+        "path": "tariffs/golden/eelec-july-2026.json",
+        "sha256": "4b249506c240282c51613527da9f9f88ea4e41e7f2b42f4f60f0f8547847ed1d"
+      },
+      {
+        "path": "tariffs/golden/ev2a-july-2026.json",
+        "sha256": "2c87ffd0ccef9773bd93e9a763d08463e20dc617c952f623c3235776e39afe7e"
+      }
+    ],
+    "output_path": "evidence/correctness/m8-independent-golden-derivations.json"
+  },
+  "parser": {
+    "espi_fixture": {
+      "path": "data/fixtures/espi/independent-pacific-hourly.xml",
+      "sha256": "da68f74a2c9bcaf796af3aa540463cb662f1264da01e97432fe8c18dfeae1224"
+    },
+    "espi_schema": {
+      "path": "third_party/espi-schema/espi-4.0.xsd",
+      "sha256": "5c40d509744cacb1813eb672305cfe83bb9b2ff494e254f269b093ce52010a33"
+    },
+    "provider_csv": {
+      "path": "third_party/pge-csv/provider-sample.csv",
+      "sha256": "fab3fccd5f24070b892473ddefbab95c06689f9e41b0eb5981db2d18cbd8a0ac"
+    },
+    "scaling_workload": {
+      "path": "benchmarks/workloads/m8-ingestion-scaling-v1.json",
+      "sha256": "6a2bc3a54dc769fc2419922f0a62e39a5e5c5c75d0f1361aa4cdd6645b8e27a1"
+    },
+    "output_path": "evidence/evaluation/m8-parser-correctness.json"
+  },
+  "comparison": {
+    "profile": {
+      "path": "data/demo/july-2026-simulated-profile.json",
+      "sha256": "47b449f47039960cde24666a5ed2723781b7773d624dbdd2b74de78e02da19ce"
+    },
+    "account_facts": {
+      "path": "tariffs/examples/m3-comparison-account.json",
+      "sha256": "197eace0b9ca489a24316d99d52327daf5e9e48b4a85febda74217b6ca8310cb"
+    },
+    "candidate_counts": [1, 3, 5],
+    "output_path": "evidence/evaluation/m8-comparison-coverage.json"
+  },
+  "optimizer": {
+    "workload": {
+      "path": "benchmarks/workloads/m4-july-optimization-v2.json",
+      "sha256": "9f9b0b1cef2a8d3b86037e12dec41575ada69d2dc4642cf6b56d390e9108494b"
+    },
+    "historical_qualification": {
+      "path": "evidence/correctness/m4-optimizer-qualification.json",
+      "sha256": "9ad24483a4a1024454b619dd8f5ceb23fc3391cfad3993595d03932e3b00a621"
+    },
+    "load_counts": [0, 1, 5],
+    "oracle_small_instance_count": 25,
+    "output_path": "evidence/evaluation/m8-optimizer-oracle.json"
+  },
+  "performance": {
+    "acceptance_charters": [
+      {
+        "path": "benchmarks/charters/performance-v1.json",
+        "sha256": "d27fcacf395eafb2aa201055ee9abb2ade745e77c13a19931fcb020c07737c0a"
+      },
+      {
+        "path": "benchmarks/charters/performance-v2.json",
+        "sha256": "22cc48f589e5c565d4974331c88b7b020dd8715137e992d23562e062ef569630"
+      },
+      {
+        "path": "benchmarks/charters/performance-v3.json",
+        "sha256": "62685dc66a9a311ef83ebac45066be78dfd1f182ed4bd61df875f54e3b1154f4"
+      }
+    ],
+    "preserved_failure": {
+      "path": "evidence/performance/m4-performance-v2-failed.json",
+      "sha256": "a92fba21148c5f538381c63daee5e8833e039e437851c8289cae58c674db83f5"
+    },
+    "warmups": 3,
+    "measured_repetitions": 10,
+    "api_repetitions": 30,
+    "cache_series": ["COLD", "WARM"],
+    "thresholds": {
+      "api_scenario_warm_get_p95_ms": 1000,
+      "api_warm_cached_comparison_p95_ms": 1000,
+      "duplicate_successful_results": 0,
+      "import_peak_rss_one_month_bytes": 268435456,
+      "import_peak_rss_one_year_bytes": 536870912,
+      "import_wall_one_month_p95_ms": 3000,
+      "import_wall_one_year_p95_ms": 15000,
+      "july_comparison_uncached_p95_ms": 3000,
+      "july_optimization_five_load_p95_ms": 30000,
+      "july_optimization_one_load_p95_ms": 10000,
+      "july_replay_p95_ms": 1000,
+      "report_generation_p95_ms": 2000,
+      "scenario_worker_recovery_maximum_ms": 30000,
+      "worker_recovery_maximum_ms": 30000
+    },
+    "variance_policy": "No measured repetition may be omitted, and a coefficient of variation above 0.20 requires investigation without deleting the original result.",
+    "output_path": "evidence/evaluation/m8-performance.json",
+    "table_path": "docs/results/m8-performance.csv",
+    "chart_path": "docs/results/m8-performance.svg"
+  },
+  "crash_recovery": {
+    "database": "PostgreSQL 16",
+    "object_store": "S3-compatible release topology",
+    "worker_signal": "SIGKILL",
+    "output_path": "evidence/evaluation/m8-crash-recovery.json"
+  },
+  "human_study": {
+    "state": "HUMAN_VALIDATION_DEFERRED",
+    "protocol": {
+      "path": "studies/user-comprehension/protocol-v1.json",
+      "sha256": "dc344900bae33b76ba819d28c4288a7ce066ef3fbb4940cfda5b67e3609b8cac"
+    },
+    "result_schema": {
+      "path": "studies/user-comprehension/result.schema.v1.json",
+      "sha256": "e14c43ed95c109cabb096003d43101c032b2da31e1fdc55d18240cd05e50ba31"
+    },
+    "genuine_participant_count": 0,
+    "synthetic_sessions_may_count": false,
+    "threshold": "AT_LEAST_4_OF_5_GENUINE_FIRST_TIME_PARTICIPANTS",
+    "qualification_command": "make qualification-m6-study"
+  },
+  "negative_cases": [
+    "UNKNOWN_FORMAT",
+    "XML_ENTITY_REJECTED",
+    "NON_INTEGRAL_WATT_HOUR",
+    "UNCLASSIFIED_ACTIVE_COMPONENT",
+    "UNKNOWN_ELIGIBILITY",
+    "VERIFIER_ENERGY_CONSERVATION_FAILED",
+    "MISSING_LEDGER",
+    "TAMPERED_LEDGER",
+    "UNRESOLVED_PREPARED"
+  ],
+  "summary_output_path": "evidence/evaluation/m8-summary.json"
+}
