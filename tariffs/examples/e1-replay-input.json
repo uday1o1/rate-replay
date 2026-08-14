@@ -1,0 +1,36 @@
+{
+  "request_version": "e1-replay-request-v1",
+  "profile_content_sha256": "47b449f47039960cde24666a5ed2723781b7773d624dbdd2b74de78e02da19ce",
+  "account_facts": {
+    "schema_version": "account-facts-v1",
+    "service_window": {
+      "start": "2026-07-01",
+      "end": "2026-08-01"
+    },
+    "service_provider": "PG&E",
+    "service_mode": "BUNDLED",
+    "meter_count": 1,
+    "primary_meter_only": true,
+    "income_tier": "TIER_3",
+    "care_enrolled": false,
+    "fera_enrolled": false,
+    "medical_baseline": false,
+    "cca_service": false,
+    "direct_access_service": false,
+    "active_bill_protection": false,
+    "solar_or_export": false,
+    "baseline_territory": "T",
+    "baseline_quantity_code": "BASIC",
+    "qualifying_technologies": [],
+    "user_attested_at": "2026-07-01T00:00:00Z"
+  },
+  "energy_wh": 310000,
+  "current_bill_total_cents": 11000,
+  "user_unsupported_lines": [
+    {
+      "line_item_key": "user_entered_local_tax",
+      "description": "Example user-entered unsupported bill line",
+      "amount_cents": 200
+    }
+  ]
+}

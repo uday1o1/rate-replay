@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -25,6 +24,7 @@ from ratereplay_tariffs.compiled import (
     IRTieredEnergyCharge,
     SourceCoverage,
 )
+from ratereplay_tariffs.hashing import canonical_content_sha256
 from ratereplay_tariffs.schema import (
     BaselineAllowance,
     ExplicitUnsupportedCharge,
@@ -51,19 +51,6 @@ class TariffCompileError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
-
-
-def canonical_json_bytes(value: object) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-
-
-def _content_hash(domain: bytes, value: object) -> str:
-    return hashlib.sha256(domain + b"\x00" + canonical_json_bytes(value)).hexdigest()
 
 
 def _read_object(path: Path) -> dict[str, Any]:
@@ -423,7 +410,7 @@ def compile_tariff(root: Path, definition_path: Path | None = None) -> Compilati
         )
     golden_coverage = _load_golden_coverage(root, tariff)
     normalized_ast = cast(dict[str, object], tariff.model_dump(mode="json"))
-    normalized_ast_hash = _content_hash(b"RateReplay.TariffAST.v1", normalized_ast)
+    normalized_ast_hash = canonical_content_sha256(b"RateReplay.TariffAST.v1", normalized_ast)
     ir = CanonicalChargeIR(
         ir_version="compiled-charge-ir-v1",
         tariff_version_id=tariff.tariff_version_id,
@@ -480,7 +467,7 @@ def compile_tariff(root: Path, definition_path: Path | None = None) -> Compilati
         normalized_ast=normalized_ast,
         ir=ir,
         reports=reports,
-        compiler_content_sha256=_content_hash(
+        compiler_content_sha256=canonical_content_sha256(
             b"RateReplay.TariffCompilationBundle.v1", content_payload
         ),
     )

@@ -43,6 +43,7 @@ dev = [
 
 [project.scripts]
 ratereplay-foundation = "ratereplay_domain.cli:app"
+ratereplay-tariff = "ratereplay_tariffs.cli:app"
 ratereplay-worker = "ratereplay_worker.cli:app"
 
 [tool.hatch.build.targets.wheel]
