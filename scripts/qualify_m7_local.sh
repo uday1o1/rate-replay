@@ -4,8 +4,10 @@ set -eu
 umask 077
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 artifact_file=${1:-"$repository_root/evidence/reliability/m7-local-restore-rollback.json"}
-runtime_parent=${RATEREPLAY_M7_TEMP_ROOT:-/tmp}
-test -d "$runtime_parent"
+runtime_parent=${RATEREPLAY_M7_TEMP_ROOT:-"$repository_root/.local-secrets"}
+if ! test -d "$runtime_parent"; then
+  mkdir -m 700 -p "$runtime_parent"
+fi
 runtime_root=$(mktemp -d "$runtime_parent/ratereplay-m7.XXXXXX")
 source_project="ratereplay-m7-source-$$"
 quarantine_project="ratereplay-m7-quarantine-$$"
