@@ -83,10 +83,20 @@ class AuthenticatedSession:
 class LoginRateLimiter:
     """Bound expensive password checks without retaining raw principals or addresses."""
 
-    def __init__(self, key: bytes, *, limit: int = 5, window: timedelta = timedelta(minutes=1)):
+    def __init__(
+        self,
+        key: bytes,
+        *,
+        limit: int = 5,
+        window: timedelta = timedelta(minutes=1),
+        code: str = "AUTH_RATE_LIMITED",
+        message: str = "Too many authentication attempts. Try again later.",
+    ):
         self._key = key
         self._limit = limit
         self._window = window
+        self._code = code
+        self._message = message
         self._attempts: dict[str, deque[datetime]] = defaultdict(deque)
         self._lock = threading.Lock()
 
@@ -100,8 +110,8 @@ class LoginRateLimiter:
             if len(attempts) >= self._limit:
                 raise ApiProblem(
                     status_code=429,
-                    code="AUTH_RATE_LIMITED",
-                    message="Too many authentication attempts. Try again later.",
+                    code=self._code,
+                    message=self._message,
                 )
             attempts.append(now)
 

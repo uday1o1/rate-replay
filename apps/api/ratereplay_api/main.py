@@ -9,10 +9,14 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from ratereplay_persistence import models as persistence_models  # noqa: F401
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
+from ratereplay_persistence.imports import ImportService
+from ratereplay_persistence.jobs import JobService
+from ratereplay_persistence.object_store import FilesystemObjectStore
 
 from ratereplay_api.auth import AuthService, LoginRateLimiter
 from ratereplay_api.auth_routes import router as auth_router
 from ratereplay_api.config import AppSettings
+from ratereplay_api.import_routes import router as import_router
 from ratereplay_api.problems import install_problem_handler
 
 
@@ -25,8 +29,20 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     application.state.settings = resolved
     application.state.engine = engine
     application.state.session_factory = make_session_factory(engine)
+    application.state.object_store = FilesystemObjectStore(resolved.object_store_root)
+    application.state.import_service = ImportService(
+        application.state.session_factory,
+        application.state.object_store,
+    )
+    application.state.job_service = JobService(application.state.session_factory)
     application.state.auth_service = AuthService(resolved.session_key)
     application.state.login_limiter = LoginRateLimiter(resolved.session_key)
+    application.state.upload_limiter = LoginRateLimiter(
+        resolved.session_key,
+        limit=10,
+        code="UPLOAD_RATE_LIMITED",
+        message="Too many import requests. Try again later.",
+    )
 
     application.add_middleware(
         CORSMiddleware,
@@ -60,6 +76,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         }
 
     application.include_router(auth_router)
+    application.include_router(import_router)
     return application
 
 

@@ -106,6 +106,12 @@ async def test_cookie_attributes_are_host_only_secure_http_only_and_strict(
     assert "SameSite=strict" in cookie
     assert "Path=/" in cookie
     assert "Domain=" not in cookie
+    cookies = response.headers.get_list("set-cookie")
+    csrf_cookie = next(value for value in cookies if "__Host-ratereplay_csrf=" in value)
+    assert "Secure" in csrf_cookie
+    assert "SameSite=strict" in csrf_cookie
+    assert "HttpOnly" not in csrf_cookie
+    assert "Domain=" not in csrf_cookie
 
 
 @pytest.mark.anyio

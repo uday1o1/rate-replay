@@ -13,6 +13,7 @@ from ratereplay_api.auth import AuthenticatedSession, AuthService, LoginRateLimi
 from ratereplay_api.problems import ApiProblem, problem_openapi_responses
 
 SESSION_COOKIE = "__Host-ratereplay_session"
+CSRF_COOKIE = "__Host-ratereplay_csrf"
 
 
 class RegistrationRequest(BaseModel):
@@ -90,6 +91,15 @@ def _set_session_cookie(response: Response, grant: SessionGrant, *, secure: bool
         max_age=24 * 60 * 60,
         secure=secure,
         httponly=True,
+        samesite="strict",
+        path="/",
+    )
+    response.set_cookie(
+        key=CSRF_COOKIE,
+        value=grant.csrf_token,
+        max_age=24 * 60 * 60,
+        secure=secure,
+        httponly=False,
         samesite="strict",
         path="/",
     )
@@ -199,6 +209,13 @@ def logout(
         key=SESSION_COOKIE,
         secure=True,
         httponly=True,
+        samesite="strict",
+        path="/",
+    )
+    response.delete_cookie(
+        key=CSRF_COOKIE,
+        secure=True,
+        httponly=False,
         samesite="strict",
         path="/",
     )

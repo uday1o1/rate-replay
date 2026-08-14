@@ -14,6 +14,8 @@ class AppSettings:
     database_url: str
     allowed_origin: str
     session_key: bytes
+    object_store_root: Path
+    espi_schema_path: Path
     secure_cookies: bool = True
     auto_create_schema: bool = False
 
@@ -25,6 +27,15 @@ class AppSettings:
             "sqlite+pysqlite:///:memory:",
         )
         allowed_origin = os.getenv("RATEREPLAY_ALLOWED_ORIGIN", "https://localhost:5173")
+        object_store_root = Path(
+            os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/private/tmp/rate-replay-objects")
+        )
+        espi_schema_path = Path(
+            os.getenv(
+                "RATEREPLAY_ESPI_SCHEMA_PATH",
+                "third_party/espi-schema/espi-4.0.xsd",
+            )
+        )
         secret_path = os.getenv("RATEREPLAY_SESSION_SECRET_FILE")
         if secret_path is None:
             if environment in {"production", "staging"}:
@@ -39,6 +50,8 @@ class AppSettings:
             database_url=database_url,
             allowed_origin=allowed_origin,
             session_key=session_key,
+            object_store_root=object_store_root,
+            espi_schema_path=espi_schema_path,
             auto_create_schema=environment == "development",
         )
 
@@ -48,12 +61,16 @@ class AppSettings:
         *,
         database_url: str = "sqlite+pysqlite:///:memory:",
         allowed_origin: str = "https://app.ratereplay.test",
+        object_store_root: Path = Path("/private/tmp/rate-replay-test-objects"),
+        espi_schema_path: Path = Path("third_party/espi-schema/espi-4.0.xsd"),
     ) -> AppSettings:
         return cls(
             environment="test",
             database_url=database_url,
             allowed_origin=allowed_origin,
             session_key=b"rate-replay-test-session-key-v1!",
+            object_store_root=object_store_root,
+            espi_schema_path=espi_schema_path,
             secure_cookies=True,
             auto_create_schema=True,
         )
