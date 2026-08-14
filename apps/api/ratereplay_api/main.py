@@ -16,7 +16,6 @@ from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
 from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
-from ratereplay_persistence.object_store import FilesystemObjectStore
 from ratereplay_persistence.replays import ReplayService
 from ratereplay_persistence.reports import ReportService
 from ratereplay_persistence.scenarios import ScenarioService
@@ -43,7 +42,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     application.state.settings = resolved
     application.state.engine = engine
     application.state.session_factory = make_session_factory(engine)
-    application.state.object_store = FilesystemObjectStore(resolved.object_store_root)
+    application.state.object_store = resolved.object_store_configuration.build()
     application.state.deletion_ledger = FilesystemDeletionLedger(
         resolved.deletion_ledger_root,
         integrity_key=resolved.deletion_ledger_key,

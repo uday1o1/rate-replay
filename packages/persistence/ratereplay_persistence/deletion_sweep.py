@@ -49,7 +49,7 @@ from ratereplay_persistence.models import (
     SessionRecord,
     UserRecord,
 )
-from ratereplay_persistence.object_store import FilesystemObjectStore
+from ratereplay_persistence.object_store import ObjectStore
 
 
 class DeletionSweepError(RuntimeError):
@@ -70,7 +70,7 @@ class DeletionSweepService:
     def __init__(
         self,
         session_factory: sessionmaker[Session],
-        object_store: FilesystemObjectStore,
+        object_store: ObjectStore,
         ledger: FilesystemDeletionLedger,
     ) -> None:
         self._session_factory = session_factory

@@ -19,7 +19,7 @@ from ratereplay_persistence.models import (
     JobResultClaimRecord,
     ObjectUploadRegistrationRecord,
 )
-from ratereplay_persistence.object_store import FilesystemObjectStore
+from ratereplay_persistence.object_store import ObjectStore
 
 ARTIFACT_LIMITS: Final = {"REPORT": 10 * 1024 * 1024, "TRACE": 50 * 1024 * 1024}
 
@@ -51,7 +51,7 @@ class ArtifactService:
     def __init__(
         self,
         session_factory: sessionmaker[Session],
-        object_store: FilesystemObjectStore,
+        object_store: ObjectStore,
     ) -> None:
         self._session_factory = session_factory
         self._objects = object_store

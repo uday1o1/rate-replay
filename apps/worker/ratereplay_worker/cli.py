@@ -19,7 +19,7 @@ from ratereplay_persistence.deletion_sweep import DeletionSweepService
 from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
-from ratereplay_persistence.object_store import FilesystemObjectStore
+from ratereplay_persistence.object_store import ObjectStore, ObjectStoreConfiguration
 from ratereplay_persistence.restore import (
     RestoreQualificationError,
     RestoreReconciler,
@@ -50,12 +50,19 @@ def main() -> None:
     """Run durable RateReplay worker operations."""
 
 
+def _configured_object_store() -> ObjectStore:
+    configuration = ObjectStoreConfiguration.from_environment(
+        environment=os.getenv("RATEREPLAY_ENV", "development"),
+        default_root=Path("/var/lib/ratereplay/objects"),
+    )
+    return configuration.build()
+
+
 def _configured_worker() -> tuple[ImportWorker, Engine]:
     database_url = os.getenv("RATEREPLAY_DATABASE_URL")
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
         raise typer.Exit(code=2)
-    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
     schema_path = Path(
         os.getenv(
             "RATEREPLAY_ESPI_SCHEMA_PATH",
@@ -64,7 +71,7 @@ def _configured_worker() -> tuple[ImportWorker, Engine]:
     )
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
-    imports = ImportService(sessions, FilesystemObjectStore(object_root))
+    imports = ImportService(sessions, _configured_object_store())
     worker = ImportWorker(
         worker_id=f"{socket.gethostname()}-{os.getpid()}",
         jobs=JobService(sessions),
@@ -103,7 +110,6 @@ def _configured_deletion_worker() -> tuple[DeletionWorker, Engine]:
     ledger_root = Path(
         os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
     )
-    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
     ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
@@ -114,7 +120,7 @@ def _configured_deletion_worker() -> tuple[DeletionWorker, Engine]:
         jobs=jobs,
         sweeps=DeletionSweepService(
             sessions,
-            FilesystemObjectStore(object_root),
+            _configured_object_store(),
             ledger,
         ),
     )
@@ -138,11 +144,10 @@ def _configured_retention_worker() -> tuple[RetentionWorker, Engine]:
     ledger_root = Path(
         os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
     )
-    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
     ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
-    objects = FilesystemObjectStore(object_root)
+    objects = _configured_object_store()
     ledger = FilesystemDeletionLedger(ledger_root, integrity_key=ledger_key)
     return (
         RetentionWorker(
@@ -166,7 +171,6 @@ def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
     ledger_root = Path(
         os.getenv("RATEREPLAY_DELETION_LEDGER_ROOT", "/var/lib/ratereplay/deletion-ledger")
     )
-    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
     ledger_key = _required_key_file("RATEREPLAY_DELETION_LEDGER_KEY_FILE")
     restore_key = _required_key_file("RATEREPLAY_RESTORE_KEY_FILE")
     outcome_key = _required_key_file("RATEREPLAY_TRANSACTION_OUTCOME_KEY_FILE")
@@ -180,7 +184,7 @@ def _configured_restore_reconciler() -> tuple[RestoreReconciler, Engine]:
     return (
         RestoreReconciler(
             sessions,
-            FilesystemObjectStore(object_root),
+            _configured_object_store(),
             ledger,
             restore_key=restore_key,
             restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
@@ -195,10 +199,9 @@ def _configured_report_worker() -> tuple[ReportWorker, Engine]:
     if database_url is None:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
         raise typer.Exit(code=2)
-    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
-    objects = FilesystemObjectStore(object_root)
+    objects = _configured_object_store()
     return (
         ReportWorker(
             worker_id=f"{socket.gethostname()}-{os.getpid()}",
@@ -216,7 +219,6 @@ def _configured_replay_worker() -> tuple[ReplayWorker, Engine]:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
         raise typer.Exit(code=2)
     repository_root = Path(os.getenv("RATEREPLAY_REPOSITORY_ROOT", ".")).resolve()
-    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
     tariffs = load_all_admitted_tariffs(repository_root)
@@ -225,7 +227,7 @@ def _configured_replay_worker() -> tuple[ReplayWorker, Engine]:
             worker_id=f"{socket.gethostname()}-{os.getpid()}",
             session_factory=sessions,
             jobs=JobService(sessions),
-            artifacts=ArtifactService(sessions, FilesystemObjectStore(object_root)),
+            artifacts=ArtifactService(sessions, _configured_object_store()),
             admitted_tariffs={item.lock.tariff_version_id: item for item in tariffs},
             environment_lock_hash=environment_lock_hash(repository_root),
         ),
@@ -239,7 +241,6 @@ def _configured_comparison_worker() -> tuple[ComparisonWorker, Engine]:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
         raise typer.Exit(code=2)
     repository_root = Path(os.getenv("RATEREPLAY_REPOSITORY_ROOT", ".")).resolve()
-    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
     tariffs = load_all_admitted_tariffs(repository_root)
@@ -248,7 +249,7 @@ def _configured_comparison_worker() -> tuple[ComparisonWorker, Engine]:
             worker_id=f"{socket.gethostname()}-{os.getpid()}",
             session_factory=sessions,
             jobs=JobService(sessions),
-            artifacts=ArtifactService(sessions, FilesystemObjectStore(object_root)),
+            artifacts=ArtifactService(sessions, _configured_object_store()),
             admitted_tariffs={item.lock.tariff_version_id: item for item in tariffs},
             required_component_keys=load_required_component_keys(repository_root),
             environment_lock_hash=environment_lock_hash(repository_root),
@@ -263,7 +264,6 @@ def _configured_scenario_worker() -> tuple[ScenarioWorker, Engine]:
         typer.echo("RATEREPLAY_DATABASE_URL is required", err=True)
         raise typer.Exit(code=2)
     repository_root = Path(os.getenv("RATEREPLAY_REPOSITORY_ROOT", ".")).resolve()
-    object_root = Path(os.getenv("RATEREPLAY_OBJECT_STORE_ROOT", "/var/lib/ratereplay/objects"))
     engine = make_engine(database_url)
     sessions = make_session_factory(engine)
     tariffs = load_all_admitted_tariffs(repository_root)
@@ -272,7 +272,7 @@ def _configured_scenario_worker() -> tuple[ScenarioWorker, Engine]:
             worker_id=f"{socket.gethostname()}-{os.getpid()}",
             session_factory=sessions,
             jobs=JobService(sessions),
-            artifacts=ArtifactService(sessions, FilesystemObjectStore(object_root)),
+            artifacts=ArtifactService(sessions, _configured_object_store()),
             admitted_tariffs={item.lock.tariff_version_id: item for item in tariffs},
             environment_lock_hash=environment_lock_hash(repository_root),
         ),

@@ -3,7 +3,7 @@ UV_CACHE_DIR ?= /private/tmp/rate-replay-uv-cache
 PNPM_STORE_DIR ?= /private/tmp/rate-replay-pnpm-store
 COMPOSE ?= $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4
+.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-object-store integration-m1 integration-m2 integration-m3 integration-m4 integration-m5 benchmark-m1-recovery benchmark-m4-v2-failure benchmark-m4-optimization qualification-m2 qualification-m3-goldens qualification-m3 qualification-m4
 
 bootstrap:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync --frozen --all-groups
@@ -54,6 +54,12 @@ integration-auth:
 	@test -n "$(RATEREPLAY_TEST_DATABASE_URL)"
 	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic upgrade head
 	@RATEREPLAY_TEST_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov -m postgres tests/integration/test_auth_postgres.py
+
+integration-object-store:
+	@test -n "$(RATEREPLAY_TEST_MINIO_ENDPOINT)"
+	@test -n "$(RATEREPLAY_TEST_MINIO_ACCESS_KEY_FILE)"
+	@test -n "$(RATEREPLAY_TEST_MINIO_SECRET_KEY_FILE)"
+	@RATEREPLAY_TEST_MINIO_ENDPOINT="$(RATEREPLAY_TEST_MINIO_ENDPOINT)" RATEREPLAY_TEST_MINIO_ACCESS_KEY_FILE="$(RATEREPLAY_TEST_MINIO_ACCESS_KEY_FILE)" RATEREPLAY_TEST_MINIO_SECRET_KEY_FILE="$(RATEREPLAY_TEST_MINIO_SECRET_KEY_FILE)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov -m object_store tests/integration/test_object_store_minio.py
 
 integration-m1:
 	@test -n "$(RATEREPLAY_TEST_DATABASE_URL)"

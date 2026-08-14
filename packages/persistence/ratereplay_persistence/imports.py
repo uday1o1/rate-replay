@@ -29,7 +29,7 @@ from ratereplay_persistence.models import (
     RawObjectRecord,
     UserRecord,
 )
-from ratereplay_persistence.object_store import FilesystemObjectStore, StoredObject
+from ratereplay_persistence.object_store import ObjectStore, StoredObject
 
 IMPORT_ROUTE: Final = "POST:/v1/imports"
 IMPORT_REQUEST_SCHEMA: Final = "import-request-v1"
@@ -82,7 +82,7 @@ class ImportService:
     def __init__(
         self,
         session_factory: sessionmaker[Session],
-        object_store: FilesystemObjectStore,
+        object_store: ObjectStore,
     ) -> None:
         self._session_factory = session_factory
         self._objects = object_store

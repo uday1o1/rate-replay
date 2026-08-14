@@ -36,7 +36,7 @@ from ratereplay_persistence.models import (
     DeletionReceiptRecord,
     UserRecord,
 )
-from ratereplay_persistence.object_store import FilesystemObjectStore
+from ratereplay_persistence.object_store import ObjectStore
 
 
 class RestoreQualificationError(RuntimeError):
@@ -111,7 +111,7 @@ class RestoreReconciler:
     def __init__(
         self,
         session_factory: sessionmaker[Session],
-        object_store: FilesystemObjectStore,
+        object_store: ObjectStore,
         ledger: FilesystemDeletionLedger,
         *,
         restore_key: bytes,

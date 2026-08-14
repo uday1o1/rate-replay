@@ -28,6 +28,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+    ports:
+      - "127.0.0.1:${RATEREPLAY_MINIO_PORT:-59000}:9000"
     secrets:
       - minio_user
       - minio_password

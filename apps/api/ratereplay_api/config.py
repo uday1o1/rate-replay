@@ -7,6 +7,8 @@ import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
+from ratereplay_persistence.object_store import ObjectStoreConfiguration
+
 
 @dataclass(frozen=True, slots=True)
 class AppSettings:
@@ -18,6 +20,7 @@ class AppSettings:
     restore_suppression_key: bytes
     restore_key_version: str
     object_store_root: Path
+    object_store_configuration: ObjectStoreConfiguration
     deletion_ledger_root: Path
     espi_schema_path: Path
     repository_root: Path
@@ -65,6 +68,10 @@ class AppSettings:
             environment=environment,
             variable="RATEREPLAY_RESTORE_KEY_FILE",
         )
+        object_store_configuration = ObjectStoreConfiguration.from_environment(
+            environment=environment,
+            default_root=object_store_root,
+        )
         return cls(
             environment=environment,
             database_url=database_url,
@@ -74,6 +81,7 @@ class AppSettings:
             restore_suppression_key=restore_suppression_key,
             restore_key_version=os.getenv("RATEREPLAY_RESTORE_KEY_VERSION", "restore-v1"),
             object_store_root=object_store_root,
+            object_store_configuration=object_store_configuration,
             deletion_ledger_root=deletion_ledger_root,
             espi_schema_path=espi_schema_path,
             repository_root=repository_root,
@@ -100,6 +108,7 @@ class AppSettings:
             restore_suppression_key=b"rate-replay-test-restore-key-v1!",
             restore_key_version="restore-test-v1",
             object_store_root=object_store_root,
+            object_store_configuration=ObjectStoreConfiguration.filesystem(object_store_root),
             deletion_ledger_root=deletion_ledger_root,
             espi_schema_path=espi_schema_path,
             repository_root=repository_root.resolve(),
