@@ -32,6 +32,11 @@ from ratereplay_persistence.deletion_ledger import (
     verify_rotation_artifact,
     write_rotation_artifact,
 )
+from ratereplay_persistence.deletion_ledger_migration import (
+    migrate_plaintext_v1_ledger,
+    verify_migration_artifact,
+    write_migration_artifact,
+)
 from ratereplay_persistence.deletion_sweep import DeletionSweepService
 from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
@@ -856,6 +861,116 @@ def rotate_deletion_keys(
         f"rotation_sequence={verified.rotation_sequence} "
         f"ledger_key_version={verified.current_ledger_key_version} "
         f"restore_key_version={verified.current_restore_key_version} "
+        f"artifact_sha256={verified.artifact_sha256}"
+    )
+
+
+@app.command("migrate-deletion-ledger-v1")
+def migrate_deletion_ledger_v1(
+    source_root: Annotated[
+        Path,
+        typer.Option(
+            "--source-root",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    destination_root: Annotated[
+        Path,
+        typer.Option(
+            "--destination-root",
+            file_okay=False,
+            dir_okay=True,
+            writable=True,
+            resolve_path=True,
+        ),
+    ],
+    legacy_integrity_key_file: Annotated[
+        Path,
+        typer.Option(
+            "--legacy-integrity-key-file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    ledger_keys_dir: Annotated[
+        Path,
+        typer.Option(
+            "--ledger-keys-dir",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    ledger_current_key_version: Annotated[str, typer.Option()],
+    restore_keys_dir: Annotated[
+        Path,
+        typer.Option(
+            "--restore-keys-dir",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    restore_current_key_version: Annotated[str, typer.Option()],
+    artifact_file: Annotated[
+        Path,
+        typer.Option(
+            "--artifact-file",
+            file_okay=True,
+            dir_okay=False,
+            writable=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    """Migrate a locked plaintext v1 ledger into a separate encrypted v2 directory."""
+
+    try:
+        legacy_key = legacy_integrity_key_file.read_bytes().strip()
+        ledger_keyring = load_keyring(
+            ledger_keys_dir,
+            current_version=ledger_current_key_version,
+        )
+        restore_keyring = load_keyring(
+            restore_keys_dir,
+            current_version=restore_current_key_version,
+        )
+        artifact = migrate_plaintext_v1_ledger(
+            source_root,
+            destination_root,
+            legacy_integrity_key=legacy_key,
+            ledger_keyring=ledger_keyring,
+            restore_keyring=restore_keyring,
+            migrated_at=datetime.now(UTC),
+        )
+        write_migration_artifact(artifact_file, artifact)
+        verified = verify_migration_artifact(json.loads(artifact_file.read_text(encoding="ascii")))
+    except (
+        DeletionLedgerError,
+        KeyringError,
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as error:
+        code = getattr(error, "code", "LEDGER_MIGRATION_FAILED")
+        typer.echo(f"{code}: deletion ledger migration failed", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(
+        f"migrated_events={verified.source_event_count} "
+        f"ledger_key_version={verified.ledger_key_version} "
+        f"restore_key_version={verified.restore_key_version} "
         f"artifact_sha256={verified.artifact_sha256}"
     )
 

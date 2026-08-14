@@ -83,6 +83,30 @@ After success, every API and worker process is restarted with the new current-ve
 A process that still selects either old write version fails closed before another ledger operation.
 The old ledger and restore keys remain read-only members of their keyrings under the V1 indefinite-retention policy.
 
+### Plaintext v1 migration
+
+Runtime processes refuse a plaintext v1 ledger and never migrate it during startup.
+The offline migration requires a separate empty destination, exclusive read lock on the source, the legacy integrity key, the encrypted ledger keyring, and every restore key version referenced by the source.
+
+```console
+ratereplay-worker migrate-deletion-ledger-v1 \
+  --source-root /var/lib/ratereplay/deletion-ledger-v1 \
+  --destination-root /var/lib/ratereplay/deletion-ledger-v2 \
+  --legacy-integrity-key-file /run/secrets/legacy-ledger-integrity-key \
+  --ledger-keys-dir /run/secrets/deletion-ledger-keys \
+  --ledger-current-key-version ledger-v2 \
+  --restore-keys-dir /run/secrets/restore-keys \
+  --restore-current-key-version restore-v2 \
+  --artifact-file /var/lib/ratereplay/private-evidence/deletion-ledger-migration.json
+```
+
+The command verifies the keyed v1 genesis, every canonical event receipt, every receipt link, and every legal phase chain before writing encrypted output.
+It preserves the exact v1 event schema, order, canonical digest, and receipt inside authenticated `MIGRATED_V1_ASSERTED` envelopes so existing database acknowledgements remain valid.
+The source files are never changed or deleted.
+The destination is published with its signed active marker last, and an interrupted destination retains an incomplete-migration marker that runtime processes reject.
+The command reopens the published ledger, compares every exact event, and writes a content-addressed redacted artifact before reporting success.
+The operator switches all runtime processes to the separate v2 destination only after that artifact is retained and independently checked.
+
 Every successful read or mutation first validates the entire chain and durably appends an encrypted access-audit record with a fixed actor, fixed operation, random operation ID, timestamp, and prior chain position.
 Access-audit records never contain deletion IDs, scope tokens, user IDs, paths, secrets, or free text.
 If the audit cannot be persisted, the requested read or mutation does not proceed.

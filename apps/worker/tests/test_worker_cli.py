@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import json
 import re
 import sys
@@ -48,6 +49,7 @@ def test_worker_cli_exposes_one_shot_and_continuous_modes() -> None:
     assert "expire-backups-once" in result.output
     assert "qualify-restore" in result.output
     assert "rotate-deletion-keys" in result.output
+    assert "migrate-deletion-ledger-v1" in result.output
     assert "verify-restore-qualification" in result.output
 
 
@@ -297,6 +299,74 @@ def test_deletion_key_rotation_cli_writes_verified_redacted_artifact(
             keys={"ledger-v1": b"l" * 32, "ledger-v2": b"n" * 32},
         ),
         restore_key_version="restore-v2",
+        require_existing=True,
+    ).validate()
+
+
+def test_plaintext_ledger_migration_cli_publishes_encrypted_destination(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "legacy"
+    destination = tmp_path / "encrypted"
+    source.mkdir()
+    legacy_key = b"k" * 32
+    genesis_receipt = hmac.new(
+        legacy_key,
+        b"RateReplay.DeletionLedgerGenesis.v1\x00",
+        hashlib.sha256,
+    ).hexdigest()
+    (source / "deletion-ledger-genesis-v1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "deletion-ledger-genesis-v1",
+                "receipt": genesis_receipt,
+            }
+        )
+        + "\n",
+        encoding="ascii",
+    )
+    (source / "deletion-ledger-v1.jsonl").write_text("", encoding="ascii")
+    legacy_key_file = tmp_path / "legacy.key"
+    legacy_key_file.write_bytes(legacy_key)
+    ledger_keys = tmp_path / "ledger-keys"
+    restore_keys = tmp_path / "restore-keys"
+    ledger_keys.mkdir()
+    restore_keys.mkdir()
+    (ledger_keys / "ledger-v2").write_bytes(b"n" * 32)
+    (restore_keys / "restore-v1").write_bytes(b"r" * 32)
+    artifact = tmp_path / "migration.json"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "migrate-deletion-ledger-v1",
+            "--source-root",
+            str(source),
+            "--destination-root",
+            str(destination),
+            "--legacy-integrity-key-file",
+            str(legacy_key_file),
+            "--ledger-keys-dir",
+            str(ledger_keys),
+            "--ledger-current-key-version",
+            "ledger-v2",
+            "--restore-keys-dir",
+            str(restore_keys),
+            "--restore-current-key-version",
+            "restore-v1",
+            "--artifact-file",
+            str(artifact),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "migrated_events=0" in result.output
+    assert artifact.is_file()
+    assert (source / "deletion-ledger-v1.jsonl").read_bytes() == b""
+    FilesystemDeletionLedger(
+        destination,
+        keyring=VersionedKeyring.single("ledger-v2", b"n" * 32),
+        restore_key_version="restore-v1",
         require_existing=True,
     ).validate()
 

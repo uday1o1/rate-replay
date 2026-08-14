@@ -42,6 +42,7 @@ LedgerOperation = Literal[
     "READ_EVENTS",
     "READ_CHAIN",
     "ENUMERATE_UNRESOLVED",
+    "IMPORT_LEGACY",
     "VALIDATE",
 ]
 RecordType = Literal["LEDGER_EVENT", "ACCESS_AUDIT", "KEY_ROTATION"]
@@ -73,6 +74,7 @@ ALLOWED_OPERATIONS: Final = frozenset(
         "READ_EVENTS",
         "READ_CHAIN",
         "ENUMERATE_UNRESOLVED",
+        "IMPORT_LEGACY",
         "VALIDATE",
     }
 )
@@ -103,7 +105,7 @@ class DeletionLedgerError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class LedgerEvent:
-    schema_version: Literal["deletion-ledger-event-v2"]
+    schema_version: Literal["deletion-ledger-event-v1", "deletion-ledger-event-v2"]
     deletion_id: str
     phase: LedgerPhase
     scope_token: str
@@ -203,12 +205,18 @@ class FilesystemDeletionLedger:
         self._lock_path = self._root / ".deletion-ledger.lock"
         self._legacy_stream_path = self._root / "deletion-ledger-v1.jsonl"
         self._legacy_genesis_path = self._root / "deletion-ledger-genesis-v1.json"
+        self._migration_marker_path = self._root / ".deletion-ledger-migration-in-progress"
         self._keyring = keyring
         self._restore_key_version = restore_key_version
         self._expected_ledger_key_version = _expected_ledger_key_version or keyring.current_version
         self._expected_restore_key_version = _expected_restore_key_version or restore_key_version
         self._actor = actor
 
+        if self._migration_marker_path.exists():
+            raise DeletionLedgerError(
+                "LEDGER_MIGRATION_INCOMPLETE",
+                "Deletion ledger has an incomplete offline migration",
+            )
         if not self._active_path.is_file() and (
             self._legacy_stream_path.exists() or self._legacy_genesis_path.exists()
         ):
@@ -414,10 +422,7 @@ class FilesystemDeletionLedger:
                         previous_receipt=existing.previous_receipt,
                         receipt_key_version=self._keyring.current_version,
                     )
-                    if (
-                        candidate.canonical_without_receipt()
-                        != existing.canonical_without_receipt()
-                    ):
+                    if not _same_event_without_schema_or_receipt(candidate, existing):
                         raise DeletionLedgerError(
                             "LEDGER_DUPLICATE_MISMATCH",
                             "Duplicate ledger event differs from its canonical record",
@@ -453,6 +458,57 @@ class FilesystemDeletionLedger:
             )
             state.events.append(event)
             return event
+
+    def import_legacy_events(
+        self,
+        events: tuple[LedgerEvent, ...],
+        *,
+        source_sha256: str,
+        migrated_at: datetime,
+    ) -> None:
+        """Import an already verified v1 stream into a new encrypted staging ledger."""
+
+        if self._actor != "MIGRATION_CLI":
+            raise DeletionLedgerError(
+                "LEDGER_MIGRATION_ACTOR_REQUIRED",
+                "Legacy event import is restricted to the offline migration actor",
+            )
+        if migrated_at.tzinfo is None:
+            raise TypeError("Ledger migration timestamp must be timezone-aware")
+        try:
+            bytes.fromhex(source_sha256)
+        except ValueError as error:
+            raise ValueError("Migration source hash must be hexadecimal") from error
+        if len(source_sha256) != 64:
+            raise ValueError("Migration source hash must contain 64 hexadecimal characters")
+        imported = list(events)
+        if any(event.schema_version != "deletion-ledger-event-v1" for event in imported):
+            raise DeletionLedgerError(
+                "LEDGER_MIGRATION_EVENT_INVALID",
+                "Only verified plaintext v1 events may use the migration import path",
+            )
+        self._validate_event_chains(imported)
+        with self._locked():
+            state = self._read_state(recover_head=True)
+            if state.last_sequence != 0 or state.events or state.rotations:
+                raise DeletionLedgerError(
+                    "LEDGER_MIGRATION_DESTINATION_NOT_EMPTY",
+                    "Legacy events require a new empty encrypted destination",
+                )
+            self._audit(state, "IMPORT_LEGACY")
+            for event in imported:
+                self._append_record(
+                    state,
+                    "LEDGER_EVENT",
+                    {
+                        "schema_version": "deletion-ledger-migrated-event-payload-v1",
+                        "provenance": "MIGRATED_V1_ASSERTED",
+                        "migration_source_sha256": source_sha256,
+                        "migrated_at": migrated_at.astimezone(UTC).isoformat(),
+                        "event": asdict(event),
+                    },
+                )
+                state.events.append(event)
 
     def events(self) -> tuple[LedgerEvent, ...]:
         with self._locked():
@@ -806,6 +862,41 @@ class FilesystemDeletionLedger:
         *,
         envelope_key_version: str,
     ) -> LedgerEvent:
+        if payload.get("schema_version") == "deletion-ledger-migrated-event-payload-v1":
+            if (
+                set(payload)
+                != {
+                    "schema_version",
+                    "provenance",
+                    "migration_source_sha256",
+                    "migrated_at",
+                    "event",
+                }
+                or payload.get("provenance") != "MIGRATED_V1_ASSERTED"
+            ):
+                raise DeletionLedgerError(
+                    "LEDGER_UNREADABLE", "Migrated ledger event payload is invalid"
+                )
+            try:
+                source_sha256 = _required_text(payload, "migration_source_sha256")
+                bytes.fromhex(source_sha256)
+                migrated_at = datetime.fromisoformat(_required_text(payload, "migrated_at"))
+                raw_legacy = payload["event"]
+                if (
+                    len(source_sha256) != 64
+                    or migrated_at.tzinfo is None
+                    or not isinstance(raw_legacy, dict)
+                ):
+                    raise ValueError
+                legacy = LedgerEvent(**raw_legacy)
+                _validate_event(legacy)
+                if legacy.schema_version != "deletion-ledger-event-v1":
+                    raise ValueError
+            except (KeyError, TypeError, ValueError) as error:
+                raise DeletionLedgerError(
+                    "LEDGER_UNREADABLE", "Migrated ledger event is invalid"
+                ) from error
+            return legacy
         if set(payload) != {"schema_version", "receipt_key_version", "event"}:
             raise DeletionLedgerError("LEDGER_UNREADABLE", "Ledger event payload is invalid")
         if payload["schema_version"] != "deletion-ledger-event-payload-v2":
@@ -824,6 +915,8 @@ class FilesystemDeletionLedger:
         try:
             event = LedgerEvent(**raw_event)
             _validate_event(event)
+            if event.schema_version != "deletion-ledger-event-v2":
+                raise ValueError
             expected = self._event(
                 deletion_id=event.deletion_id,
                 phase=event.phase,
@@ -1241,7 +1334,7 @@ def write_rotation_artifact(path: Path, artifact: LedgerRotationArtifact) -> Non
 
 def _validate_event(event: LedgerEvent) -> None:
     if (
-        event.schema_version != "deletion-ledger-event-v2"
+        event.schema_version not in {"deletion-ledger-event-v1", "deletion-ledger-event-v2"}
         or event.phase not in {"PREPARED", "REQUESTED", "COMPLETED", "ABORTED"}
         or not event.deletion_id
         or not event.scope_token
@@ -1256,6 +1349,15 @@ def _validate_event(event: LedgerEvent) -> None:
     occurred_at = datetime.fromisoformat(event.occurred_at)
     if occurred_at.tzinfo is None:
         raise ValueError("Ledger event timestamp is naive")
+
+
+def _same_event_without_schema_or_receipt(first: LedgerEvent, second: LedgerEvent) -> bool:
+    first_payload = asdict(first)
+    second_payload = asdict(second)
+    for payload in (first_payload, second_payload):
+        payload.pop("schema_version")
+        payload.pop("receipt")
+    return hmac.compare_digest(_canonical(first_payload), _canonical(second_payload))
 
 
 def _canonical(payload: Mapping[str, object]) -> bytes:
