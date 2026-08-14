@@ -25,6 +25,12 @@ from ratereplay_persistence.database import Base
 
 class UserRecord(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "lifecycle_state IN ('ACTIVE', 'DELETION_PENDING_LEDGER', 'DELETING', 'DELETED')",
+            name="ck_user_lifecycle",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     username_canonical: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
@@ -32,6 +38,7 @@ class UserRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
     lifecycle_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deletion_scope_id: Mapped[str | None] = mapped_column(String(32), unique=True)
 
     sessions: Mapped[list[SessionRecord]] = relationship(
         back_populates="user",
@@ -478,6 +485,134 @@ class ComparisonResultRecord(Base):
     lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
     lifecycle_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DeletionIntentRecord(Base):
+    """Owner-bound authorization that can be consumed exactly once."""
+
+    __tablename__ = "deletion_intents"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('INTENT_CREATED', 'PREPARED', 'CONSUMED', 'INVALIDATED')",
+            name="ck_deletion_intent_state",
+        ),
+        UniqueConstraint("owner_user_id", name="uq_deletion_intent_owner"),
+        UniqueConstraint(
+            "owner_user_id",
+            "idempotency_key",
+            name="uq_deletion_intent_idempotency",
+        ),
+        Index("ix_deletion_intent_expiry", "state", "expires_at"),
+    )
+
+    deletion_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    canonical_payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    receipt_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    original_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    proposed_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    preparation_digest: Mapped[str | None] = mapped_column(String(64))
+    preparation_receipt: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    prepared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeletionReceiptRecord(Base):
+    """Session-independent status authorization outside the swept owner scope."""
+
+    __tablename__ = "deletion_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('INTENT_CREATED', 'PREPARED', 'DELETION_PENDING_LEDGER', "
+            "'DELETING', 'DRAIN', 'SWEEP', 'VERIFY', 'COMPLETE', 'DELETED', 'ABORTED')",
+            name="ck_deletion_receipt_status",
+        ),
+        Index("ix_deletion_receipt_expiry", "verifier_expires_at"),
+    )
+
+    deletion_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    receipt_verifier: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    artifact_counts_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verifier_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeletionControlOperationRecord(Base):
+    """Sweep-exempt resumable state addressed only by opaque control identifiers."""
+
+    __tablename__ = "deletion_control_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "phase IN ('FENCE', 'REQUESTED', 'DRAIN', 'SWEEP', 'VERIFY', 'COMPLETE')",
+            name="ck_deletion_control_phase",
+        ),
+        UniqueConstraint("target_scope_id", name="uq_deletion_control_target_scope"),
+        UniqueConstraint("scope_token", name="uq_deletion_control_scope_token"),
+        UniqueConstraint("deletion_job_id", name="uq_deletion_control_job"),
+    )
+
+    deletion_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    target_scope_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    restore_key_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    original_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    deletion_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    preparation_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    phase: Mapped[str] = mapped_column(String(32), nullable=False)
+    deletion_job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id"))
+    artifact_counts_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DeletionLedgerReceiptRecord(Base):
+    """Database copy of a verified external ledger acknowledgment."""
+
+    __tablename__ = "deletion_ledger_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "phase IN ('PREPARED', 'REQUESTED', 'COMPLETED', 'ABORTED')",
+            name="ck_deletion_ledger_receipt_phase",
+        ),
+        UniqueConstraint("deletion_id", "phase", name="uq_deletion_ledger_phase"),
+        Index("ix_deletion_ledger_unresolved", "phase", "acknowledged_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    deletion_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    canonical_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    integrity_receipt: Mapped[str] = mapped_column(String(64), nullable=False)
+    acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DeletionAuditRecord(Base):
+    """Minimum non-user-derived tombstone retained after verified completion."""
+
+    __tablename__ = "deletion_audit_tombstones"
+    __table_args__ = (
+        CheckConstraint("status = 'DELETED'", name="ck_deletion_audit_status"),
+        UniqueConstraint("scope_token", name="uq_deletion_audit_scope_token"),
+    )
+
+    deletion_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    receipt_verifier: Mapped[str] = mapped_column(String(255), nullable=False)
+    verifier_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    scope_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    restore_key_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    deletion_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    artifact_counts_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    status_code: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
 def _prevent_immutable_update(_mapper: object, _connection: object, target: object) -> None:
