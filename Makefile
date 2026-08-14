@@ -3,7 +3,7 @@ UV_CACHE_DIR ?= /private/tmp/rate-replay-uv-cache
 PNPM_STORE_DIR ?= /private/tmp/rate-replay-pnpm-store
 COMPOSE ?= $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-m1 integration-m2 benchmark-m1-recovery qualification-m2
+.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-m1 integration-m2 benchmark-m1-recovery qualification-m2 qualification-m3-goldens
 
 bootstrap:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync --frozen --all-groups
@@ -73,3 +73,6 @@ benchmark-m1-recovery:
 qualification-m2:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/qualify_m2.py
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov packages/tariffs/tests/test_compiler.py packages/tariffs/tests/test_billing.py packages/tariffs/tests/test_e1_mutations.py packages/tariffs/tests/test_tariff_cli.py apps/api/tests/test_replay_api.py
+
+qualification-m3-goldens:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python scripts/validate_m3_goldens.py

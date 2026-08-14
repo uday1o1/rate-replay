@@ -1,0 +1,114 @@
+{
+  "schema_version": "golden-tariff-suite-v1",
+  "suite_id": "pge-ev2a-july-2026-independent",
+  "author": "project-owner",
+  "review_method": "hand-derived filed-rate arithmetic, annual-baseline eligibility review, and local-clock boundary review independent of production tariff code",
+  "review_status": "self-reviewed-frozen-before-production-time-of-use-evaluator",
+  "frozen_at": "2026-08-14T02:45:00Z",
+  "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
+  "complete_bill": {
+    "case_id": "pge-ev2a-july-2026-hourly-flat-load",
+    "rule_ids": [
+      "EV2A_APPLICABILITY_2026_03_01",
+      "EV2A_ANNUAL_BASELINE_LIMIT_2026_03_01",
+      "EV2A_TOU_WINDOWS_2026_03_01",
+      "EV2A_SUMMER_TOTAL_RATES_2026_06_01",
+      "BSC_TIER3_2026_06_01",
+      "CALIFORNIA_CLIMATE_CREDIT_2026"
+    ],
+    "source_sheets": ["61169-E", "61172-E", "61374-E"],
+    "inputs": {
+      "timezone": "America/Los_Angeles",
+      "service_window": ["2026-07-01", "2026-08-01"],
+      "billing_days": 31,
+      "bill_cycle_month": 8,
+      "hourly_pattern": {
+        "energy_wh_per_local_hour": 1000,
+        "hours_per_day": 24,
+        "day_count": 31
+      },
+      "income_tier": "TIER_3",
+      "ev_registered_and_charged_at_premises": true,
+      "whole_house_metering": true,
+      "facts_as_of": "2026-07-01",
+      "annual_usage_period": ["2025-07-01", "2026-07-01"],
+      "annual_usage_wh": 6000000,
+      "annual_baseline_allowance_wh": 2000000
+    },
+    "derivation": [
+      "Annual usage is 300 percent of annual baseline allowance, which is within the filed 800 percent limit.",
+      "Five peak hours, four partial-peak hours, and fifteen off-peak hours per day produce 155,000, 124,000, and 465,000 Wh over 31 days.",
+      "155 kWh at USD 0.53809 is USD 83.40395 and rounds half-up to 8,340 cents.",
+      "124 kWh at USD 0.42760 is USD 53.02240 and rounds half-up to 5,302 cents.",
+      "465 kWh at USD 0.22558 is USD 104.89470 and rounds half-up to 10,489 cents.",
+      "31 days at USD 0.79343 rounds half-up to 2,460 cents, and the August climate credit is negative 3,618 cents."
+    ],
+    "expected": {
+      "eligibility_status": "ELIGIBLE",
+      "rate_microdollars_per_kwh": {
+        "PEAK": 538090,
+        "PARTIAL_PEAK": 427600,
+        "OFF_PEAK": 225580
+      },
+      "base_service_microdollars_per_day": 793430,
+      "climate_credit_microdollars": -36180000,
+      "annual_baseline_ratio_numerator": 3,
+      "annual_baseline_ratio_denominator": 1,
+      "period_energy_wh": {
+        "PEAK": 155000,
+        "PARTIAL_PEAK": 124000,
+        "OFF_PEAK": 465000
+      },
+      "line_cents": [8340, 5302, 10489, 2460, -3618],
+      "total_cents": 22973,
+      "minimum_bill_adjustment": "NOT_APPLICABLE"
+    }
+  },
+  "boundary_cases": [
+    {
+      "case_id": "ev2a-partial-peak-start",
+      "local_start": "2026-07-06T15:00:00-07:00",
+      "expected_period": "PARTIAL_PEAK"
+    },
+    {
+      "case_id": "ev2a-peak-start",
+      "local_start": "2026-07-06T16:00:00-07:00",
+      "expected_period": "PEAK"
+    },
+    {
+      "case_id": "ev2a-evening-partial-peak-start",
+      "local_start": "2026-07-06T21:00:00-07:00",
+      "expected_period": "PARTIAL_PEAK"
+    },
+    {
+      "case_id": "ev2a-midnight-off-peak",
+      "local_start": "2026-07-07T00:00:00-07:00",
+      "expected_period": "OFF_PEAK"
+    },
+    {
+      "case_id": "ev2a-missing-annual-usage",
+      "annual_usage_wh": null,
+      "expected_eligibility_status": "UNKNOWN"
+    },
+    {
+      "case_id": "ev2a-exactly-eight-hundred-percent",
+      "annual_usage_wh": 16000000,
+      "annual_baseline_allowance_wh": 2000000,
+      "expected_eligibility_status": "ELIGIBLE"
+    },
+    {
+      "case_id": "ev2a-over-eight-hundred-percent",
+      "annual_usage_wh": 16000001,
+      "annual_baseline_allowance_wh": 2000000,
+      "expected_eligibility_status": "INELIGIBLE"
+    },
+    {
+      "case_id": "ev2a-off-peak-rate-rounds-up",
+      "energy_wh": 23,
+      "rate_microdollars_per_kwh": 225580,
+      "pre_round_microdollars_numerator": 5188340,
+      "pre_round_microdollars_denominator": 1000,
+      "expected_cents": 1
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": "comparison-account-facts-v1",
+  "account_facts": {
+    "schema_version": "account-facts-v1",
+    "service_window": {
+      "start": "2026-07-01",
+      "end": "2026-08-01"
+    },
+    "service_provider": "PG&E",
+    "service_mode": "BUNDLED",
+    "meter_count": 1,
+    "primary_meter_only": true,
+    "income_tier": "TIER_3",
+    "care_enrolled": false,
+    "fera_enrolled": false,
+    "medical_baseline": false,
+    "cca_service": false,
+    "direct_access_service": false,
+    "active_bill_protection": false,
+    "solar_or_export": false,
+    "baseline_territory": "T",
+    "baseline_quantity_code": "BASIC",
+    "qualifying_technologies": ["EV"],
+    "user_attested_at": "2026-07-01T00:00:00Z"
+  },
+  "dated_eligibility_facts": {
+    "facts_as_of": "2026-07-01",
+    "ev_registered_and_charged_at_premises": true,
+    "whole_house_metering": true,
+    "annual_usage_period": {
+      "start": "2025-07-01",
+      "end": "2026-07-01"
+    },
+    "annual_usage_wh": 6000000,
+    "annual_baseline_allowance_wh": 2000000
+  }
+}
