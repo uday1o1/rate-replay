@@ -1,0 +1,372 @@
+{
+  "all_worker_restarts_observed": true,
+  "application_source_commit": "62e11d207bb19a275cf653633292fb10ad5903de",
+  "artifact_sha256": "41af6f197f5c19ecba97f2e570b5b1e69fb155d0d754b2b7125463a397f8ef31",
+  "duplicate_successful_results": 0,
+  "evaluation_source_commit": "62e11d207bb19a275cf653633292fb10ad5903de",
+  "evidence_level": "LOCAL_REPRODUCIBLE",
+  "evidence_scope": "PUBLIC_SIMULATED_AND_SYNTHETIC_ENGINEERING_ONLY",
+  "gate_result": "PASS",
+  "generated_at": "2026-08-14T22:36:36.477470+00:00",
+  "import_worker_cases": [
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 1,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 22261.38575,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 2,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 23172.098417,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 3,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 23173.955,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 4,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 23206.892916,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 5,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 22626.328292,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 6,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 23073.133583,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 7,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 22546.583083,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 8,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 23133.626709,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 9,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 23107.849833,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 10,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "reading_count": 35040,
+      "recovered": true,
+      "recovery_duration_ms": 23589.76125,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "worker_restart_increment": 1
+    }
+  ],
+  "limitations": [
+    "The local release qualification terminates the sole worker container process.",
+    "Import termination is injected after the durable job reports RUNNING, not at a claimed parser instruction.",
+    "The preserved Milestone 1 artifact retains exact stage-injection coverage but is not counted as release-topology evidence."
+  ],
+  "manifest_sha256": "06186b97f28994d05144175d9b7b574ac441bbc2949524c2898d2c27984d0cf9",
+  "prior_stage_injection_artifact": {
+    "counts_as_release_topology_evidence": false,
+    "path": "evidence/performance/m1-import-recovery.json",
+    "scope": "PRESERVED_SQLITE_AND_FILESYSTEM_STAGE_INJECTION_BASELINE",
+    "sha256": "9375e71c7bbac293e8a1f8b31eacec41e5484eba8be4e156f6b3f429b2272857"
+  },
+  "scenario_worker_cases": [
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 1,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 25937.7,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 2,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 25135.394666,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 3,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 24509.98275,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 4,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 25324.321875,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 5,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 25012.060208,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 6,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 27277.055458,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 7,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 25209.246417,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 8,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 26763.581541,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 9,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 24040.521667,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    },
+    {
+      "attempt_count": 2,
+      "attempt_states": [
+        "EXPIRED",
+        "SUCCEEDED"
+      ],
+      "case": 10,
+      "injection_phase": "OBSERVED_JOB_RUNNING",
+      "load_count": 5,
+      "recovered": true,
+      "recovery_duration_ms": 24916.399667,
+      "result_count": 1,
+      "signal": "SIGKILL",
+      "threshold_ms": 30000,
+      "verification_status": "VALID",
+      "worker_restart_increment": 1
+    }
+  ],
+  "schema_version": "m8-crash-recovery-v1",
+  "synthetic_import": {
+    "adapter": "PGE_CSV",
+    "customer_claim_prohibited": true,
+    "payload_sha256": "f947ea3bcce4ef810671a35ee83e43ecfa7f0cd38f8ef4a6d487a2c61d39bfdc",
+    "reading_count": 35040,
+    "scope": "SYNTHETIC_ENGINEERING_ONLY"
+  },
+  "topology": {
+    "database": "PostgreSQL 16.15",
+    "object_store": "SeaweedFS 4.40 S3-compatible release service",
+    "worker_container_restart_policy": "unless-stopped",
+    "worker_processes": 1,
+    "worker_signal": "SIGKILL"
+  }
+}
