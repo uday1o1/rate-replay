@@ -4,7 +4,9 @@ set -eu
 umask 077
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 artifact_file=${1:-"$repository_root/evidence/reliability/m7-local-restore-rollback.json"}
-runtime_root=$(mktemp -d "${TMPDIR:-/tmp}/ratereplay-m7.XXXXXX")
+runtime_parent=${RATEREPLAY_M7_TEMP_ROOT:-/tmp}
+test -d "$runtime_parent"
+runtime_root=$(mktemp -d "$runtime_parent/ratereplay-m7.XXXXXX")
 source_project="ratereplay-m7-source-$$"
 quarantine_project="ratereplay-m7-quarantine-$$"
 source_postgres_port=${RATEREPLAY_M7_SOURCE_POSTGRES_PORT:-56432}
