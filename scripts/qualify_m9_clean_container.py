@@ -143,7 +143,11 @@ chmod 0755 "$uv"
 
 curl --fail --location --silent --show-error '{NODE_ARCHIVE_URL}' --output "$tools/node.tar.gz"
 printf '%s  %s\n' '{NODE_ARCHIVE_SHA256}' "$tools/node.tar.gz" | sha256sum --check --strict
-tar --extract --gzip --file "$tools/node.tar.gz" --directory "$tools/node" --strip-components=1
+tar --extract --gzip --file "$tools/node.tar.gz" --directory "$tools/node" \
+  --strip-components=1 --exclude='*/bin/npm' --exclude='*/bin/npx' --exclude='*/bin/corepack'
+ln -s ../lib/node_modules/npm/bin/npm-cli.js "$tools/node/bin/npm"
+ln -s ../lib/node_modules/npm/bin/npx-cli.js "$tools/node/bin/npx"
+ln -s ../lib/node_modules/corepack/dist/corepack.js "$tools/node/bin/corepack"
 
 curl --fail --location --silent --show-error '{COMPOSE_URL}' --output "$tools/docker-compose"
 printf '%s  %s\n' '{COMPOSE_SHA256}' "$tools/docker-compose" | sha256sum --check --strict

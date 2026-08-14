@@ -44,6 +44,10 @@ def test_container_script_keeps_downloads_and_package_state_in_checkout() -> Non
     assert "apt-get" not in script
     assert "make_4.3-4.1build2_amd64.deb" in script
     assert "ripgrep_14.1.0-1_amd64.deb" in script
+    assert "--exclude='*/bin/corepack'" in script
+    assert (
+        'ln -s ../lib/node_modules/corepack/dist/corepack.js "$tools/node/bin/corepack"' in script
+    )
     assert "playwright install --with-deps" not in script
     assert f"uv python install '{PYTHON_VERSION}'" not in script
     assert f"\"$uv\" python install '{PYTHON_VERSION}'" in script
