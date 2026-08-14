@@ -20,6 +20,10 @@
       },
       "type": "array"
     },
+    "allowlist_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
     "calculation_manifest_sha256": {
       "pattern": "^[a-f0-9]{64}$",
       "type": "string"
@@ -32,6 +36,7 @@
     "manifest_version",
     "generation_command",
     "simulated_only",
+    "allowlist_sha256",
     "calculation_manifest_sha256",
     "artifacts"
   ],

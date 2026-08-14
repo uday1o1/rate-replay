@@ -25,7 +25,10 @@ artifacts/*
 !artifacts/demo/
 artifacts/demo/*
 !artifacts/demo/allowlist.v1.json
+!artifacts/demo/manifest.v1.json
 !artifacts/demo/manifest.schema.json
+!artifacts/demo/objects/
+!artifacts/demo/objects/*.json
 reports/private/
 solver-traces/
 profiler-reports/
