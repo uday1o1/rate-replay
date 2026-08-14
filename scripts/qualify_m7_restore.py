@@ -631,6 +631,13 @@ def _restore(
     expected: tuple[int, ...],
     outcome_file: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if name not in {
+        "missing-ledger",
+        "qualified",
+        "tampered-ledger-run",
+        "unresolved-prepared",
+    }:
+        raise QualificationError("RESTORE_STAGE_INVALID")
     arguments = [
         "restore-backup-to-quarantine",
         backup_id,
@@ -643,7 +650,10 @@ def _restore(
     ]
     if outcome_file is not None:
         arguments.extend(("--outcome-evidence-file", str(outcome_file)))
-    return _worker(tuple(arguments), environment, expected=expected)
+    try:
+        return _worker(tuple(arguments), environment, expected=expected)
+    except QualificationError as error:
+        raise QualificationError(f"RESTORE_STAGE_FAILED:{name}:{error}") from error
 
 
 def _reset_quarantine(container: str, objects: EncryptedObjectStore) -> None:

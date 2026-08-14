@@ -269,11 +269,12 @@ raise SystemExit(0 if sys.stdin.buffer.read(5) == b"PGDMP" else 1)
     assert match is not None
     backup_id = match.group(1)
 
-    database_path, _, _ = _configure_restore(
+    database_path, _, ledger = _configure_restore(
         monkeypatch,
         tmp_path,
         initialize_ledger=True,
     )
+    assert ledger is not None
     database = make_engine(f"sqlite+pysqlite:///{database_path}")
     with database.begin() as connection:
         connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(128))"))
@@ -320,6 +321,55 @@ raise SystemExit(0 if sys.stdin.buffer.read(5) == b"PGDMP" else 1)
     )
     assert verified.exit_code == 0, verified.output
     assert f"backup_id={backup_id}" in verified.output
+
+    held_scope_id = "7" * 32
+    database = make_engine(f"sqlite+pysqlite:///{database_path}")
+    with database.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users "
+                "(id, username_canonical, password_hash, created_at, lifecycle_state, "
+                "lifecycle_generation, deletion_scope_id) "
+                "VALUES (:id, 'held-quarantine', 'test-only', :created_at, 'ACTIVE', 0, :scope)"
+            ),
+            {
+                "id": "8" * 32,
+                "created_at": datetime.now(UTC),
+                "scope": held_scope_id,
+            },
+        )
+    database.dispose()
+    ledger.append(
+        deletion_id="9" * 32,
+        phase="PREPARED",
+        scope_token=_scope_token(b"r" * 32, held_scope_id),
+        restore_key_version="restore-v1",
+        original_generation=0,
+        proposed_generation=1,
+        preparation_digest="a" * 64,
+        intent_proof_digest="b" * 64,
+        occurred_at=datetime.now(UTC),
+    )
+    monkeypatch.setenv("RATEREPLAY_OBJECT_STORE_ROOT", str(tmp_path / "held-objects"))
+    held_qualification = tmp_path / "evidence" / "held-qualification.json"
+    held_exposure = tmp_path / "evidence" / "held-exposure.json"
+    held = runner.invoke(
+        app,
+        [
+            "restore-backup-to-quarantine",
+            backup_id,
+            "--materialization-directory",
+            str(tmp_path / "materialized-held"),
+            "--qualification-artifact-file",
+            str(held_qualification),
+            "--exposure-artifact-file",
+            str(held_exposure),
+        ],
+    )
+    assert held.exit_code == 3, held.output
+    assert "exposure_allowed=false" in held.output
+    assert held_qualification.is_file()
+    assert held_exposure.is_file()
 
     class ChangedRestoreRunner:
         def restore(self, dump_path: Path) -> str:

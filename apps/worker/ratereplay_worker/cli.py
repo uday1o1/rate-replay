@@ -908,6 +908,8 @@ def restore_backup_to_quarantine(
         )
         if not verified_exposure.exposure_allowed:
             raise typer.Exit(code=3)
+    except typer.Exit:
+        raise
     except (
         BackupError,
         DeletionLedgerError,
