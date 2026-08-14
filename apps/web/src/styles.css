@@ -392,6 +392,78 @@ dd {
   margin-top: 1.5rem;
 }
 
+.lifecycle-panel {
+  max-width: 84rem;
+  margin: 1.25rem auto 0;
+}
+
+.retention-grid,
+.deletion-control-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.retention-grid > div,
+.deletion-control-grid article,
+.deletion-receipt {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.2rem;
+  border: 1px solid #c5cbc3;
+  border-radius: 0.8rem;
+  background: #f3f6f0;
+}
+
+.retention-grid strong {
+  color: #245c38;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.retention-grid span {
+  color: #59665d;
+  line-height: 1.45;
+}
+
+.deletion-control-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1.5rem;
+}
+
+.deletion-control-grid h3,
+.deletion-receipt h3 {
+  font-size: clamp(1.6rem, 3vw, 2.3rem);
+}
+
+.danger-zone {
+  border-color: #c58e85 !important;
+  background: #fbebe7 !important;
+}
+
+.destructive {
+  border-color: #842f2f;
+  color: #fff;
+  background: #842f2f;
+  font-weight: 720;
+}
+
+.destructive:hover:not(:disabled) {
+  background: #6e2323;
+}
+
+.deletion-receipt {
+  margin-top: 1.5rem;
+  border-color: #92a397;
+  background: #edf4e9;
+}
+
+.receipt-recovery-form {
+  grid-template-columns: minmax(12rem, 1fr) minmax(16rem, 1.2fr) auto;
+  align-items: end;
+}
+
 .scenario-preview h3 {
   font-size: clamp(2rem, 4vw, 3rem);
 }
@@ -983,7 +1055,10 @@ code {
   }
 
   .demo-trust-grid,
-  .schedule-language-grid {
+  .schedule-language-grid,
+  .retention-grid,
+  .deletion-control-grid,
+  .receipt-recovery-form {
     grid-template-columns: 1fr;
   }
 

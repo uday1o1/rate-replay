@@ -1,11 +1,12 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import {
   AccountFacts,
   ComparisonWorkspace,
   TariffSummary,
 } from "./ComparisonWorkspace";
-import { api } from "./api";
+import { PrivacyControls } from "./PrivacyControls";
+import { SESSION_EXPIRED_EVENT, api } from "./api";
 import { PublicDemo } from "./PublicDemo";
 import { ScenarioWorkspace } from "./ScenarioWorkspace";
 import "./styles.css";
@@ -143,6 +144,7 @@ export function App() {
   );
   const [pgeAttested, setPgeAttested] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const profileMutationVersion = useRef(0);
 
   useEffect(() => {
     if (workspaceMode === "demo") {
@@ -160,24 +162,44 @@ export function App() {
   }, [workspaceMode]);
 
   useEffect(() => {
+    function expireSession() {
+      clearPrivateWorkspace(
+        "Your private session expired. Sign in again before continuing.",
+      );
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, expireSession);
+    return () =>
+      window.removeEventListener(SESSION_EXPIRED_EVENT, expireSession);
+  }, []);
+
+  useEffect(() => {
     if (session === null) return;
+    let ignore = false;
+    const expectedProfileVersion = profileMutationVersion.current;
     void Promise.all([
       api<{ items: Profile[] }>("/v1/profiles?page_size=1"),
       api<{ items: TariffSummary[] }>("/v1/tariffs"),
       api<TariffDetail>("/v1/tariffs/pge-e1-2026-07"),
     ])
       .then(([profiles, listedTariffs, detail]) => {
-        setProfile(profiles.items[0] ?? null);
+        if (ignore) return;
+        if (profileMutationVersion.current === expectedProfileVersion) {
+          setProfile(profiles.items[0] ?? null);
+        }
         setTariffs(listedTariffs.items);
         setTariff(detail);
       })
       .catch((error) => {
+        if (ignore) return;
         setMessage(
           error instanceof Error
             ? error.message
             : "Tariff workspace could not be loaded.",
         );
       });
+    return () => {
+      ignore = true;
+    };
   }, [session]);
 
   async function authenticate(event: FormEvent<HTMLFormElement>) {
@@ -212,6 +234,7 @@ export function App() {
       return;
     }
     const data = new FormData(event.currentTarget);
+    profileMutationVersion.current += 1;
     try {
       const operation = await api<{ import_id: string; state_url: string }>(
         "/v1/imports",
@@ -247,6 +270,7 @@ export function App() {
       );
       return;
     }
+    profileMutationVersion.current += 1;
     try {
       const installed = await api<BuiltInSimulatedProfile>(
         "/v1/imports/built-in-simulated-profile",
@@ -302,6 +326,7 @@ export function App() {
     ) {
       return;
     }
+    profileMutationVersion.current += 1;
     try {
       const confirmed = await api<Profile>(
         `/v1/imports/${importStatus.import_id}/confirm`,
@@ -401,6 +426,7 @@ export function App() {
         method: "POST",
         headers: { "X-CSRF-Token": csrf },
       });
+      profileMutationVersion.current += 1;
       setSession(null);
       setCsrf(null);
       setImportStatus(null);
@@ -427,6 +453,22 @@ export function App() {
     window.history.replaceState(null, "", window.location.pathname);
     setWorkspaceMode("private");
     setMessage(null);
+  }
+
+  function clearPrivateWorkspace(nextMessage: string) {
+    profileMutationVersion.current += 1;
+    setSession(null);
+    setCsrf(null);
+    setImportStatus(null);
+    setProfile(null);
+    setTariff(null);
+    setTariffs([]);
+    setReplay(null);
+    setComparisonAccountFacts(null);
+    setAcknowledgedWarnings(new Set());
+    setPgeAttested(false);
+    setMessage(nextMessage);
+    setCheckingSession(false);
   }
 
   const warningIds =
@@ -987,6 +1029,34 @@ export function App() {
             )}
           </section>
         </div>
+      )}
+
+      {workspaceMode === "private" && (
+        <PrivacyControls
+          username={session?.user.username ?? null}
+          csrf={csrf}
+          importId={profile?.import_id ?? importStatus?.import_id ?? null}
+          profileId={profile?.profile_version_id ?? null}
+          onAccountDeletionStarted={() =>
+            clearPrivateWorkspace(
+              "Account deletion started and every private session was revoked. Use the retained receipt below to verify completion.",
+            )
+          }
+          onProfileDeleted={() => {
+            profileMutationVersion.current += 1;
+            setProfile(null);
+            setReplay(null);
+            setComparisonAccountFacts(null);
+          }}
+          onImportDeleted={() => {
+            profileMutationVersion.current += 1;
+            setImportStatus(null);
+            setProfile(null);
+            setReplay(null);
+            setComparisonAccountFacts(null);
+          }}
+          onMessage={setMessage}
+        />
       )}
     </main>
   );

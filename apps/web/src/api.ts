@@ -20,6 +20,8 @@ export class ApiError extends Error {
   }
 }
 
+export const SESSION_EXPIRED_EVENT = "ratereplay:session-expired";
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", ...init });
   const body = (await response.json().catch(() => null)) as
@@ -31,6 +33,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       })
     | null;
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      path !== "/v1/auth/session" &&
+      path !== "/v1/auth/login" &&
+      path !== "/v1/auth/register"
+    ) {
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    }
     throw new ApiError(
       response.status,
       body?.code ?? "REQUEST_FAILED",

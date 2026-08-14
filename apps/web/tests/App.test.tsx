@@ -467,6 +467,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/");
+  window.sessionStorage.clear();
 });
 
 describe("App", () => {
@@ -768,6 +769,7 @@ describe("App", () => {
   });
 
   it("renders a rankable comparison with coverage and filed-source evidence", async () => {
+    let resolveProfileList: ((value: Response) => void) | undefined;
     const fetchMock = vi.fn(
       (input: string | URL | Request, init?: RequestInit) => {
         void init;
@@ -789,7 +791,9 @@ describe("App", () => {
           );
         }
         if (path === "/v1/profiles?page_size=1") {
-          return Promise.resolve(response(200, { items: [] }));
+          return new Promise<Response>((resolve) => {
+            resolveProfileList = resolve;
+          });
         }
         if (path === "/v1/tariffs/pge-e1-2026-07") {
           return Promise.resolve(response(200, tariffDetail));
@@ -830,6 +834,10 @@ describe("App", () => {
     expect(
       await screen.findByText(/imported as immutable account data/i),
     ).toBeVisible();
+    if (resolveProfileList === undefined) {
+      throw new Error("The initial profile list request did not start.");
+    }
+    resolveProfileList(response(200, { items: [] }));
     fireEvent.click(
       await screen.findByLabelText(/I attest that every locked account fact/i),
     );
@@ -1379,5 +1387,391 @@ describe("App", () => {
     expect(
       screen.queryByRole("heading", { name: "Best found" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("clears private state and returns to sign-in when a session expires", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(
+        response(401, {
+          code: "SESSION_EXPIRED",
+          message: "The private session has expired.",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "replay-request-id" });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.click(
+      await screen.findByLabelText(/I attest that every locked account fact/i),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create historical replay" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Private local account" }),
+    ).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /session has expired/i,
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Replay July E-1" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("prepares account deletion before revocation and polls its independent receipt", async () => {
+    const deletionId = "d".repeat(32);
+    const deletingStatus = {
+      schema_version: "deletion-status-v1",
+      deletion_id: deletionId,
+      status: "DELETING",
+      artifact_counts: {},
+      completed_at: null,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(
+        response(201, {
+          schema_version: "deletion-intent-v1",
+          deletion_id: deletionId,
+          status: "INTENT_CREATED",
+          expires_at: "2026-08-14T00:15:00Z",
+        }),
+      )
+      .mockResolvedValueOnce(response(202, deletingStatus))
+      .mockResolvedValueOnce(
+        response(200, {
+          ...deletingStatus,
+          status: "DELETED",
+          artifact_counts: { sessions: 1, profiles: 1 },
+          completed_at: "2026-08-14T00:01:00Z",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "deletion-request-id",
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.fill(7);
+        return bytes;
+      },
+    });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Prepare account deletion" }),
+    );
+    expect(
+      await screen.findByRole("button", {
+        name: "Download deletion recovery credential",
+      }),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Type your username to confirm"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.click(
+      screen.getByLabelText(/encrypted backups may retain deleted data/i),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete account permanently" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Private local account" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/every private session was revoked/i),
+    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Deleting" })).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check deletion status" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Deleted" }),
+    ).toBeVisible();
+
+    const intentCall = fetchMock.mock.calls[5] as [string, RequestInit];
+    const deleteCall = fetchMock.mock.calls[6] as [string, RequestInit];
+    const receiptCall = fetchMock.mock.calls[7] as [string, RequestInit];
+    expect(intentCall[0]).toBe("/v1/account/deletion-intents");
+    expect(deleteCall[0]).toBe("/v1/account");
+    expect(receiptCall[0]).toBe(`/v1/deletions/${deletionId}`);
+    const intentHeaders = intentCall[1].headers as Record<string, string>;
+    const deleteHeaders = deleteCall[1].headers as Record<string, string>;
+    const receiptHeaders = receiptCall[1].headers as Record<string, string>;
+    expect(intentHeaders["X-Deletion-Receipt-Secret"]).toHaveLength(43);
+    expect(deleteHeaders["X-Deletion-Receipt-Secret"]).toBe(
+      intentHeaders["X-Deletion-Receipt-Secret"],
+    );
+    expect(receiptHeaders["X-Deletion-Receipt-Secret"]).toBe(
+      intentHeaders["X-Deletion-Receipt-Secret"],
+    );
+    expect(JSON.parse(deleteCall[1].body as string)).toEqual({
+      deletion_id: deletionId,
+    });
+    const storedRecovery = window.sessionStorage.getItem(
+      "ratereplay.deletion-recovery.v1",
+    );
+    expect(storedRecovery).not.toContain("owner_one");
+  });
+
+  it("deletes the current profile while keeping the account session active", async () => {
+    const deletionId = "c".repeat(32);
+    const deletingStatus = {
+      schema_version: "deletion-status-v1",
+      deletion_id: deletionId,
+      status: "DELETING",
+      artifact_counts: {},
+      completed_at: null,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(response(202, deletingStatus))
+      .mockResolvedValueOnce(
+        response(200, {
+          ...deletingStatus,
+          status: "DELETED",
+          artifact_counts: { profiles: 1, scenarios: 1 },
+          completed_at: "2026-08-14T00:01:00Z",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "profile-deletion-request-id",
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.fill(5);
+        return bytes;
+      },
+    });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.change(
+      await screen.findByLabelText("Type DELETE PROFILE to confirm"),
+      { target: { value: "DELETE PROFILE" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete current profile" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Deleting" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check deletion status" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Deleted" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Confirm one complete July 2026 profile/i),
+    ).toBeVisible();
+    expect(screen.getByText("owner_one")).toBeVisible();
+
+    const deleteCall = fetchMock.mock.calls[5] as [string, RequestInit];
+    const receiptCall = fetchMock.mock.calls[6] as [string, RequestInit];
+    expect(deleteCall[0]).toBe("/v1/profiles/profile-one");
+    expect(deleteCall[1].method).toBe("DELETE");
+    expect(receiptCall[0]).toBe(`/v1/deletions/${deletionId}`);
+    expect(
+      (deleteCall[1].headers as Record<string, string>)[
+        "X-Deletion-Receipt-Secret"
+      ],
+    ).toBe(
+      (receiptCall[1].headers as Record<string, string>)[
+        "X-Deletion-Receipt-Secret"
+      ],
+    );
+  });
+
+  it("deletes a source import and clears its dependent private workflow", async () => {
+    const deletionId = "b".repeat(32);
+    const deletingStatus = {
+      schema_version: "deletion-status-v1",
+      deletion_id: deletionId,
+      status: "DELETING",
+      artifact_counts: {},
+      completed_at: null,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockResolvedValueOnce(response(202, deletingStatus))
+      .mockResolvedValueOnce(
+        response(200, {
+          ...deletingStatus,
+          status: "DELETED",
+          artifact_counts: { imports: 1, profiles: 1 },
+          completed_at: "2026-08-14T00:01:00Z",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "import-deletion-request-id",
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.fill(3);
+        return bytes;
+      },
+    });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.change(
+      await screen.findByLabelText("Type DELETE IMPORT to confirm"),
+      { target: { value: "DELETE IMPORT" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete source import" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Deleting" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check deletion status" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Deleted" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Confirm one complete July 2026 profile/i),
+    ).toBeVisible();
+    expect(screen.getByText("owner_one")).toBeVisible();
+    const deleteCall = fetchMock.mock.calls[5] as [string, RequestInit];
+    expect(deleteCall[0]).toBe("/v1/imports/import-one");
+  });
+
+  it("retries a lost deletion-intent response with the same client credential", async () => {
+    const deletionId = "e".repeat(32);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { message: "Sign in" }))
+      .mockResolvedValueOnce(
+        response(201, {
+          user: { user_id: "owner", username: "owner_one" },
+          csrf_token: "csrf-token",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { items: [profile] }))
+      .mockResolvedValueOnce(response(200, tariffList))
+      .mockResolvedValueOnce(response(200, tariffDetail))
+      .mockRejectedValueOnce(new Error("Connection closed after commit"))
+      .mockResolvedValueOnce(
+        response(201, {
+          schema_version: "deletion-intent-v1",
+          deletion_id: deletionId,
+          status: "INTENT_CREATED",
+          expires_at: "2026-08-14T00:15:00Z",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "stable-deletion-request-id",
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.fill(9);
+        return bytes;
+      },
+    });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Username"), {
+      target: { value: "owner_one" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private account" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Prepare account deletion" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Retry deletion preparation" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry deletion preparation" }),
+    );
+    expect(
+      await screen.findByRole("button", {
+        name: "Download deletion recovery credential",
+      }),
+    ).toBeVisible();
+
+    const firstIntent = fetchMock.mock.calls[5] as [string, RequestInit];
+    const retryIntent = fetchMock.mock.calls[6] as [string, RequestInit];
+    expect(retryIntent[0]).toBe(firstIntent[0]);
+    expect(retryIntent[1].headers).toEqual(firstIntent[1].headers);
   });
 });
