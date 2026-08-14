@@ -79,8 +79,8 @@
     "base_services_charge",
     "california_climate_credit"
   ],
-  "optimization_capability": "UNSUPPORTED_WITH_REASON",
-  "optimization_unsupported_reason": "Exact optimizer lowering and invariance proofs are admitted separately in Milestone 4.",
+  "optimization_capability": "SUPPORTED",
+  "optimization_unsupported_reason": null,
   "charge_rules": [
     {
       "rule_type": "BaselineAllowance",

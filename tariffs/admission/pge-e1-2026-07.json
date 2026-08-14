@@ -1,5 +1,5 @@
 {
-  "admission_lock_version": "tariff-admission-lock-v1",
+  "admission_lock_version": "tariff-admission-lock-v2",
   "tariff_version_id": "pge-e1-2026-07",
   "plan_code": "E-1",
   "admission_status": "ADMITTED",
@@ -8,9 +8,9 @@
   "target_account_predicate_id": "pge-bundled-residential-import-only-july-2026-v1",
   "definition": {
     "path": "tariffs/definitions/pge-e1-2026-07.json",
-    "sha256": "c0c6b2d9a59f02ffbaf370b371d0c439c34fcc6f22e7d687add6fbbdb462a705"
+    "sha256": "b97cde794a96119cdf1d13b9c3ed6e3bead35b3db858e0f40cc3f136819fdb2c"
   },
-  "compiler_content_sha256": "ae003e7717fbb8fa964aac75ba21efa737f4db54bdba2abcb90b1a22d81a0016",
+  "compiler_content_sha256": "b2e7fce980170d2e42332ea608612f0a14303564043c16d0a4b2e167456e57eb",
   "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
   "source_hashes": [
     "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
@@ -34,7 +34,7 @@
     "baseline_quantity_code": "BASIC",
     "calculation_time_mode": "HISTORICAL_REPLAY",
     "comparison_admitted": true,
-    "optimization_admitted": false
+    "optimization_admitted": true
   },
   "gate_evidence": {
     "component_vector_complete": true,
@@ -43,6 +43,8 @@
     "integer_bounds_proved": true,
     "mutation_suite_passed": true,
     "source_links_retrievable": true,
-    "stable_compiler_hash": true
+    "stable_compiler_hash": true,
+    "optimizer_lowering_proved": true,
+    "randomized_cross_backend_passed": true
   }
 }

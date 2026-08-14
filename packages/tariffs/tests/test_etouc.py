@@ -81,7 +81,7 @@ def test_etouc_compiles_deterministically_without_changing_e1() -> None:
     assert first.ir.tariff_version_id == "pge-etouc-2026-07"
     assert len(first.ir.operators) == 5
     assert compile_tariff(ROOT).compiler_content_sha256 == (
-        "ae003e7717fbb8fa964aac75ba21efa737f4db54bdba2abcb90b1a22d81a0016"
+        "b2e7fce980170d2e42332ea608612f0a14303564043c16d0a4b2e167456e57eb"
     )
 
 

@@ -16,7 +16,7 @@ def test_public_cli_compiles_full_bundle() -> None:
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["compiler_content_sha256"] == (
-        "ae003e7717fbb8fa964aac75ba21efa737f4db54bdba2abcb90b1a22d81a0016"
+        "b2e7fce980170d2e42332ea608612f0a14303564043c16d0a4b2e167456e57eb"
     )
     assert payload["reports"]["component_vector"]["active_component_count_by_key"] == [1, 1]
 

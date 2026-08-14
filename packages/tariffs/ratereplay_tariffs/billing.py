@@ -343,7 +343,7 @@ def evaluate_eligibility(
     )
     bill_cycle_month = facts.service_window.end.month if facts.service_window.end else 0
     if baseline_rules and not any(
-        _applies(rule.applicability, facts, bill_cycle_month) for rule in baseline_rules
+        rule_applies(rule.applicability, facts, bill_cycle_month) for rule in baseline_rules
     ):
         unknown.append("UNSUPPORTED_BASELINE_CONFIGURATION")
     if ineligible:
@@ -367,7 +367,13 @@ def evaluate_eligibility(
     )
 
 
-def _applies(applicability: RuleApplicability, facts: AccountFacts, bill_cycle_month: int) -> bool:
+def rule_applies(
+    applicability: RuleApplicability,
+    facts: AccountFacts,
+    bill_cycle_month: int,
+) -> bool:
+    """Return the shared applicability decision used by billing and optimization."""
+
     return (
         (not applicability.income_tiers or facts.income_tier in applicability.income_tiers)
         and (
@@ -431,7 +437,7 @@ def _baseline_allowance(
         rule
         for rule in bundle.ir.operators
         if isinstance(rule, IRBaselineAllowance)
-        and _applies(rule.applicability, facts, bill_cycle_month)
+        and rule_applies(rule.applicability, facts, bill_cycle_month)
     )
     all_baseline_rules = tuple(
         rule for rule in bundle.ir.operators if isinstance(rule, IRBaselineAllowance)
@@ -443,7 +449,9 @@ def _baseline_allowance(
     return rules[0].daily_allowance_wh * billing_days
 
 
-def _time_schedule(bundle: CompilationBundle, rule_id: str) -> IRTimeOfUseSchedule:
+def resolve_time_schedule(bundle: CompilationBundle, rule_id: str) -> IRTimeOfUseSchedule:
+    """Resolve one compiled time schedule for all calculation backends."""
+
     schedules = tuple(
         operator
         for operator in bundle.ir.operators
@@ -468,6 +476,34 @@ def _classify_local_period(schedule: IRTimeOfUseSchedule, local_start: datetime)
     return schedule.default_period
 
 
+def classify_interval_period(
+    schedule: IRTimeOfUseSchedule,
+    start_utc: datetime,
+    duration_seconds: int,
+    service_window: DateRange,
+) -> str:
+    """Classify a complete interval with the reference evaluator's exact rules."""
+
+    timezone = ZoneInfo(schedule.timezone)
+    end_utc = start_utc + timedelta(seconds=duration_seconds)
+    local_start = start_utc.astimezone(timezone)
+    local_final_instant = (end_utc - timedelta(microseconds=1)).astimezone(timezone)
+    start_period = _classify_local_period(schedule, local_start)
+    end_period = _classify_local_period(schedule, local_final_instant)
+    if start_period != end_period:
+        raise ReplayError(
+            "INTERVAL_CROSSES_TARIFF_BOUNDARY",
+            "An interval crosses a time-of-use boundary and cannot be apportioned.",
+        )
+    if not service_window.contains(local_start.date()) or not service_window.contains(
+        local_final_instant.date()
+    ):
+        raise ReplayError(
+            "INTERVAL_OUTSIDE_SERVICE_WINDOW", "An interval is outside the billing period."
+        )
+    return start_period
+
+
 def _period_energy(
     request: ReplayRequest | IntervalReplayRequest,
     schedule: IRTimeOfUseSchedule,
@@ -476,29 +512,17 @@ def _period_energy(
         raise ReplayError(
             "INTERVAL_DATA_REQUIRED", "Time-of-use replay requires canonical interval data."
         )
-    timezone = ZoneInfo(schedule.timezone)
     totals: dict[str, int] = {}
     for interval in request.intervals:
         start_seconds = interval.start_utc_ns // 1_000_000_000
         start_utc = datetime.fromtimestamp(start_seconds, tz=UTC)
-        end_utc = start_utc + timedelta(seconds=interval.duration_seconds)
-        local_start = start_utc.astimezone(timezone)
-        local_final_instant = (end_utc - timedelta(microseconds=1)).astimezone(timezone)
-        start_period = _classify_local_period(schedule, local_start)
-        end_period = _classify_local_period(schedule, local_final_instant)
-        if start_period != end_period:
-            raise ReplayError(
-                "INTERVAL_CROSSES_TARIFF_BOUNDARY",
-                "An interval crosses a time-of-use boundary and cannot be apportioned.",
-            )
-        service_window = request.account_facts.service_window
-        if not service_window.contains(local_start.date()) or not service_window.contains(
-            local_final_instant.date()
-        ):
-            raise ReplayError(
-                "INTERVAL_OUTSIDE_SERVICE_WINDOW", "An interval is outside the billing period."
-            )
-        totals[start_period] = totals.get(start_period, 0) + interval.energy_wh
+        period = classify_interval_period(
+            schedule,
+            start_utc,
+            interval.duration_seconds,
+            request.account_facts.service_window,
+        )
+        totals[period] = totals.get(period, 0) + interval.energy_wh
     return totals
 
 
@@ -571,7 +595,7 @@ def replay_compiled_tariff(
     placeholders: list[UnsupportedPlaceholder] = []
     period_energy_by_schedule: dict[str, dict[str, int]] = {}
     for operator in bundle.ir.operators:
-        if not _applies(operator.applicability, request.account_facts, bill_cycle_month):
+        if not rule_applies(operator.applicability, request.account_facts, bill_cycle_month):
             continue
         if isinstance(operator, (IRBaselineAllowance, IRTimeOfUseSchedule)):
             continue
@@ -618,7 +642,7 @@ def replay_compiled_tariff(
             if remaining:
                 raise ReplayError("UNCOVERED_TIER", "Energy remains after tier allocation.")
         elif isinstance(operator, IRTimeOfUseEnergyCharge):
-            schedule = _time_schedule(bundle, operator.schedule_rule_id)
+            schedule = resolve_time_schedule(bundle, operator.schedule_rule_id)
             period_energy = period_energy_by_schedule.setdefault(
                 schedule.rule_id, _period_energy(request, schedule)
             )

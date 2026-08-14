@@ -610,6 +610,8 @@ def compile_tariff(root: Path, definition_path: Path | None = None) -> Compilati
         )
         for source_id in tariff.source_ids
     )
+    solver_operators = tuple(sorted({operator.operator for operator in ir.operators}))
+    optimization_supported = tariff.optimization_capability == "SUPPORTED"
     reports = CompilationReports(
         normalized_ast_sha256=normalized_ast_hash,
         eligibility_predicate_id=tariff.eligibility_predicate.predicate_id,
@@ -622,8 +624,10 @@ def compile_tariff(root: Path, definition_path: Path | None = None) -> Compilati
         ),
         source_coverage=source_coverages,
         golden_coverage=golden_coverage,
-        solver_lowering_supported_operators=(),
-        solver_lowering_unsupported_reasons=(cast(str, tariff.optimization_unsupported_reason),),
+        solver_lowering_supported_operators=(solver_operators if optimization_supported else ()),
+        solver_lowering_unsupported_reasons=(
+            () if optimization_supported else (cast(str, tariff.optimization_unsupported_reason),)
+        ),
     )
     content_payload = {
         "normalized_ast": normalized_ast,

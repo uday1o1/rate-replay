@@ -35,11 +35,18 @@ def test_e1_compilation_is_deterministic_and_complete() -> None:
 
     assert first == second
     assert first.compiler_content_sha256 == (
-        "ae003e7717fbb8fa964aac75ba21efa737f4db54bdba2abcb90b1a22d81a0016"
+        "b2e7fce980170d2e42332ea608612f0a14303564043c16d0a4b2e167456e57eb"
     )
     assert first.ir.tariff_version_id == "pge-e1-2026-07"
     assert len(first.ir.operators) == 4
     assert first.reports.component_vector.active_component_count_by_key == (1, 1)
+    assert first.reports.solver_lowering_unsupported_reasons == ()
+    assert first.reports.solver_lowering_supported_operators == (
+        "APPLICABILITY_GATED_INTEGER_AMOUNT",
+        "BASELINE_ALLOWANCE",
+        "MULTIPLY_DAYS_BY_INTEGER_RATE",
+        "TIER_ALLOCATE_AND_MULTIPLY_RATIONAL",
+    )
     assert set(first.reports.golden_coverage.rule_case_ids) >= {
         "E1_APPLICABILITY_2026_03_01",
         "E1_BASELINE_T_BASIC_SUMMER_2026_03_01",

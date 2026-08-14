@@ -202,3 +202,76 @@ class VerificationRecord(FrozenModel):
     billing_result_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     checked_constraint_codes: tuple[str, ...]
     verification_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class OmittedChargeProof(FrozenModel):
+    rule_id: str
+    operator: str
+    subterm: str
+    algebraic_reason: Literal[
+        "ACCOUNT_APPLICABILITY_FALSE",
+        "NON_MONETARY_CLASSIFIER",
+        "TOTAL_PROFILE_ENERGY_INVARIANT",
+        "TOTAL_PROFILE_ENERGY_AND_BASELINE_INVARIANT",
+        "BILLING_DAYS_INVARIANT",
+        "BILLING_PERIOD_INVARIANT",
+        "SUPPORTED_COST_ALWAYS_ZERO",
+    ]
+    invariant_total_energy_wh: int = Field(ge=0)
+    billing_period_confined: Literal[True] = True
+
+
+class ObjectiveBounds(FrozenModel):
+    minimum_supported_cost_cents: int
+    maximum_supported_cost_cents: int
+    maximum_changed_occurrence_slot_count: int = Field(ge=0)
+    maximum_completion_slot_index_sum: int = Field(ge=0)
+    maximum_stable_slot_order_score: int = Field(ge=0)
+    maximum_proxy_rank_score: int = Field(ge=0)
+
+
+class LoweringRecord(FrozenModel):
+    lowering_version: Literal["cp-sat-charge-lowering-v1"] = "cp-sat-charge-lowering-v1"
+    tariff_version_id: str
+    supported_operators: tuple[str, ...]
+    constant_supported_cost_cents: int
+    invariant_total_profile_energy_wh: int = Field(ge=0)
+    omitted_charge_proofs: tuple[OmittedChargeProof, ...]
+    off_peak_ranks: tuple[int, ...]
+    rank_calendar_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    objective_bounds: ObjectiveBounds
+    lowering_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SolverConfiguration(FrozenModel):
+    configuration_version: Literal["deterministic-cp-sat-v1"] = "deterministic-cp-sat-v1"
+    solver_name: Literal["OR-Tools CP-SAT"] = "OR-Tools CP-SAT"
+    solver_version: str
+    num_search_workers: Literal[1] = 1
+    random_seed: int = 20_260_813
+    max_deterministic_time_per_stage: float = Field(gt=0)
+    randomize_search: Literal[False] = False
+    log_search_progress: Literal[False] = False
+
+
+class SolverStageRecord(FrozenModel):
+    stage_index: int = Field(ge=1, le=4)
+    stage_name: Literal[
+        "SUPPORTED_COST",
+        "CHANGED_OCCURRENCE_SLOTS",
+        "COMPLETION_SLOT_INDEX_SUM",
+        "STABLE_SLOT_ORDER_SCORE",
+    ]
+    status: Literal["OPTIMAL", "FEASIBLE", "UNKNOWN", "MODEL_INVALID", "INFEASIBLE"]
+    incumbent_value: int | None
+    best_objective_bound: float | None
+    fixed_optimum: int | None
+
+
+class HeuristicStageRecord(FrozenModel):
+    stage_index: int = Field(ge=1, le=2)
+    stage_name: Literal["OFF_PEAK_PROXY_RANK", "STABLE_SLOT_ORDER_SCORE"]
+    status: Literal["OPTIMAL", "FEASIBLE", "UNKNOWN", "MODEL_INVALID", "INFEASIBLE"]
+    incumbent_value: int | None
+    best_objective_bound: float | None
+    fixed_optimum: int | None

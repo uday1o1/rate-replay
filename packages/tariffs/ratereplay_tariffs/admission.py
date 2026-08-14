@@ -26,7 +26,7 @@ class AdmissionScope(FrozenModel):
     baseline_quantity_code: Literal["BASIC"]
     calculation_time_mode: Literal["HISTORICAL_REPLAY"]
     comparison_admitted: Literal[True]
-    optimization_admitted: Literal[False]
+    optimization_admitted: Literal[True]
 
 
 class AdmissionGateEvidence(FrozenModel):
@@ -37,10 +37,12 @@ class AdmissionGateEvidence(FrozenModel):
     mutation_suite_passed: Literal[True]
     source_links_retrievable: Literal[True]
     stable_compiler_hash: Literal[True]
+    optimizer_lowering_proved: Literal[True]
+    randomized_cross_backend_passed: Literal[True]
 
 
 class TariffAdmissionLock(FrozenModel):
-    admission_lock_version: Literal["tariff-admission-lock-v1"]
+    admission_lock_version: Literal["tariff-admission-lock-v2"]
     tariff_version_id: str
     plan_code: str
     admission_status: Literal["ADMITTED"]

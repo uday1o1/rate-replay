@@ -30,7 +30,7 @@ def test_milestone_one_recovery_evidence_matches_frozen_charter() -> None:
     _validate_m1_evidence()
 
 
-def test_milestone_two_tariff_evidence_matches_admission_lock() -> None:
+def test_milestone_two_tariff_evidence_remains_historically_locked() -> None:
     _validate_m2_evidence()
 
 
@@ -38,5 +38,5 @@ def test_milestone_three_prefrozen_goldens_are_independently_consistent() -> Non
     validate_m3_goldens()
 
 
-def test_milestone_three_comparison_evidence_matches_admission_locks() -> None:
+def test_milestone_three_comparison_evidence_remains_historically_locked() -> None:
     _validate_m3_evidence()

@@ -188,13 +188,13 @@ async def test_authenticated_tariff_provenance_and_replay_path(
         and item["target_account_predicate_id"].startswith("pge-")
         and item["calculation_time_mode"] == "HISTORICAL_REPLAY"
         and item["comparison_admitted"] is True
-        and item["optimization_admitted"] is False
+        and item["optimization_admitted"] is True
         for item in listed_items
     )
     detail = await client.get("/v1/tariffs/pge-e1-2026-07")
     assert detail.status_code == 200
     assert detail.json()["admission"]["compiler_content_sha256"] == (
-        "ae003e7717fbb8fa964aac75ba21efa737f4db54bdba2abcb90b1a22d81a0016"
+        "b2e7fce980170d2e42332ea608612f0a14303564043c16d0a4b2e167456e57eb"
     )
     assert len(detail.json()["compilation"]["reports"]["source_coverage"]) == 2
 
