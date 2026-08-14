@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from ratereplay_domain.energy import exact_watt_hours
+from ratereplay_tariffs.admission import load_admitted_e1
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -112,8 +113,31 @@ def _validate_tariffs() -> None:
     _require(set(golden["source_ids"]) <= source_ids, "E1_GOLDEN_SOURCE_MISSING")
     matrix = _json("tariffs/admission/candidate-matrix-v1.json")
     _require(len(matrix["tariffs"]) == 5, "CANDIDATE_COUNT_MISMATCH")
-    for candidate in matrix["tariffs"]:
-        _require(candidate["admission_status"] != "ADMITTED", "PREMATURE_TARIFF_ADMISSION")
+    statuses = {
+        candidate["tariff_id"]: candidate["admission_status"] for candidate in matrix["tariffs"]
+    }
+    _require(statuses["E-1"] == "ADMITTED", "E1_ADMISSION_STATUS_MISMATCH")
+    _require(
+        all(statuses[tariff_id] != "ADMITTED" for tariff_id in statuses if tariff_id != "E-1"),
+        "PREMATURE_TARIFF_ADMISSION",
+    )
+    _require(e1["admission_status"] == "ADMITTED", "E1_COMPONENT_ADMISSION_MISMATCH")
+    admission = _json("tariffs/admission/pge-e1-2026-07.json")
+    _require(admission["admission_status"] == "ADMITTED", "E1_ADMISSION_LOCK_MISMATCH")
+    _require(
+        _sha256(ROOT / admission["definition"]["path"]) == admission["definition"]["sha256"],
+        "E1_DEFINITION_HASH_MISMATCH",
+    )
+    for suite in admission["golden_suites"]:
+        _require(
+            _sha256(ROOT / suite["path"]) == suite["sha256"],
+            "E1_GOLDEN_HASH_MISMATCH",
+        )
+    admitted = load_admitted_e1(ROOT)
+    _require(
+        admitted.compilation.compiler_content_sha256 == admission["compiler_content_sha256"],
+        "E1_COMPILER_HASH_MISMATCH",
+    )
     holiday = _json("tariffs/calendars/ca-observed-holidays-2026.json")
     _require(
         holiday["holidays_used_in_july_window"]
@@ -201,7 +225,7 @@ def main() -> None:
     _validate_tariffs()
     _validate_generated_evidence()
     _validate_m1_evidence()
-    print("Repository evidence locks are internally consistent through Milestone 1.")
+    print("Repository evidence locks are internally consistent through the admitted E-1 slice.")
 
 
 if __name__ == "__main__":

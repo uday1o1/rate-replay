@@ -5,7 +5,7 @@ from __future__ import annotations
 from fractions import Fraction
 from typing import Literal, cast
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from ratereplay_tariffs.compiled import (
     CompilationBundle,
@@ -48,6 +48,16 @@ class ReplayRequest(FrozenModel):
     energy_wh: int = Field(ge=0)
     current_bill_total_cents: int | None = None
     user_unsupported_lines: tuple[UserUnsupportedLine, ...] = ()
+
+    @field_validator("user_unsupported_lines")
+    @classmethod
+    def canonicalize_unsupported_lines(
+        cls, values: tuple[UserUnsupportedLine, ...]
+    ) -> tuple[UserUnsupportedLine, ...]:
+        keys = tuple(item.line_item_key for item in values)
+        if len(keys) != len(set(keys)):
+            raise ValueError("user unsupported line keys must be unique")
+        return tuple(sorted(values, key=lambda item: item.line_item_key))
 
     def validate_reconciliation_inputs(self) -> None:
         if self.current_bill_total_cents is None and self.user_unsupported_lines:

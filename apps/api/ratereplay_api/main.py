@@ -12,12 +12,15 @@ from ratereplay_persistence.database import Base, make_engine, make_session_fact
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
 from ratereplay_persistence.object_store import FilesystemObjectStore
+from ratereplay_persistence.replays import ReplayService
+from ratereplay_tariffs.admission import load_admitted_e1
 
 from ratereplay_api.auth import AuthService, LoginRateLimiter
 from ratereplay_api.auth_routes import router as auth_router
 from ratereplay_api.config import AppSettings
 from ratereplay_api.import_routes import router as import_router
 from ratereplay_api.problems import install_problem_handler
+from ratereplay_api.replay_routes import router as replay_router
 
 
 def create_app(settings: AppSettings | None = None) -> FastAPI:
@@ -35,6 +38,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         application.state.object_store,
     )
     application.state.job_service = JobService(application.state.session_factory)
+    application.state.replay_service = ReplayService(application.state.session_factory)
+    application.state.admitted_e1 = load_admitted_e1(resolved.repository_root)
     application.state.auth_service = AuthService(resolved.session_key)
     application.state.login_limiter = LoginRateLimiter(resolved.session_key)
     application.state.upload_limiter = LoginRateLimiter(
@@ -77,6 +82,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     application.include_router(auth_router)
     application.include_router(import_router)
+    application.include_router(replay_router)
     return application
 
 

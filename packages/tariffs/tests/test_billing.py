@@ -171,6 +171,21 @@ def test_reconciliation_hashes_every_difference_making_input() -> None:
     assert first.manifest.calculation_sha256 != changed_policy.manifest.calculation_sha256
 
 
+def test_unsupported_line_order_is_canonical_and_duplicate_keys_fail() -> None:
+    alpha = UserUnsupportedLine(line_item_key="alpha", description="A", amount_cents=1)
+    beta = UserUnsupportedLine(line_item_key="beta", description="B", amount_cents=2)
+    first = _request(current_total=10_000, unsupported=(beta, alpha))
+    second = _request(current_total=10_000, unsupported=(alpha, beta))
+    assert first.user_unsupported_lines == second.user_unsupported_lines == (alpha, beta)
+    first_result = replay_compiled_tariff(compile_tariff(ROOT), first)
+    second_result = replay_compiled_tariff(compile_tariff(ROOT), second)
+    assert first_result.manifest.reconciliation_input_sha256 == (
+        second_result.manifest.reconciliation_input_sha256
+    )
+    with pytest.raises(ValueError, match="keys must be unique"):
+        _request(current_total=10_000, unsupported=(alpha, alpha))
+
+
 def test_user_unsupported_line_requires_current_total() -> None:
     request = _request(
         unsupported=(UserUnsupportedLine(line_item_key="tax", description="A tax", amount_cents=1),)

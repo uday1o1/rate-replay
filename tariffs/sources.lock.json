@@ -116,7 +116,7 @@
   ],
   "tariff_component_vectors": [
     {
-      "admission_status": "M0_SOURCE_COMPLETE_NOT_PRODUCTION_ADMITTED",
+      "admission_status": "ADMITTED",
       "components": [
         {
           "component_id": "e1-applicability-baseline-and-special-conditions",

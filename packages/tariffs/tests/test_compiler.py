@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from ratereplay_tariffs.admission import load_admitted_e1
 from ratereplay_tariffs.compiler import TariffCompileError, compile_tariff
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -116,3 +118,18 @@ def test_extra_definition_field_fails_closed(tmp_path: Path) -> None:
         payload["charge_rules"][0]["silently_ignored"] = True
 
     _compile_error(_mutated_definition(tmp_path, add_field), "SCHEMA_INVALID")
+
+
+def test_admission_lock_reproduces_exact_compiler_bundle() -> None:
+    admitted = load_admitted_e1(ROOT)
+    assert admitted.lock.admission_status == "ADMITTED"
+    assert admitted.lock.compiler_content_sha256 == admitted.compilation.compiler_content_sha256
+
+
+def test_admission_lock_detects_artifact_mutation(tmp_path: Path) -> None:
+    shutil.copytree(ROOT / "tariffs", tmp_path / "tariffs")
+    golden = tmp_path / "tariffs/golden/e1-july-2026-boundaries.json"
+    golden.write_text(golden.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    with pytest.raises(TariffCompileError) as raised:
+        load_admitted_e1(tmp_path)
+    assert raised.value.code == "ADMISSION_ARTIFACT_MISMATCH"

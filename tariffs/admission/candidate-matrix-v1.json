@@ -19,7 +19,7 @@
   },
   "tariffs": [
     {
-      "admission_status": "M0_SOURCE_COMPLETE_NOT_PRODUCTION_ADMITTED",
+      "admission_status": "ADMITTED",
       "calendar_dependency": "NONE",
       "eligibility_gap": null,
       "expected_july_rates": {

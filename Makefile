@@ -3,7 +3,7 @@ UV_CACHE_DIR ?= /private/tmp/rate-replay-uv-cache
 PNPM_STORE_DIR ?= /private/tmp/rate-replay-pnpm-store
 COMPOSE ?= $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-m1 benchmark-m1-recovery
+.PHONY: bootstrap check format format-check lint typecheck test security dependency-audit web-build compose-config clean-checkout-check integration-auth integration-m1 integration-m2 benchmark-m1-recovery
 
 bootstrap:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv sync --frozen --all-groups
@@ -60,6 +60,12 @@ integration-m1:
 	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic upgrade head
 	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic check
 	@RATEREPLAY_TEST_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov -m postgres tests/integration/test_auth_postgres.py tests/integration/test_import_postgres.py
+
+integration-m2:
+	@test -n "$(RATEREPLAY_TEST_DATABASE_URL)"
+	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic upgrade head
+	@RATEREPLAY_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run alembic check
+	@RATEREPLAY_TEST_DATABASE_URL="$(RATEREPLAY_TEST_DATABASE_URL)" UV_CACHE_DIR=$(UV_CACHE_DIR) uv run pytest --no-cov -m postgres tests/integration/test_auth_postgres.py tests/integration/test_import_postgres.py tests/integration/test_replay_postgres.py
 
 benchmark-m1-recovery:
 	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run python benchmarks/scripts/m1_recovery.py

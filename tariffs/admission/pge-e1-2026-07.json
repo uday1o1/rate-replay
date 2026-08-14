@@ -1,0 +1,48 @@
+{
+  "admission_lock_version": "tariff-admission-lock-v1",
+  "tariff_version_id": "pge-e1-2026-07",
+  "plan_code": "E-1",
+  "admission_status": "ADMITTED",
+  "admitted_at": "2026-08-13T23:45:00Z",
+  "admitted_service_windows": [["2026-07-01", "2026-08-01"]],
+  "target_account_predicate_id": "pge-bundled-residential-import-only-july-2026-v1",
+  "definition": {
+    "path": "tariffs/definitions/pge-e1-2026-07.json",
+    "sha256": "c0c6b2d9a59f02ffbaf370b371d0c439c34fcc6f22e7d687add6fbbdb462a705"
+  },
+  "compiler_content_sha256": "ae003e7717fbb8fa964aac75ba21efa737f4db54bdba2abcb90b1a22d81a0016",
+  "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
+  "source_hashes": [
+    "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+    "c7b7f7128aec0c2cd86d3ac0f8a076d71dcb65cc03bdd2f8042d0560c02b5877"
+  ],
+  "golden_suites": [
+    {
+      "path": "tariffs/golden/e1-july-2026-boundaries.json",
+      "sha256": "94faa707c4d48b01e774beb1c38953319979a2f98923e7f43a3d9fa2d53615b9"
+    },
+    {
+      "path": "tariffs/golden/e1-july-2026-complete-bill.json",
+      "sha256": "1d98537784017ec7208f39f0e5b643c0f2d32a206450c14777897cab34a1d0af"
+    }
+  ],
+  "scope": {
+    "service_provider": "PG&E",
+    "service_mode": "BUNDLED",
+    "income_tier": "TIER_3",
+    "baseline_territory": "T",
+    "baseline_quantity_code": "BASIC",
+    "calculation_time_mode": "HISTORICAL_REPLAY",
+    "comparison_admitted": false,
+    "optimization_admitted": false
+  },
+  "gate_evidence": {
+    "component_vector_complete": true,
+    "eligibility_fail_closed": true,
+    "golden_coverage_complete": true,
+    "integer_bounds_proved": true,
+    "mutation_suite_passed": true,
+    "source_links_retrievable": true,
+    "stable_compiler_hash": true
+  }
+}

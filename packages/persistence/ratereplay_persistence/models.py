@@ -245,9 +245,50 @@ class JobAttemptRecord(Base):
     failure_code: Mapped[str | None] = mapped_column(String(64))
 
 
+class ReplayResultRecord(Base):
+    __tablename__ = "replay_results"
+    __table_args__ = (
+        UniqueConstraint("owner_user_id", "semantic_hash", name="uq_owner_replay_semantic"),
+        Index("ix_replays_owner_created", "owner_user_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    profile_version_id: Mapped[str] = mapped_column(
+        ForeignKey("profile_versions.id"), nullable=False
+    )
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), unique=True, nullable=False)
+    tariff_version_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation_request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    semantic_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
+    lifecycle_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CalculationManifestRecord(Base):
+    __tablename__ = "calculation_manifests"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    replay_id: Mapped[str] = mapped_column(
+        ForeignKey("replay_results.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    calculation_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    manifest_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 def _prevent_immutable_update(_mapper: object, _connection: object, target: object) -> None:
     raise RuntimeError(f"{type(target).__name__} is immutable")
 
 
-for _immutable_model in (ImportReadingRecord, ImportFindingRecord, ProfileVersionRecord):
+for _immutable_model in (
+    ImportReadingRecord,
+    ImportFindingRecord,
+    ProfileVersionRecord,
+    ReplayResultRecord,
+    CalculationManifestRecord,
+):
     event.listen(_immutable_model, "before_update", _prevent_immutable_update)
