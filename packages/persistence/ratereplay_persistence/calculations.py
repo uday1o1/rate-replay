@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
@@ -69,6 +69,7 @@ class CalculationSubmissionService:
         operation_payload: Mapping[str, object],
         semantic_identity: SemanticCalculationIdentity,
         now: datetime,
+        initialize_new_job: Callable[[Session, CalculationSubmission], None] | None = None,
     ) -> CalculationSubmission:
         if not 8 <= len(idempotency_key) <= 128:
             raise CalculationSubmissionError(
@@ -240,13 +241,16 @@ class CalculationSubmissionService:
                             now=now,
                         )
                     )
-                    return CalculationSubmission(
+                    submission = CalculationSubmission(
                         job_id=job_id,
                         operation_request_hash=operation_request_hash,
                         semantic_hash=semantic_hash,
                         repeated_operation=False,
                         semantic_reuse=False,
                     )
+                    if initialize_new_job is not None:
+                        initialize_new_job(database, submission)
+                    return submission
             except IntegrityError as error:
                 last_integrity_error = error
                 continue

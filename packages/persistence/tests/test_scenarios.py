@@ -4,6 +4,7 @@ import json
 import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -18,6 +19,7 @@ from ratereplay_optimizer.models import (
 )
 from ratereplay_optimizer.scenario import validate_and_decompose_scenario
 from ratereplay_optimizer.solver import default_solver_configuration
+from ratereplay_persistence.calculations import CalculationSubmission
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.models import (
     ImportRecord,
@@ -104,7 +106,9 @@ def _inputs() -> tuple[
     return validated, tariff, account, dated
 
 
-def test_scenario_submission_is_normalized_immutable_idempotent_and_owner_scoped() -> None:
+def test_scenario_submission_is_normalized_immutable_idempotent_and_owner_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     engine = make_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     sessions = make_session_factory(engine)
@@ -159,6 +163,23 @@ def test_scenario_submission_is_normalized_immutable_idempotent_and_owner_scoped
     validated, tariff, account, dated = _inputs()
     configuration = default_solver_configuration(max_deterministic_time_per_stage=5.0)
     service = ScenarioService(sessions)
+    original_submit = service._submissions.submit
+    companion_visible_when_job_commits: list[bool] = []
+
+    def observe_submission(**kwargs: Any) -> CalculationSubmission:
+        submission = original_submit(**kwargs)
+        with sessions() as database:
+            companion_visible_when_job_commits.append(
+                database.scalar(
+                    select(func.count(ScenarioRecord.id)).where(
+                        ScenarioRecord.job_id == submission.job_id
+                    )
+                )
+                == 1
+            )
+        return submission
+
+    monkeypatch.setattr(service._submissions, "submit", observe_submission)
     stored = service.submit(
         owner_user_id=owner_id,
         profile_version_id=profile_id,
@@ -189,6 +210,7 @@ def test_scenario_submission_is_normalized_immutable_idempotent_and_owner_scoped
     assert repeated.calculation.repeated_operation is True
     assert repeated.calculation.semantic_reuse is False
     assert repeated.scenario_id == stored.scenario_id
+    assert companion_visible_when_job_commits == [True, True]
     with sessions() as database:
         scenario = database.get(ScenarioRecord, stored.scenario_id)
         job = database.get(JobRecord, stored.job_id)

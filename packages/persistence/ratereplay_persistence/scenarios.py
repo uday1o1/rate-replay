@@ -86,6 +86,21 @@ class ScenarioService:
             solver_configuration=solver_configuration,
             environment_lock_hash=environment_lock_hash,
         )
+
+        def initialize_new_job(
+            database: Session,
+            calculation: CalculationSubmission,
+        ) -> None:
+            self._initialize_scenario(
+                database,
+                owner_user_id=owner_user_id,
+                profile_version_id=profile_version_id,
+                tariff_version_id=tariff.lock.tariff_version_id,
+                validated=validated,
+                calculation=calculation,
+                now=now,
+            )
+
         try:
             calculation = self._submissions.submit(
                 owner_user_id=owner_user_id,
@@ -106,6 +121,7 @@ class ScenarioService:
                 },
                 semantic_identity=identity,
                 now=now,
+                initialize_new_job=initialize_new_job,
             )
         except CalculationSubmissionError as error:
             raise ScenarioServiceError(error.code, str(error)) from error
@@ -180,50 +196,15 @@ class ScenarioService:
         )
         try:
             with self._session_factory.begin() as database:
-                existing = database.scalar(
-                    select(ScenarioRecord).where(ScenarioRecord.job_id == calculation.job_id)
-                )
-                if existing is not None:
-                    return _validated_existing_scenario(
-                        existing,
-                        owner_user_id=owner_user_id,
-                        profile_version_id=profile_version_id,
-                        tariff_version_id=tariff_version_id,
-                        input_hash=input_hash,
-                    )
-                job = database.get(JobRecord, calculation.job_id)
-                if (
-                    job is None
-                    or job.owner_user_id != owner_user_id
-                    or job.profile_version_id != profile_version_id
-                    or job.kind != "SCENARIO"
-                ):
-                    raise ScenarioServiceError(
-                        "SCENARIO_JOB_INVALID",
-                        "Scenario calculation job is outside the owner scope",
-                    )
-                scenario = ScenarioRecord(
-                    id=secrets.token_hex(16),
+                return self._initialize_scenario(
+                    database,
                     owner_user_id=owner_user_id,
                     profile_version_id=profile_version_id,
-                    job_id=job.id,
                     tariff_version_id=tariff_version_id,
-                    operation_request_hash=calculation.operation_request_hash,
-                    input_hash=input_hash,
-                    input_json=validated.scenario.model_dump_json(),
-                    state=job.state,
-                    lifecycle_state="ACTIVE",
-                    lifecycle_generation=0,
-                    created_at=now.astimezone(UTC),
-                    completed_at=job.completed_at,
+                    validated=validated,
+                    calculation=calculation,
+                    now=now,
                 )
-                database.add(scenario)
-                database.flush()
-                loads, references = _load_records(scenario.id, validated)
-                database.add_all(loads)
-                database.flush()
-                database.add_all(references)
-                return scenario
         except IntegrityError as error:
             with self._session_factory() as database:
                 existing = database.scalar(
@@ -241,6 +222,66 @@ class ScenarioService:
                     tariff_version_id=tariff_version_id,
                     input_hash=input_hash,
                 )
+
+    def _initialize_scenario(
+        self,
+        database: Session,
+        *,
+        owner_user_id: str,
+        profile_version_id: str,
+        tariff_version_id: str,
+        validated: ValidatedScenario,
+        calculation: CalculationSubmission,
+        now: datetime,
+    ) -> ScenarioRecord:
+        input_hash = canonical_content_sha256(
+            b"RateReplay.ScenarioInput.v1",
+            validated.scenario.model_dump(mode="json"),
+        )
+        existing = database.scalar(
+            select(ScenarioRecord).where(ScenarioRecord.job_id == calculation.job_id)
+        )
+        if existing is not None:
+            return _validated_existing_scenario(
+                existing,
+                owner_user_id=owner_user_id,
+                profile_version_id=profile_version_id,
+                tariff_version_id=tariff_version_id,
+                input_hash=input_hash,
+            )
+        job = database.get(JobRecord, calculation.job_id)
+        if (
+            job is None
+            or job.owner_user_id != owner_user_id
+            or job.profile_version_id != profile_version_id
+            or job.kind != "SCENARIO"
+        ):
+            raise ScenarioServiceError(
+                "SCENARIO_JOB_INVALID",
+                "Scenario calculation job is outside the owner scope",
+            )
+        scenario = ScenarioRecord(
+            id=secrets.token_hex(16),
+            owner_user_id=owner_user_id,
+            profile_version_id=profile_version_id,
+            job_id=job.id,
+            tariff_version_id=tariff_version_id,
+            operation_request_hash=calculation.operation_request_hash,
+            input_hash=input_hash,
+            input_json=validated.scenario.model_dump_json(),
+            state=job.state,
+            lifecycle_state="ACTIVE",
+            lifecycle_generation=0,
+            created_at=now.astimezone(UTC),
+            completed_at=job.completed_at,
+        )
+        database.add(scenario)
+        database.flush()
+        loads, references = _load_records(scenario.id, validated)
+        database.add_all(loads)
+        database.flush()
+        database.add_all(references)
+        return scenario
 
 
 def scenario_semantic_identity(

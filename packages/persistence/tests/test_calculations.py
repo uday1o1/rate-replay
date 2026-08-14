@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,8 +15,15 @@ from ratereplay_persistence.calculations import (
 )
 from ratereplay_persistence.database import Base, make_engine, make_session_factory
 from ratereplay_persistence.jobs import JobService
-from ratereplay_persistence.models import ImportRecord, JobRecord, ProfileVersionRecord, UserRecord
+from ratereplay_persistence.models import (
+    ImportRecord,
+    JobRecord,
+    OperationRequestRecord,
+    ProfileVersionRecord,
+    UserRecord,
+)
 from ratereplay_persistence.object_store import FilesystemObjectStore
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 NOW = datetime(2026, 8, 14, tzinfo=UTC)
@@ -115,6 +123,7 @@ def _submit(
     payload: dict[str, object] | None = None,
     identity: SemanticCalculationIdentity | None = None,
     owner_prefix: str = "1",
+    initialize_new_job: Callable[[Session, CalculationSubmission], None] | None = None,
 ) -> CalculationSubmission:
     return harness.submissions.submit(
         owner_user_id=owner_prefix * 32,
@@ -125,7 +134,34 @@ def _submit(
         operation_payload=payload or {"profile": owner_prefix, "tariff": "E-1"},
         semantic_identity=identity or _identity(),
         now=NOW,
+        initialize_new_job=initialize_new_job,
     )
+
+
+def test_new_job_initializer_is_atomic_with_submission(harness: CalculationHarness) -> None:
+    observed_job_id: str | None = None
+
+    def fail_after_observing_job(
+        database: Session,
+        submission: CalculationSubmission,
+    ) -> None:
+        nonlocal observed_job_id
+        observed_job_id = submission.job_id
+        assert database.get(JobRecord, submission.job_id) is not None
+        raise RuntimeError("companion initialization failed")
+
+    with pytest.raises(RuntimeError, match="companion initialization failed"):
+        _submit(
+            harness,
+            key="atomic-companion",
+            initialize_new_job=fail_after_observing_job,
+        )
+
+    assert observed_job_id is not None
+    with harness.sessions() as database:
+        assert database.get(JobRecord, observed_job_id) is None
+        assert database.scalar(select(func.count()).select_from(JobRecord)) == 0
+        assert database.scalar(select(func.count()).select_from(OperationRequestRecord)) == 0
 
 
 def test_operation_retry_returns_original_job_and_payload_conflict_fails(
