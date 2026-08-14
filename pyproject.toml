@@ -23,6 +23,7 @@ dependencies = [
   "prometheus-client==0.26.0",
   "psycopg[binary]==3.3.4",
   "pydantic==2.13.4",
+  "python-multipart==0.0.32",
   "sqlalchemy==2.0.52",
   "typer==0.27.1",
   "uvicorn[standard]==0.52.3",
@@ -42,6 +43,7 @@ dev = [
 
 [project.scripts]
 ratereplay-foundation = "ratereplay_domain.cli:app"
+ratereplay-worker = "ratereplay_worker.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = [

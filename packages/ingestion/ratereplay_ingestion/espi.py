@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
@@ -159,7 +160,11 @@ def _parse_atom_entry(atom_entry: etree._Element, schema: etree.XMLSchema | None
     return _Entry(self_hrefs[0], kind, tuple(values), tuple(readings), links)
 
 
-def _stream_entries(payload: bytes, schema: etree.XMLSchema | None) -> dict[str, _Entry]:
+def _stream_entries(
+    payload: bytes,
+    schema: etree.XMLSchema | None,
+    on_chunk: Callable[[int], None] | None,
+) -> dict[str, _Entry]:
     if not payload:
         raise EspiParseError("EMPTY_FILE", "XML payload is empty")
     if len(payload) > MAX_XML_BYTES:
@@ -186,7 +191,10 @@ def _stream_entries(payload: bytes, schema: etree.XMLSchema | None) -> dict[str,
     root_seen = False
     try:
         for offset in range(0, len(payload), XML_CHUNK_BYTES):
-            parser.feed(payload[offset : offset + XML_CHUNK_BYTES])
+            chunk = payload[offset : offset + XML_CHUNK_BYTES]
+            parser.feed(chunk)
+            if on_chunk is not None:
+                on_chunk(len(chunk))
             for event, element in parser.read_events():
                 if event == "start":
                     depth += 1
@@ -318,10 +326,15 @@ def _normalized_readings(
     )
 
 
-def parse_espi(payload: bytes, *, schema_path: Path | None = None) -> EspiDocument:
+def parse_espi(
+    payload: bytes,
+    *,
+    schema_path: Path | None = None,
+    on_chunk: Callable[[int], None] | None = None,
+) -> EspiDocument:
     """Stream one ESPI Atom document and resolve its calculation stream."""
 
-    entries = _stream_entries(payload, _compile_schema(schema_path))
+    entries = _stream_entries(payload, _compile_schema(schema_path), on_chunk)
     usage_points = tuple(entry for entry in entries.values() if entry.kind == "UsagePoint")
     if len(usage_points) != 1:
         raise EspiParseError("MULTIPLE_USAGE_POINTS", "Exactly one usage point is required")
