@@ -24,6 +24,7 @@ from ratereplay_optimizer.models import (
     SolverConfiguration,
     ValidatedScenario,
 )
+from ratereplay_optimizer.results import ScenarioResultError, build_scenario_result
 from ratereplay_optimizer.scenario import validate_and_decompose_scenario
 from ratereplay_optimizer.solver import (
     OptimizationExecutionError,
@@ -362,6 +363,68 @@ def test_exact_solver_is_repeatable_under_locked_deterministic_configuration() -
     assert first.result_sha256 == second.result_sha256
     assert first.selected.selected.schedule == second.selected.selected.schedule
     assert first.stage_records == second.stage_records
+
+
+def test_scenario_result_is_deterministic_complete_and_never_a_forecast() -> None:
+    bundle = _bundle(ROOT / "tariffs/definitions/pge-etoud-2026-07.json")
+    validated = validate_and_decompose_scenario(_scenario(bundle))
+    account, dated = _facts()
+    exact = optimize_exact(validated, bundle, account, dated_facts=dated)
+    heuristic = optimize_off_peak_heuristic(validated, bundle, account, dated_facts=dated)
+
+    first = build_scenario_result(validated, bundle, account, dated, exact, heuristic)
+    second = build_scenario_result(validated, bundle, account, dated, exact, heuristic)
+
+    assert first == second
+    assert first.result_sha256 == second.result_sha256
+    assert first.calculation_time_mode == "HISTORICAL_REPLAY"
+    assert first.historical_addition_label == "HISTORICAL_COUNTERFACTUAL_NOT_FORECAST"
+    assert first.exact.selected.verification.status == "VALID"
+    assert (
+        first.exact.selected.billing_result.result_sha256
+        == first.exact.selected.verification.billing_result_sha256
+    )
+    assert first.heuristic.bill_optimality_claim is False
+    assert first.manifest.solver_lowering_sha256 == exact.lowering_record.lowering_sha256
+    assert first.manifest.rank_calendar_sha256 == heuristic.lowering_record.rank_calendar_sha256
+    assert len(first.manifest.load_modes_and_reference_hashes) == 1
+
+
+@pytest.mark.parametrize(
+    "internal_status",
+    ["UNKNOWN", "MODEL_INVALID", "MODEL_CONTRACT_VIOLATION", "UNVERIFIED_INCUMBENT"],
+)
+def test_unsuccessful_exact_status_cannot_become_a_scenario_resource(
+    internal_status: str,
+) -> None:
+    bundle = _bundle(ROOT / "tariffs/definitions/pge-etoud-2026-07.json")
+    validated = validate_and_decompose_scenario(_scenario(bundle))
+    account, dated = _facts()
+    exact = optimize_exact(validated, bundle, account, dated_facts=dated)
+    heuristic = optimize_off_peak_heuristic(validated, bundle, account, dated_facts=dated)
+
+    with pytest.raises(ScenarioResultError) as captured:
+        build_scenario_result(
+            validated,
+            bundle,
+            account,
+            dated,
+            exact.__class__(
+                search_status=internal_status,  # type: ignore[arg-type]
+                selected=exact.selected,
+                stage_records=exact.stage_records,
+                highest_objective_stage_proved_optimal=exact.highest_objective_stage_proved_optimal,
+                first_open_stage=exact.first_open_stage,
+                best_supported_cost_bound=exact.best_supported_cost_bound,
+                absolute_cost_gap_cents=exact.absolute_cost_gap_cents,
+                relative_cost_gap=exact.relative_cost_gap,
+                solver_configuration=exact.solver_configuration,
+                lowering_record=exact.lowering_record,
+                result_sha256=exact.result_sha256,
+            ),
+            heuristic,
+        )
+    assert captured.value.code == f"EXACT_SOLVER_{internal_status}"
 
 
 def test_unknown_ir_operator_refuses_optimization_with_exact_reason() -> None:
