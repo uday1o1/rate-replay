@@ -88,9 +88,9 @@
       "tariff_id": "E-ELEC"
     },
     {
-      "admission_status": "NOT_ADMITTED",
+      "admission_status": "ADMITTED",
       "calendar_dependency": "NONE_PERIODS_APPLY_EVERY_DAY",
-      "eligibility_gap": "EV qualification and the filed 800 percent annual-baseline test require dated facts not yet executable.",
+      "eligibility_gap": null,
       "expected_july_rates": {
         "base_service_tier3_usd_per_day": "0.79343",
         "off_peak_usd_per_kwh": "0.22558",

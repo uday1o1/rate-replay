@@ -1,0 +1,44 @@
+{
+  "admission_lock_version": "tariff-admission-lock-v1",
+  "tariff_version_id": "pge-ev2a-2026-07",
+  "plan_code": "EV2-A",
+  "admission_status": "ADMITTED",
+  "admitted_at": "2026-08-14T03:22:05Z",
+  "admitted_service_windows": [["2026-07-01", "2026-08-01"]],
+  "target_account_predicate_id": "pge-ev2a-bundled-residential-july-2026-v2",
+  "definition": {
+    "path": "tariffs/definitions/pge-ev2a-2026-07.json",
+    "sha256": "31de1b8fd5084cd0633e98eab6eaa8d57d4662cde2b6f7eb10591042515cd6a7"
+  },
+  "compiler_content_sha256": "f81fb5d51b47e7cd64b07c0a104cfde00434e5e91b85fa65dbea3e96b740194c",
+  "source_ids": ["pge-advice-7846-e", "pge-advice-7921-e"],
+  "source_hashes": [
+    "4a813c7d43ef349fec43018d74cc3c4bd4bc2a905ae2d402faccf8d768626298",
+    "c7b7f7128aec0c2cd86d3ac0f8a076d71dcb65cc03bdd2f8042d0560c02b5877"
+  ],
+  "golden_suites": [
+    {
+      "path": "tariffs/golden/ev2a-july-2026.json",
+      "sha256": "2c87ffd0ccef9773bd93e9a763d08463e20dc617c952f623c3235776e39afe7e"
+    }
+  ],
+  "scope": {
+    "service_provider": "PG&E",
+    "service_mode": "BUNDLED",
+    "income_tier": "TIER_3",
+    "baseline_territory": "T",
+    "baseline_quantity_code": "BASIC",
+    "calculation_time_mode": "HISTORICAL_REPLAY",
+    "comparison_admitted": false,
+    "optimization_admitted": false
+  },
+  "gate_evidence": {
+    "component_vector_complete": true,
+    "eligibility_fail_closed": true,
+    "golden_coverage_complete": true,
+    "integer_bounds_proved": true,
+    "mutation_suite_passed": true,
+    "source_links_retrievable": true,
+    "stable_compiler_hash": true
+  }
+}

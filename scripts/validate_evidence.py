@@ -120,14 +120,8 @@ def _validate_tariffs() -> None:
     _require(statuses["E-TOU-C"] == "ADMITTED", "ETOUC_ADMISSION_STATUS_MISMATCH")
     _require(statuses["E-TOU-D"] == "ADMITTED", "ETOUD_ADMISSION_STATUS_MISMATCH")
     _require(statuses["E-ELEC"] == "ADMITTED", "EELEC_ADMISSION_STATUS_MISMATCH")
-    _require(
-        all(
-            statuses[tariff_id] != "ADMITTED"
-            for tariff_id in statuses
-            if tariff_id not in {"E-1", "E-TOU-C", "E-TOU-D", "E-ELEC"}
-        ),
-        "PREMATURE_TARIFF_ADMISSION",
-    )
+    _require(statuses["EV2-A"] == "ADMITTED", "EV2A_ADMISSION_STATUS_MISMATCH")
+    _require(all(status == "ADMITTED" for status in statuses.values()), "TARIFF_NOT_ADMITTED")
     _require(e1["admission_status"] == "ADMITTED", "E1_COMPONENT_ADMISSION_MISMATCH")
     admission = _json("tariffs/admission/pge-e1-2026-07.json")
     _require(admission["admission_status"] == "ADMITTED", "E1_ADMISSION_LOCK_MISMATCH")
@@ -162,6 +156,12 @@ def _validate_tariffs() -> None:
         eelec.compilation.compiler_content_sha256
         == "15d9ecca0b2ca03b475b9c493412423509529c089b13c473873ec59f9bc073b7",
         "EELEC_COMPILER_HASH_MISMATCH",
+    )
+    ev2a = load_admitted_tariff(ROOT, "EV2-A")
+    _require(
+        ev2a.compilation.compiler_content_sha256
+        == "f81fb5d51b47e7cd64b07c0a104cfde00434e5e91b85fa65dbea3e96b740194c",
+        "EV2A_COMPILER_HASH_MISMATCH",
     )
     holiday = _json("tariffs/calendars/ca-observed-holidays-2026.json")
     _require(
