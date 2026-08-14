@@ -12,6 +12,22 @@ Authentication cookies are host-only, `Secure`, `HttpOnly`, and `SameSite=Strict
 V1 stores no email address and has no credential recovery.
 The product warns before private upload that a lost password makes the account unrecoverable.
 
+## Request budgets and proxy identity
+
+The single-process V1 API enforces sliding one-minute budgets before executing a route.
+Authentication permits five attempts per effective connection and principal, upload permits ten submissions per owner, authenticated and unauthenticated mutations permit sixty requests, and reads permit 240 requests.
+Every rejection uses the versioned problem schema, returns `429`, supplies an integer `Retry-After` value, and increments only a fixed-scope metric.
+The limiter retains only HMAC digests and timestamps, discards expired buckets, caps active identifier storage at 4,096 entries, and sends rotating excess identities into one shared overflow budget.
+The static public demo does not call this API and is unaffected.
+
+The browser polls durable jobs no more than once per second and performs one bounded retry when a valid `Retry-After` value of 1 through 60 seconds is present.
+This keeps ordinary long-running work below the read budget without automatically replaying a mutation.
+
+Forwarding headers are ignored unless the immediate peer belongs to `RATEREPLAY_TRUSTED_PROXY_CIDRS`.
+When a peer is trusted, the API selects the rightmost forwarded address outside every trusted proxy network.
+The reference Caddy service must overwrite client forwarding headers, and its exact internal network must be configured rather than using a universal trust value.
+Deployments with multiple API processes require a separately qualified shared limiter and are outside V1.
+
 ## Reference hosted topology
 
 The reference host is Ubuntu Server 24.04 LTS on x86-64 with Docker Engine 29.5 and Compose 5.4.

@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 import { DemoRedactedReport } from "./demoArtifacts";
 import { RedactedReport } from "./PublicDemo";
-import { ApiError, api } from "./api";
+import { ApiError, api, pollApi } from "./api";
+
+const POLL_INTERVAL_MS = 1000;
 
 type JobResource = {
   job_id: string;
@@ -80,10 +82,10 @@ export function ReportExport({
       !isTerminal(current.state) && attempt < 120;
       attempt += 1
     ) {
-      current = await api<JobResource>(`/v1/jobs/${current.job_id}`);
+      current = await pollApi<JobResource>(`/v1/jobs/${current.job_id}`);
       if (operationToken.current !== token) return;
       setJob(current);
-      if (!isTerminal(current.state)) await wait(250);
+      if (!isTerminal(current.state)) await wait(POLL_INTERVAL_MS);
     }
     if (operationToken.current !== token) return;
     if (!isTerminal(current.state)) {

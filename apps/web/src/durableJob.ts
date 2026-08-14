@@ -1,4 +1,6 @@
-import { ApiError, api } from "./api";
+import { ApiError, pollApi } from "./api";
+
+const POLL_INTERVAL_MS = 1000;
 
 export type JobResource = {
   job_id: string;
@@ -35,9 +37,9 @@ export async function finishDurableJob(
     !isTerminal(current.state) && attempt < 120;
     attempt += 1
   ) {
-    current = await api<JobResource>(`/v1/jobs/${current.job_id}`);
+    current = await pollApi<JobResource>(`/v1/jobs/${current.job_id}`);
     if (!isTerminal(current.state)) {
-      await wait(250);
+      await wait(POLL_INTERVAL_MS);
     }
   }
   if (!isTerminal(current.state)) {

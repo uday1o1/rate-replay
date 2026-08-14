@@ -6,8 +6,6 @@ import hashlib
 import hmac
 import re
 import secrets
-import threading
-from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -21,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ratereplay_api.abuse import SlidingWindowRateLimiter
 from ratereplay_api.problems import ApiProblem
 
 SESSION_IDLE_LIFETIME = timedelta(minutes=30)
@@ -82,8 +81,8 @@ class AuthenticatedSession:
     absolute_expires_at: datetime
 
 
-class LoginRateLimiter:
-    """Bound expensive password checks without retaining raw principals or addresses."""
+class LoginRateLimiter(SlidingWindowRateLimiter):
+    """Backward-compatible named limiter for authentication and upload budgets."""
 
     def __init__(
         self,
@@ -93,29 +92,18 @@ class LoginRateLimiter:
         window: timedelta = timedelta(minutes=1),
         code: str = "AUTH_RATE_LIMITED",
         message: str = "Too many authentication attempts. Try again later.",
-    ):
-        self._key = key
-        self._limit = limit
-        self._window = window
-        self._code = code
-        self._message = message
-        self._attempts: dict[str, deque[datetime]] = defaultdict(deque)
-        self._lock = threading.Lock()
-
-    def check(self, identifier: str, *, now: datetime) -> None:
-        digest = hmac.new(self._key, identifier.encode("utf-8"), hashlib.sha256).hexdigest()
-        cutoff = now - self._window
-        with self._lock:
-            attempts = self._attempts[digest]
-            while attempts and attempts[0] <= cutoff:
-                attempts.popleft()
-            if len(attempts) >= self._limit:
-                raise ApiProblem(
-                    status_code=429,
-                    code=self._code,
-                    message=self._message,
-                )
-            attempts.append(now)
+        scope: str = "AUTH",
+        on_reject: Callable[[str], None] | None = None,
+    ) -> None:
+        super().__init__(
+            key,
+            limit=limit,
+            window=window,
+            code=code,
+            message=message,
+            scope=scope,
+            on_reject=on_reject,
+        )
 
 
 class AuthService:

@@ -19,6 +19,7 @@ class ApiProblem(Exception):
         message: str,
         field_paths: tuple[str, ...] = (),
         witness: dict[str, object] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(code)
         self.status_code = status_code
@@ -26,6 +27,7 @@ class ApiProblem(Exception):
         self.message = message
         self.field_paths = field_paths
         self.witness = witness or {}
+        self.headers = headers or {}
 
 
 class ProblemResponse(BaseModel):
@@ -53,7 +55,7 @@ def install_problem_handler(app: FastAPI) -> None:
         return JSONResponse(
             status_code=error.status_code,
             content=problem.model_dump(mode="json"),
-            headers={"Cache-Control": "no-store"},
+            headers={"Cache-Control": "no-store", **error.headers},
         )
 
     @app.exception_handler(RequestValidationError)

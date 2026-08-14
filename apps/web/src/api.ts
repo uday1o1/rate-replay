@@ -3,6 +3,7 @@ export class ApiError extends Error {
   readonly code: string;
   readonly fieldPaths: string[];
   readonly witness: Record<string, unknown>;
+  readonly retryAfterSeconds: number | null;
 
   constructor(
     status: number,
@@ -10,6 +11,7 @@ export class ApiError extends Error {
     message: string,
     fieldPaths: string[],
     witness: Record<string, unknown>,
+    retryAfterSeconds: number | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -17,6 +19,7 @@ export class ApiError extends Error {
     this.code = code;
     this.fieldPaths = fieldPaths;
     this.witness = witness;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -47,7 +50,34 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       body?.message ?? "RateReplay could not complete that request.",
       body?.field_paths ?? [],
       body?.witness ?? {},
+      parseRetryAfter(response.headers.get("Retry-After")),
     );
   }
   return body as T;
+}
+
+export async function pollApi<T>(path: string): Promise<T> {
+  try {
+    return await api<T>(path);
+  } catch (error) {
+    if (
+      !(error instanceof ApiError) ||
+      error.status !== 429 ||
+      error.retryAfterSeconds === null
+    ) {
+      throw error;
+    }
+    await new Promise((resolve) =>
+      window.setTimeout(resolve, error.retryAfterSeconds! * 1000),
+    );
+    return api<T>(path);
+  }
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value)) return null;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= 60
+    ? seconds
+    : null;
 }

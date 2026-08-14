@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import cast
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from ratereplay_domain.environment import environment_lock_hash
 from ratereplay_domain.telemetry import Telemetry, TelemetryConfiguration
@@ -18,18 +19,22 @@ from ratereplay_persistence.deletion_ledger import FilesystemDeletionLedger
 from ratereplay_persistence.deletions import DeletionCoordinator
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.jobs import JobService
+from ratereplay_persistence.object_store import ObjectStoreError
 from ratereplay_persistence.replays import ReplayService
 from ratereplay_persistence.reports import ReportService
 from ratereplay_persistence.scenarios import ScenarioService
 from ratereplay_tariffs.admission import load_all_admitted_tariffs
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
+from ratereplay_api.abuse import SlidingWindowRateLimiter, enforce_request_budget
 from ratereplay_api.auth import AuthService, LoginRateLimiter
 from ratereplay_api.auth_routes import router as auth_router
 from ratereplay_api.comparison_routes import router as comparison_router
 from ratereplay_api.config import AppSettings
 from ratereplay_api.deletion_routes import router as deletion_router
 from ratereplay_api.import_routes import router as import_router
-from ratereplay_api.problems import install_problem_handler
+from ratereplay_api.problems import ApiProblem, install_problem_handler, problem_openapi_responses
 from ratereplay_api.replay_routes import router as replay_router
 from ratereplay_api.resource_routes import router as resource_router
 from ratereplay_api.scenario_routes import router as scenario_router
@@ -41,7 +46,12 @@ def create_app(
     telemetry: Telemetry | None = None,
 ) -> FastAPI:
     resolved = settings or AppSettings.from_environment()
-    application = FastAPI(title="RateReplay API", version="0.1.0")
+    application = FastAPI(
+        title="RateReplay API",
+        version="0.1.0",
+        dependencies=[Depends(enforce_request_budget)],
+        responses=problem_openapi_responses(429),
+    )
     application.state.telemetry = telemetry or Telemetry(
         TelemetryConfiguration.from_environment(
             service_name="ratereplay-api",
@@ -89,12 +99,37 @@ def create_app(
     }
     application.state.admitted_e1 = application.state.admitted_tariffs["pge-e1-2026-07"]
     application.state.auth_service = AuthService(resolved.session_key)
-    application.state.login_limiter = LoginRateLimiter(resolved.session_key)
+    process_telemetry = cast(Telemetry, application.state.telemetry)
+    on_rate_limit = process_telemetry.record_rate_limit_rejection
+    application.state.login_limiter = LoginRateLimiter(
+        resolved.session_key,
+        on_reject=on_rate_limit,
+    )
     application.state.upload_limiter = LoginRateLimiter(
         resolved.session_key,
         limit=10,
         code="UPLOAD_RATE_LIMITED",
         message="Too many import requests. Try again later.",
+        scope="UPLOAD",
+        on_reject=on_rate_limit,
+    )
+    application.state.read_limiter = SlidingWindowRateLimiter(
+        resolved.session_key,
+        limit=240,
+        window=timedelta(minutes=1),
+        code="READ_RATE_LIMITED",
+        message="Too many read requests. Try again later.",
+        scope="READ",
+        on_reject=on_rate_limit,
+    )
+    application.state.mutation_limiter = SlidingWindowRateLimiter(
+        resolved.session_key,
+        limit=60,
+        window=timedelta(minutes=1),
+        code="MUTATION_RATE_LIMITED",
+        message="Too many changes. Try again later.",
+        scope="MUTATION",
+        on_reject=on_rate_limit,
     )
 
     application.add_middleware(
@@ -133,6 +168,24 @@ def create_app(
     @application.get("/healthz", include_in_schema=False)
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @application.get("/readyz", include_in_schema=False)
+    def readiness(request: Request) -> dict[str, str]:
+        ready = False
+        try:
+            with request.app.state.engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            request.app.state.object_store.list_prefix("__readiness__")
+            ready = True
+        except (ObjectStoreError, OSError, SQLAlchemyError) as error:
+            raise ApiProblem(
+                status_code=503,
+                code="DEPENDENCY_UNAVAILABLE",
+                message="A required service is unavailable.",
+            ) from error
+        finally:
+            cast(Telemetry, request.app.state.telemetry).record_readiness(ready=ready)
+        return {"status": "ready"}
 
     @application.get("/metrics", include_in_schema=False)
     def metrics(request: Request) -> Response:

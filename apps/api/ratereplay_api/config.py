@@ -26,6 +26,7 @@ class AppSettings:
     deletion_ledger_root: Path
     espi_schema_path: Path
     repository_root: Path
+    trusted_proxy_cidrs: tuple[str, ...] = ()
     secure_cookies: bool = True
     auto_create_schema: bool = False
 
@@ -91,6 +92,7 @@ class AppSettings:
             deletion_ledger_root=deletion_ledger_root,
             espi_schema_path=espi_schema_path,
             repository_root=repository_root,
+            trusted_proxy_cidrs=_trusted_proxy_cidrs(),
             auto_create_schema=environment == "development",
         )
 
@@ -121,6 +123,7 @@ class AppSettings:
             deletion_ledger_root=deletion_ledger_root,
             espi_schema_path=espi_schema_path,
             repository_root=repository_root.resolve(),
+            trusted_proxy_cidrs=(),
             secure_cookies=True,
             auto_create_schema=True,
         )
@@ -136,3 +139,14 @@ def _load_control_key(*, environment: str, variable: str) -> bytes:
     if len(value) < 32:
         raise RuntimeError(f"{variable} must reference at least 32 bytes")
     return value
+
+
+def _trusted_proxy_cidrs() -> tuple[str, ...]:
+    from ipaddress import ip_network
+
+    configured = os.getenv("RATEREPLAY_TRUSTED_PROXY_CIDRS", "")
+    values = tuple(value.strip() for value in configured.split(",") if value.strip())
+    try:
+        return tuple(str(ip_network(value, strict=False)) for value in values)
+    except ValueError as error:
+        raise RuntimeError("RATEREPLAY_TRUSTED_PROXY_CIDRS is invalid") from error

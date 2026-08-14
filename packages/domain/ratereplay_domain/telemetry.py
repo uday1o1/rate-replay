@@ -28,6 +28,7 @@ SAFE_HTTP_METHODS: Final = frozenset({"DELETE", "GET", "HEAD", "OPTIONS", "PATCH
 SAFE_WORKER_KINDS: Final = frozenset(
     {"COMPARISON", "DELETION", "IMPORT", "REPLAY", "REPORT", "RETENTION", "SCENARIO"}
 )
+SAFE_RATE_LIMIT_SCOPES: Final = frozenset({"AUTH", "MUTATION", "READ", "UPLOAD"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +93,18 @@ class Telemetry:
             ("kind",),
             registry=self.registry,
             buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
+        )
+        self._rate_limit_rejections = Counter(
+            "ratereplay_rate_limit_rejections_total",
+            "Rejected requests by fixed request-budget scope.",
+            ("scope",),
+            registry=self.registry,
+        )
+        self._readiness_checks = Counter(
+            "ratereplay_readiness_checks_total",
+            "Readiness checks by fixed outcome.",
+            ("outcome",),
+            registry=self.registry,
         )
         resource = Resource.create(
             {
@@ -175,6 +188,18 @@ class Telemetry:
         """Render only this process's explicitly registered metrics."""
 
         return generate_latest(self.registry)
+
+    def record_rate_limit_rejection(self, scope: str) -> None:
+        """Count one rejected request without retaining a client or owner identity."""
+
+        normalized = scope.upper()
+        safe_scope = normalized if normalized in SAFE_RATE_LIMIT_SCOPES else "UNKNOWN"
+        self._rate_limit_rejections.labels(scope=safe_scope).inc()
+
+    def record_readiness(self, *, ready: bool) -> None:
+        """Count readiness outcomes without recording dependency error details."""
+
+        self._readiness_checks.labels(outcome="ready" if ready else "unready").inc()
 
     def shutdown(self) -> None:
         """Flush configured trace processors before process shutdown."""

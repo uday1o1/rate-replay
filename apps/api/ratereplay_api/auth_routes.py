@@ -9,6 +9,7 @@ from fastapi import APIRouter, Cookie, Depends, Header, Request, Response, statu
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sqlalchemy.orm import Session
 
+from ratereplay_api.abuse import effective_client_host
 from ratereplay_api.auth import AuthenticatedSession, AuthService, LoginRateLimiter, SessionGrant
 from ratereplay_api.problems import ApiProblem, problem_openapi_responses
 
@@ -134,7 +135,7 @@ def register(
     require_same_origin(request)
     limiter: LoginRateLimiter = request.app.state.login_limiter
     now = auth.now
-    limiter.check(f"client:{request.client.host if request.client else 'unknown'}", now=now)
+    limiter.check(f"client:{effective_client_host(request)}", now=now)
     grant = auth.register(
         database,
         username=payload.username,
@@ -160,7 +161,7 @@ def login(
     require_same_origin(request)
     limiter: LoginRateLimiter = request.app.state.login_limiter
     now = auth.now
-    client = request.client.host if request.client else "unknown"
+    client = effective_client_host(request)
     limiter.check(f"client:{client}", now=now)
     limiter.check(f"principal:{payload.username}", now=now)
     grant = auth.login(

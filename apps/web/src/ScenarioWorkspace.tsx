@@ -2,7 +2,9 @@ import { CSSProperties, FormEvent, useMemo, useState } from "react";
 
 import { AccountFacts, TariffSummary } from "./ComparisonWorkspace";
 import { ReportExport } from "./ReportExport";
-import { ApiError, api } from "./api";
+import { ApiError, api, pollApi } from "./api";
+
+const POLL_INTERVAL_MS = 1000;
 
 type ProfileSlot = {
   slot_start_utc: string;
@@ -258,8 +260,8 @@ export function ScenarioWorkspace({
         !isTerminal(job.state) && attempt < 120;
         attempt += 1
       ) {
-        job = await api<JobResource>(`/v1/jobs/${job.job_id}`);
-        if (!isTerminal(job.state)) await wait(250);
+        job = await pollApi<JobResource>(`/v1/jobs/${job.job_id}`);
+        if (!isTerminal(job.state)) await wait(POLL_INTERVAL_MS);
       }
       if (!isTerminal(job.state)) {
         throw new ApiError(
