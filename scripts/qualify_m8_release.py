@@ -664,6 +664,16 @@ def _job_database_result(
     return attempt_count, result_count, attempt_states
 
 
+def _import_reading_count(deployment: ComposeDeployment, *, import_id: str) -> int:
+    _require(HEX_IDENTIFIER.fullmatch(import_id) is not None, "DATABASE_IDENTIFIER_INVALID")
+    return int(
+        _sql(
+            deployment,
+            f"SELECT COUNT(*) FROM interval_readings WHERE import_id='{import_id}'",  # noqa: S608
+        )
+    )
+
+
 def _wait_restarted(container: str, before: int, *, timeout_seconds: float = 15) -> int:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -719,12 +729,7 @@ def _recover_import_workers(
             result_owner_column="id",
             result_owner_id=import_id,
         )
-        reading_count = int(
-            _sql(
-                deployment,
-                f"SELECT COUNT(*) FROM import_readings WHERE import_id='{import_id}'",  # noqa: S608
-            )
-        )
+        reading_count = _import_reading_count(deployment, import_id=import_id)
         recovered = (
             recovery_duration_ms <= threshold_ms
             and attempt_count == 2

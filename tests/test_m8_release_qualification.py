@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from scripts.qualify_m8_release import (
+    _import_reading_count,
     _job_database_result,
     _major_minor_version,
     latency_statistics,
@@ -44,6 +45,21 @@ def test_database_evidence_queries_use_validated_sql_literals() -> None:
         "WHERE scenario_id='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'",
         "SELECT state FROM job_attempts "
         "WHERE job_id='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ORDER BY attempt_number",
+    ]
+
+
+def test_import_evidence_counts_the_persisted_interval_readings() -> None:
+    deployment = RecordingDeployment()
+    deployment.outputs = iter(("35040",))
+
+    result = _import_reading_count(
+        deployment,  # type: ignore[arg-type]
+        import_id="b" * 32,
+    )
+
+    assert result == 35_040
+    assert deployment.statements == [
+        "SELECT COUNT(*) FROM interval_readings WHERE import_id='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'"
     ]
 
 
