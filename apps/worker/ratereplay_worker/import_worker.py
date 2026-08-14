@@ -37,9 +37,15 @@ class ImportWorker:
         after_parse: Callable[[JobLease], None] | None = None,
         after_publish: Callable[[JobLease], None] | None = None,
     ) -> bool:
-        lease = self._jobs.lease_next(worker_id=self._worker_id, now=now)
+        lease = self._jobs.lease_next(
+            worker_id=self._worker_id,
+            now=now,
+            kinds=frozenset({"IMPORT"}),
+        )
         if lease is None:
             return False
+        if lease.import_id is None:
+            raise RuntimeError("IMPORT_LEASE_MISSING_IMPORT_SCOPE")
         if after_lease is not None:
             after_lease(lease)
         if not self._jobs.start(lease, now=now):

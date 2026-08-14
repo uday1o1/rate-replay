@@ -199,18 +199,30 @@ class JobRecord(Base):
             "state IN ('QUEUED', 'LEASED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
             name="ck_job_state",
         ),
+        CheckConstraint(
+            "kind IN ('IMPORT', 'REPLAY', 'COMPARISON', 'SCENARIO', 'REPORT', "
+            "'RETENTION', 'DELETION')",
+            name="ck_job_kind",
+        ),
+        CheckConstraint(
+            "scope_mode IN ('ACTIVE_SCOPE', 'DELETING_SCOPE', 'SYSTEM_SCOPE')",
+            name="ck_job_scope_mode",
+        ),
         Index("ix_jobs_lease_queue", "state", "not_before", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
-    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     request_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     scope_mode: Mapped[str] = mapped_column(String(32), nullable=False)
-    import_id: Mapped[str] = mapped_column(ForeignKey("imports.id"), nullable=False)
+    request_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    import_id: Mapped[str | None] = mapped_column(ForeignKey("imports.id"))
+    profile_version_id: Mapped[str | None] = mapped_column(ForeignKey("profile_versions.id"))
     captured_account_generation: Mapped[int] = mapped_column(Integer, nullable=False)
-    captured_import_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    captured_import_generation: Mapped[int | None] = mapped_column(Integer)
+    captured_profile_generation: Mapped[int | None] = mapped_column(Integer)
     state: Mapped[str] = mapped_column(String(32), nullable=False)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
@@ -408,7 +420,6 @@ def _prevent_immutable_update(_mapper: object, _connection: object, target: obje
 for _immutable_model in (
     ImportReadingRecord,
     ImportFindingRecord,
-    ProfileVersionRecord,
     ReplayResultRecord,
     ScenarioRecord,
     ScenarioLoadRecord,

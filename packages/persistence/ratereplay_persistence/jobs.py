@@ -6,6 +6,8 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from types import MappingProxyType
+from typing import Final
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -14,6 +16,7 @@ from ratereplay_persistence.models import (
     ImportRecord,
     JobAttemptRecord,
     JobRecord,
+    ProfileVersionRecord,
     UserRecord,
 )
 
@@ -22,84 +25,133 @@ RETRY_BASE = timedelta(seconds=2)
 
 
 @dataclass(frozen=True, slots=True)
+class JobDefinition:
+    kind: str
+    scope_mode: str
+    requires_import: bool
+    requires_profile: bool
+
+
+JOB_DEFINITIONS: Final = MappingProxyType(
+    {
+        "IMPORT": JobDefinition("IMPORT", "ACTIVE_SCOPE", True, False),
+        "REPLAY": JobDefinition("REPLAY", "ACTIVE_SCOPE", True, True),
+        "COMPARISON": JobDefinition("COMPARISON", "ACTIVE_SCOPE", True, True),
+        "SCENARIO": JobDefinition("SCENARIO", "ACTIVE_SCOPE", True, True),
+        "REPORT": JobDefinition("REPORT", "ACTIVE_SCOPE", True, True),
+        "RETENTION": JobDefinition("RETENTION", "SYSTEM_SCOPE", False, False),
+        "DELETION": JobDefinition("DELETION", "DELETING_SCOPE", False, False),
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
 class JobLease:
     job_id: str
-    import_id: str
+    import_id: str | None
     worker_id: str
     attempt_number: int
     fencing_generation: int
     lease_expires_at: datetime
+    kind: str = "IMPORT"
+    profile_version_id: str | None = None
+    scope_mode: str = "ACTIVE_SCOPE"
 
 
 class JobService:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
 
-    def lease_next(self, *, worker_id: str, now: datetime) -> JobLease | None:
+    def lease_next(
+        self,
+        *,
+        worker_id: str,
+        now: datetime,
+        kinds: frozenset[str] | None = None,
+    ) -> JobLease | None:
         now = now.astimezone(UTC)
         self.rescue_expired(now=now)
+        selected_kinds = frozenset(JOB_DEFINITIONS) if kinds is None else kinds
+        unknown_kinds = selected_kinds.difference(JOB_DEFINITIONS)
+        if unknown_kinds:
+            raise ValueError(f"Unknown job kinds: {', '.join(sorted(unknown_kinds))}")
+        if not selected_kinds:
+            return None
         with self._session_factory.begin() as database:
-            query = (
-                select(JobRecord)
-                .where(
-                    JobRecord.state == "QUEUED",
-                    JobRecord.not_before <= now,
-                    JobRecord.cancel_requested.is_(False),
-                    JobRecord.kind == "IMPORT",
-                    JobRecord.scope_mode == "ACTIVE_SCOPE",
+            while True:
+                query = (
+                    select(JobRecord)
+                    .where(
+                        JobRecord.state == "QUEUED",
+                        JobRecord.not_before <= now,
+                        JobRecord.cancel_requested.is_(False),
+                        JobRecord.kind.in_(selected_kinds),
+                    )
+                    .order_by(JobRecord.created_at, JobRecord.id)
+                    .limit(1)
                 )
-                .order_by(JobRecord.created_at, JobRecord.id)
-                .limit(1)
-            )
-            if database.bind is not None and database.bind.dialect.name == "postgresql":
-                query = query.with_for_update(skip_locked=True)
-            job = database.scalar(query)
-            if job is None:
-                return None
-            user = database.get(UserRecord, job.owner_user_id)
-            imported = database.get(ImportRecord, job.import_id)
-            if not _scope_is_active(job, user, imported):
-                job.state = "CANCELLED"
-                job.failure_code = "SCOPE_FENCED"
-                job.completed_at = now
-                return None
-            if imported is None:
-                return None
-            if job.attempt_count >= job.max_attempts:
-                job.state = "FAILED"
-                job.failure_code = "ATTEMPT_BUDGET_EXHAUSTED"
-                job.completed_at = now
-                imported.state = "FAILED"
-                imported.failure_code = job.failure_code
-                return None
-            job.attempt_count += 1
-            job.fencing_generation += 1
-            job.state = "LEASED"
-            job.lease_owner = worker_id
-            job.lease_acquired_at = now
-            job.heartbeat_at = now
-            job.lease_expires_at = now + LEASE_DURATION
-            imported.state = "PROCESSING"
-            database.add(
-                JobAttemptRecord(
-                    id=secrets.token_hex(16),
+                if database.bind is not None and database.bind.dialect.name == "postgresql":
+                    query = query.with_for_update(skip_locked=True)
+                job = database.scalar(query)
+                if job is None:
+                    return None
+                definition = JOB_DEFINITIONS.get(job.kind)
+                if definition is None:
+                    _finish_without_lease(
+                        job,
+                        state="FAILED",
+                        code="UNKNOWN_JOB_KIND",
+                        now=now,
+                    )
+                    database.flush()
+                    continue
+                user, imported, profile = _load_scope(database, job)
+                if not _scope_is_valid(job, definition, user, imported, profile):
+                    _finish_without_lease(job, state="CANCELLED", code="SCOPE_FENCED", now=now)
+                    database.flush()
+                    continue
+                if job.attempt_count >= job.max_attempts:
+                    _finish_without_lease(
+                        job,
+                        state="FAILED",
+                        code="ATTEMPT_BUDGET_EXHAUSTED",
+                        now=now,
+                    )
+                    _mark_import_terminal(job, imported, job.failure_code)
+                    database.flush()
+                    continue
+                job.attempt_count += 1
+                job.fencing_generation += 1
+                job.state = "LEASED"
+                job.lease_owner = worker_id
+                job.lease_acquired_at = now
+                job.heartbeat_at = now
+                job.lease_expires_at = now + LEASE_DURATION
+                if job.kind == "IMPORT" and imported is not None:
+                    imported.state = "PROCESSING"
+                database.add(
+                    JobAttemptRecord(
+                        id=secrets.token_hex(16),
+                        job_id=job.id,
+                        attempt_number=job.attempt_count,
+                        fencing_generation=job.fencing_generation,
+                        worker_id=worker_id,
+                        state="LEASED",
+                        leased_at=now,
+                        lease_expires_at=job.lease_expires_at,
+                    )
+                )
+                return JobLease(
                     job_id=job.id,
+                    import_id=job.import_id,
+                    worker_id=worker_id,
                     attempt_number=job.attempt_count,
                     fencing_generation=job.fencing_generation,
-                    worker_id=worker_id,
-                    state="LEASED",
-                    leased_at=now,
                     lease_expires_at=job.lease_expires_at,
+                    kind=job.kind,
+                    profile_version_id=job.profile_version_id,
+                    scope_mode=job.scope_mode,
                 )
-            )
-            return JobLease(
-                job_id=job.id,
-                import_id=job.import_id,
-                worker_id=worker_id,
-                attempt_number=job.attempt_count,
-                fencing_generation=job.fencing_generation,
-                lease_expires_at=job.lease_expires_at,
-            )
 
     def start(self, lease: JobLease, *, now: datetime) -> bool:
         return self._conditional_state(
@@ -115,14 +167,15 @@ class JobService:
             job = database.get(JobRecord, lease.job_id)
             if job is None:
                 return False
-            user = database.get(UserRecord, job.owner_user_id)
-            imported = database.get(ImportRecord, job.import_id)
+            definition = JOB_DEFINITIONS.get(job.kind)
+            user, imported, profile = _load_scope(database, job)
             if not (
                 job.state in {"LEASED", "RUNNING"}
                 and _lease_matches(job, lease)
                 and job.lease_expires_at is not None
                 and now < _aware(job.lease_expires_at)
-                and _scope_is_active(job, user, imported)
+                and definition is not None
+                and _scope_is_valid(job, definition, user, imported, profile)
             ):
                 return False
             job.heartbeat_at = now
@@ -154,9 +207,8 @@ class JobService:
                 or not _lease_matches(job, lease)
             ):
                 return False
-            imported = database.get(ImportRecord, job.import_id)
-            if imported is None:
-                return False
+            definition = JOB_DEFINITIONS.get(job.kind)
+            user, imported, profile = _load_scope(database, job)
             attempt = database.scalar(
                 select(JobAttemptRecord).where(
                     JobAttemptRecord.job_id == job.id,
@@ -167,16 +219,26 @@ class JobService:
                 attempt.state = "FAILED"
                 attempt.failure_code = code
                 attempt.completed_at = now
+            if definition is None or not _scope_is_valid(job, definition, user, imported, profile):
+                job.state = "CANCELLED"
+                job.failure_code = "SCOPE_FENCED"
+                job.completed_at = now
+                if attempt is not None:
+                    attempt.state = "CANCELLED"
+                    attempt.failure_code = job.failure_code
+                job.lease_owner = None
+                job.lease_expires_at = None
+                return True
             if retryable and job.attempt_count < job.max_attempts:
                 job.state = "QUEUED"
                 job.not_before = now + _retry_delay(job.id, job.attempt_count)
-                imported.state = "QUEUED"
+                if job.kind == "IMPORT" and imported is not None:
+                    imported.state = "QUEUED"
             else:
                 job.state = "FAILED"
                 job.failure_code = code if not retryable else "ATTEMPT_BUDGET_EXHAUSTED"
                 job.completed_at = now
-                imported.state = "FAILED"
-                imported.failure_code = job.failure_code
+                _mark_import_terminal(job, imported, job.failure_code)
             job.lease_owner = None
             job.lease_expires_at = None
             return True
@@ -198,8 +260,8 @@ class JobService:
             job.state = "CANCELLED"
             job.failure_code = "CANCELLED_BY_OWNER"
             job.completed_at = now
-            imported = database.get(ImportRecord, job.import_id)
-            if imported is not None:
+            imported = database.get(ImportRecord, job.import_id) if job.import_id else None
+            if job.kind == "IMPORT" and imported is not None:
                 imported.state = "FAILED"
                 imported.failure_code = job.failure_code
             return True
@@ -215,7 +277,8 @@ class JobService:
                 )
             ).all()
             for job in rows:
-                imported = database.get(ImportRecord, job.import_id)
+                definition = JOB_DEFINITIONS.get(job.kind)
+                user, imported, profile = _load_scope(database, job)
                 attempt = database.scalar(
                     select(JobAttemptRecord).where(
                         JobAttemptRecord.job_id == job.id,
@@ -226,17 +289,21 @@ class JobService:
                     attempt.state = "EXPIRED"
                     attempt.failure_code = "LEASE_EXPIRED"
                     attempt.completed_at = now
-                if job.attempt_count >= job.max_attempts:
+                if definition is None or not _scope_is_valid(
+                    job, definition, user, imported, profile
+                ):
+                    job.state = "CANCELLED"
+                    job.failure_code = "SCOPE_FENCED"
+                    job.completed_at = now
+                elif job.attempt_count >= job.max_attempts:
                     job.state = "FAILED"
                     job.failure_code = "ATTEMPT_BUDGET_EXHAUSTED"
                     job.completed_at = now
-                    if imported is not None:
-                        imported.state = "FAILED"
-                        imported.failure_code = job.failure_code
+                    _mark_import_terminal(job, imported, job.failure_code)
                 else:
                     job.state = "QUEUED"
                     job.not_before = now
-                    if imported is not None:
+                    if job.kind == "IMPORT" and imported is not None:
                         imported.state = "QUEUED"
                 job.lease_owner = None
                 job.lease_expires_at = None
@@ -256,15 +323,16 @@ class JobService:
             job = database.get(JobRecord, lease.job_id)
             if job is None:
                 return False
-            user = database.get(UserRecord, job.owner_user_id)
-            imported = database.get(ImportRecord, job.import_id)
+            definition = JOB_DEFINITIONS.get(job.kind)
+            user, imported, profile = _load_scope(database, job)
             if not (
                 job.state == expected_state
                 and _lease_matches(job, lease)
                 and job.lease_expires_at is not None
                 and now < _aware(job.lease_expires_at)
                 and not job.cancel_requested
-                and _scope_is_active(job, user, imported)
+                and definition is not None
+                and _scope_is_valid(job, definition, user, imported, profile)
             ):
                 return False
             job.state = next_state
@@ -287,19 +355,86 @@ def _lease_matches(job: JobRecord, lease: JobLease) -> bool:
     return job.lease_owner == lease.worker_id and job.fencing_generation == lease.fencing_generation
 
 
-def _scope_is_active(
+def _load_scope(
+    database: Session,
     job: JobRecord,
+) -> tuple[UserRecord | None, ImportRecord | None, ProfileVersionRecord | None]:
+    user = database.get(UserRecord, job.owner_user_id) if job.owner_user_id else None
+    imported = database.get(ImportRecord, job.import_id) if job.import_id else None
+    profile = (
+        database.get(ProfileVersionRecord, job.profile_version_id)
+        if job.profile_version_id
+        else None
+    )
+    return user, imported, profile
+
+
+def _scope_is_valid(
+    job: JobRecord,
+    definition: JobDefinition,
     user: UserRecord | None,
     imported: ImportRecord | None,
+    profile: ProfileVersionRecord | None,
 ) -> bool:
-    return bool(
-        user is not None
-        and imported is not None
-        and user.lifecycle_state == "ACTIVE"
-        and imported.lifecycle_state == "ACTIVE"
-        and user.lifecycle_generation == job.captured_account_generation
-        and imported.lifecycle_generation == job.captured_import_generation
-    )
+    if job.scope_mode != definition.scope_mode:
+        return False
+    if definition.scope_mode == "SYSTEM_SCOPE":
+        return bool(
+            job.owner_user_id is None
+            and job.import_id is None
+            and job.profile_version_id is None
+            and job.captured_account_generation == 0
+            and job.captured_import_generation is None
+            and job.captured_profile_generation is None
+        )
+    if user is None or user.lifecycle_generation != job.captured_account_generation:
+        return False
+    expected_lifecycle = "ACTIVE" if definition.scope_mode == "ACTIVE_SCOPE" else "DELETING"
+    if user.lifecycle_state != expected_lifecycle:
+        return False
+    if definition.requires_import:
+        if (
+            imported is None
+            or imported.owner_user_id != job.owner_user_id
+            or imported.lifecycle_state != "ACTIVE"
+            or imported.lifecycle_generation != job.captured_import_generation
+        ):
+            return False
+    elif job.import_id is not None or job.captured_import_generation is not None:
+        return False
+    if definition.requires_profile:
+        return bool(
+            profile is not None
+            and profile.owner_user_id == job.owner_user_id
+            and profile.import_id == job.import_id
+            and profile.lifecycle_state == "ACTIVE"
+            and profile.lifecycle_generation == job.captured_profile_generation
+        )
+    return job.profile_version_id is None and job.captured_profile_generation is None
+
+
+def _finish_without_lease(
+    job: JobRecord,
+    *,
+    state: str,
+    code: str,
+    now: datetime,
+) -> None:
+    job.state = state
+    job.failure_code = code
+    job.completed_at = now
+    job.lease_owner = None
+    job.lease_expires_at = None
+
+
+def _mark_import_terminal(
+    job: JobRecord,
+    imported: ImportRecord | None,
+    code: str | None,
+) -> None:
+    if job.kind == "IMPORT" and imported is not None:
+        imported.state = "FAILED"
+        imported.failure_code = code
 
 
 def _retry_delay(job_id: str, attempt_count: int) -> timedelta:
