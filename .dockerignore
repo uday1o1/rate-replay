@@ -21,8 +21,6 @@ coverage.xml
 data/private
 data/raw
 deletion-ledger
-docs
-evidence
 htmlcov
 node_modules
 object-store
@@ -31,4 +29,3 @@ profiler-reports
 reports/private
 solver-traces
 test-results
-tests

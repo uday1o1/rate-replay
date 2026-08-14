@@ -35,6 +35,12 @@ def test_qualification_dockerfile_is_repository_relative() -> None:
     assert expected == DOCKERFILE
 
 
+def test_docker_context_retains_release_evidence_docs_and_tests() -> None:
+    root = Path(__file__).resolve().parents[1]
+    ignored = set((root / ".dockerignore").read_text(encoding="utf-8").splitlines())
+    assert {"docs", "evidence", "tests"}.isdisjoint(ignored)
+
+
 def test_docker_architecture_is_normalized_for_legacy_builder(monkeypatch) -> None:
     class Result:
         stdout = "aarch64\n"
