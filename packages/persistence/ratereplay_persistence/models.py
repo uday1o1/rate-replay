@@ -94,6 +94,12 @@ class ImportRecord(Base):
     state: Mapped[str] = mapped_column(String(32), nullable=False)
     lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
     lifecycle_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deletion_scope_id: Mapped[str] = mapped_column(
+        String(32),
+        unique=True,
+        nullable=False,
+        default=lambda: secrets.token_hex(16),
+    )
     adapter: Mapped[str] = mapped_column(String(64), nullable=False)
     raw_content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -218,6 +224,10 @@ class ImportFindingRecord(Base):
 class ProfileVersionRecord(Base):
     __tablename__ = "profile_versions"
     __table_args__ = (
+        CheckConstraint(
+            "lifecycle_state IN ('ACTIVE', 'DELETION_PENDING_LEDGER', 'DELETING', 'DELETED')",
+            name="ck_profile_lifecycle",
+        ),
         UniqueConstraint("owner_user_id", "content_hash", name="uq_owner_profile_content"),
         Index("ix_profiles_owner_created", "owner_user_id", "created_at"),
     )
@@ -233,6 +243,12 @@ class ProfileVersionRecord(Base):
     interval_resolution_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
     lifecycle_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deletion_scope_id: Mapped[str] = mapped_column(
+        String(32),
+        unique=True,
+        nullable=False,
+        default=lambda: secrets.token_hex(16),
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -565,9 +581,13 @@ class DeletionIntentRecord(Base):
             "state IN ('INTENT_CREATED', 'PREPARED', 'CONSUMED', 'INVALIDATED')",
             name="ck_deletion_intent_state",
         ),
+        CheckConstraint(
+            "target_kind IN ('ACCOUNT', 'IMPORT', 'PROFILE')",
+            name="ck_deletion_intent_target_kind",
+        ),
         Index(
-            "uq_deletion_intent_active_owner",
-            "owner_user_id",
+            "uq_deletion_intent_active_target",
+            "target_scope_id",
             unique=True,
             postgresql_where=text("state != 'INVALIDATED'"),
             sqlite_where=text("state != 'INVALIDATED'"),
@@ -586,6 +606,7 @@ class DeletionIntentRecord(Base):
     request_schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
     canonical_payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     receipt_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="ACCOUNT")
     target_scope_id: Mapped[str] = mapped_column(String(32), nullable=False)
     original_generation: Mapped[int] = mapped_column(Integer, nullable=False)
     proposed_generation: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -630,12 +651,17 @@ class DeletionControlOperationRecord(Base):
             "phase IN ('FENCE', 'REQUESTED', 'DRAIN', 'SWEEP', 'VERIFY', 'COMPLETE')",
             name="ck_deletion_control_phase",
         ),
+        CheckConstraint(
+            "target_kind IN ('ACCOUNT', 'IMPORT', 'PROFILE')",
+            name="ck_deletion_control_target_kind",
+        ),
         UniqueConstraint("target_scope_id", name="uq_deletion_control_target_scope"),
         UniqueConstraint("scope_token", name="uq_deletion_control_scope_token"),
         UniqueConstraint("deletion_job_id", name="uq_deletion_control_job"),
     )
 
     deletion_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    target_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="ACCOUNT")
     target_scope_id: Mapped[str] = mapped_column(String(32), nullable=False)
     scope_token: Mapped[str] = mapped_column(String(64), nullable=False)
     restore_key_version: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -705,10 +731,15 @@ class DeletionAuditRecord(Base):
     __tablename__ = "deletion_audit_tombstones"
     __table_args__ = (
         CheckConstraint("status = 'DELETED'", name="ck_deletion_audit_status"),
+        CheckConstraint(
+            "target_kind IN ('ACCOUNT', 'IMPORT', 'PROFILE')",
+            name="ck_deletion_audit_target_kind",
+        ),
         UniqueConstraint("scope_token", name="uq_deletion_audit_scope_token"),
     )
 
     deletion_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    target_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="ACCOUNT")
     receipt_verifier: Mapped[str | None] = mapped_column(String(255))
     verifier_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     scope_token: Mapped[str] = mapped_column(String(64), nullable=False)

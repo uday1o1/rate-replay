@@ -31,6 +31,7 @@ def test_control_plane_records_exclude_direct_owner_identity() -> None:
 def test_audit_tombstone_has_only_permitted_deletion_metadata() -> None:
     assert set(DeletionAuditRecord.__table__.columns.keys()) == {
         "deletion_id",
+        "target_kind",
         "receipt_verifier",
         "verifier_expires_at",
         "scope_token",

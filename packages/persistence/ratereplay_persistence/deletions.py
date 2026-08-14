@@ -1,4 +1,4 @@
-"""Durable account-deletion preparation, fencing, and receipt coordination."""
+"""Durable account, import, and profile deletion coordination."""
 
 from __future__ import annotations
 
@@ -28,7 +28,9 @@ from ratereplay_persistence.models import (
     DeletionIntentRecord,
     DeletionLedgerReceiptRecord,
     DeletionReceiptRecord,
+    ImportRecord,
     JobRecord,
+    ProfileVersionRecord,
     SessionRecord,
     UserRecord,
 )
@@ -38,6 +40,8 @@ RECEIPT_LIFETIME: Final = timedelta(days=30)
 INTENT_SCHEMA: Final = "deletion-intent-v1"
 RESTORE_KEY_VERSION: Final = "restore-v1"
 _RECEIPT_HASHER = PasswordHasher(time_cost=3, memory_cost=65_536, parallelism=4)
+TargetKind = Literal["ACCOUNT", "IMPORT", "PROFILE"]
+DeletionTarget = UserRecord | ImportRecord | ProfileVersionRecord
 
 
 class DeletionServiceError(RuntimeError):
@@ -110,6 +114,52 @@ class DeletionCoordinator:
         receipt_secret: bytes,
         now: datetime,
     ) -> DeletionIntentView:
+        return self._create_intent(
+            owner_user_id=owner_user_id,
+            target_kind="ACCOUNT",
+            target_resource_id=owner_user_id,
+            idempotency_key=idempotency_key,
+            receipt_secret=receipt_secret,
+            now=now,
+        )
+
+    def start_resource_deletion(
+        self,
+        *,
+        owner_user_id: str,
+        target_kind: Literal["IMPORT", "PROFILE"],
+        target_resource_id: str,
+        idempotency_key: str,
+        receipt_secret: bytes,
+        now: datetime,
+    ) -> DeletionStatus:
+        """Create or recover a child intent and advance its stable deletion identity."""
+
+        intent = self._create_intent(
+            owner_user_id=owner_user_id,
+            target_kind=target_kind,
+            target_resource_id=target_resource_id,
+            idempotency_key=idempotency_key,
+            receipt_secret=receipt_secret,
+            now=now,
+        )
+        return self.authorize_and_start(
+            owner_user_id=owner_user_id,
+            deletion_id=intent.deletion_id,
+            receipt_secret=receipt_secret,
+            now=now,
+        )
+
+    def _create_intent(
+        self,
+        *,
+        owner_user_id: str,
+        target_kind: TargetKind,
+        target_resource_id: str,
+        idempotency_key: str,
+        receipt_secret: bytes,
+        now: datetime,
+    ) -> DeletionIntentView:
         now = _aware(now)
         _validate_receipt_secret(receipt_secret)
         if not idempotency_key or len(idempotency_key) > 128:
@@ -118,7 +168,6 @@ class DeletionCoordinator:
                 "Deletion idempotency key is invalid",
             )
         receipt_digest = _receipt_digest(receipt_secret)
-        payload_hash = _intent_payload_hash(receipt_digest)
         with self._session_factory.begin() as database:
             user = database.scalar(
                 select(UserRecord).where(UserRecord.id == owner_user_id).with_for_update()
@@ -128,6 +177,24 @@ class DeletionCoordinator:
                     "ACCOUNT_NOT_ACTIVE",
                     "The account cannot start a deletion intent",
                 )
+            target = _target_by_resource_id(
+                database,
+                target_kind=target_kind,
+                target_resource_id=target_resource_id,
+                owner_user_id=owner_user_id,
+                lock=True,
+            )
+            if target is None:
+                raise DeletionServiceError(
+                    f"{target_kind}_NOT_FOUND",
+                    f"{target_kind.title()} is unavailable",
+                )
+            target_scope_id = target.deletion_scope_id
+            payload_hash = _intent_payload_hash(
+                receipt_digest,
+                target_kind=target_kind,
+                target_scope_id=target_scope_id,
+            )
             keyed = database.scalar(
                 select(DeletionIntentRecord).where(
                     DeletionIntentRecord.owner_user_id == owner_user_id,
@@ -153,9 +220,14 @@ class DeletionCoordinator:
                     _aware(keyed.expires_at),
                     True,
                 )
+            if target.lifecycle_state != "ACTIVE":
+                raise DeletionServiceError(
+                    "DELETION_ALREADY_PENDING",
+                    "Deletion is already pending for this target",
+                )
             active = database.scalar(
                 select(DeletionIntentRecord).where(
-                    DeletionIntentRecord.owner_user_id == owner_user_id,
+                    DeletionIntentRecord.target_scope_id == target_scope_id,
                     DeletionIntentRecord.state != "INVALIDATED",
                 )
             )
@@ -167,12 +239,12 @@ class DeletionCoordinator:
                 else:
                     raise DeletionServiceError(
                         "DELETION_ALREADY_PENDING",
-                        "Another deletion is already pending for this account",
+                        "Another deletion is already pending for this target",
                     )
-            if _has_unresolved_preparation(database, owner_user_id):
+            if _has_unresolved_preparation(database, target_scope_id):
                 raise DeletionServiceError(
                     "DELETION_ALREADY_PENDING",
-                    "A prepared deletion remains unresolved for this account",
+                    "A prepared deletion remains unresolved for this target",
                 )
             deletion_id = secrets.token_hex(16)
             expires_at = now + INTENT_LIFETIME
@@ -184,9 +256,10 @@ class DeletionCoordinator:
                     request_schema_version=INTENT_SCHEMA,
                     canonical_payload_hash=payload_hash,
                     receipt_digest=receipt_digest,
-                    target_scope_id=user.deletion_scope_id,
-                    original_generation=user.lifecycle_generation,
-                    proposed_generation=user.lifecycle_generation + 1,
+                    target_kind=target_kind,
+                    target_scope_id=target_scope_id,
+                    original_generation=target.lifecycle_generation,
+                    proposed_generation=target.lifecycle_generation + 1,
                     state="INTENT_CREATED",
                     created_at=now,
                     expires_at=expires_at,
@@ -348,18 +421,21 @@ class DeletionCoordinator:
                     "ABORT_NOT_PROVABLE",
                     "The prepared intent is unavailable for noncommit proof",
                 )
-            user = database.scalar(
-                select(UserRecord).where(UserRecord.id == intent.owner_user_id).with_for_update()
+            target = _target_by_scope(
+                database,
+                target_kind=intent.target_kind,
+                target_scope_id=intent.target_scope_id,
+                lock=True,
             )
             control = database.get(DeletionControlOperationRecord, deletion_id)
             self._validate_event(prepared, intent)
             if not (
                 control is None
                 and intent.state in {"INTENT_CREATED", "PREPARED"}
-                and user is not None
-                and user.lifecycle_state == "ACTIVE"
-                and user.lifecycle_generation == intent.original_generation
-                and user.deletion_scope_id == intent.target_scope_id
+                and target is not None
+                and target.lifecycle_state == "ACTIVE"
+                and target.lifecycle_generation == intent.original_generation
+                and _target_owner_id(intent.target_kind, target) == intent.owner_user_id
             ):
                 raise DeletionServiceError(
                     "ABORT_NOT_PROVABLE",
@@ -396,7 +472,11 @@ class DeletionCoordinator:
             intent = database.get(DeletionIntentRecord, prepared.deletion_id)
             if intent is None:
                 return False
-            user = database.get(UserRecord, intent.owner_user_id)
+            target = _target_by_scope(
+                database,
+                target_kind=intent.target_kind,
+                target_scope_id=intent.target_scope_id,
+            )
             control = database.get(DeletionControlOperationRecord, prepared.deletion_id)
             try:
                 self._validate_event(prepared, intent)
@@ -406,10 +486,10 @@ class DeletionCoordinator:
                 intent.state == "INVALIDATED"
                 and intent.invalidated_at is not None
                 and control is None
-                and user is not None
-                and user.lifecycle_state == "ACTIVE"
-                and user.lifecycle_generation == intent.original_generation
-                and user.deletion_scope_id == intent.target_scope_id
+                and target is not None
+                and target.lifecycle_state == "ACTIVE"
+                and target.lifecycle_generation == intent.original_generation
+                and _target_owner_id(intent.target_kind, target) == intent.owner_user_id
             )
 
     def _authorized_intent(
@@ -495,6 +575,12 @@ class DeletionCoordinator:
             user = database.scalar(
                 select(UserRecord).where(UserRecord.id == intent.owner_user_id).with_for_update()
             )
+            target = _target_by_scope(
+                database,
+                target_kind=intent.target_kind,
+                target_scope_id=intent.target_scope_id,
+                lock=True,
+            )
             self._validate_event(prepared, intent)
             self._store_ledger_receipt(database, prepared)
             target_scope_id = intent.target_scope_id
@@ -502,14 +588,16 @@ class DeletionCoordinator:
             if control is not None:
                 if not (
                     control.target_scope_id == target_scope_id
+                    and control.target_kind == intent.target_kind
                     and control.scope_token == prepared.scope_token
                     and control.deletion_generation == prepared.proposed_generation
                     and control.preparation_digest == prepared.preparation_digest
                     and control.intent_proof_digest == prepared.intent_proof_digest
-                    and user is not None
-                    and user.deletion_scope_id == target_scope_id
-                    and user.lifecycle_state in {"DELETION_PENDING_LEDGER", "DELETING"}
-                    and user.lifecycle_generation == prepared.proposed_generation
+                    and target is not None
+                    and _target_owner_id(intent.target_kind, target) == intent.owner_user_id
+                    and target.lifecycle_state in {"DELETION_PENDING_LEDGER", "DELETING"}
+                    and target.lifecycle_generation == prepared.proposed_generation
+                    and _parent_scope_is_active(intent.target_kind, user)
                 ):
                     raise DeletionServiceError(
                         "DELETION_CONTROL_CORRUPT",
@@ -518,9 +606,11 @@ class DeletionCoordinator:
                 return
             if not (
                 user is not None
-                and user.lifecycle_state == "ACTIVE"
-                and user.lifecycle_generation == prepared.original_generation
-                and user.deletion_scope_id == target_scope_id
+                and target is not None
+                and _target_owner_id(intent.target_kind, target) == intent.owner_user_id
+                and target.lifecycle_state == "ACTIVE"
+                and target.lifecycle_generation == prepared.original_generation
+                and _parent_scope_is_active(intent.target_kind, user)
                 and intent.state in {"INTENT_CREATED", "PREPARED"}
                 and intent.consumed_at is None
             ):
@@ -528,8 +618,8 @@ class DeletionCoordinator:
                     "PREPARATION_QUARANTINED",
                     "Prepared deletion cannot be fenced from the live database state",
                 )
-            user.lifecycle_state = "DELETION_PENDING_LEDGER"
-            user.lifecycle_generation = prepared.proposed_generation
+            target.lifecycle_state = "DELETION_PENDING_LEDGER"
+            target.lifecycle_generation = prepared.proposed_generation
             intent.state = "CONSUMED"
             intent.prepared_at = datetime.fromisoformat(prepared.occurred_at)
             intent.preparation_digest = prepared.preparation_digest
@@ -538,6 +628,7 @@ class DeletionCoordinator:
             database.add(
                 DeletionControlOperationRecord(
                     deletion_id=prepared.deletion_id,
+                    target_kind=intent.target_kind,
                     target_scope_id=target_scope_id,
                     scope_token=prepared.scope_token,
                     restore_key_version=prepared.restore_key_version,
@@ -558,25 +649,21 @@ class DeletionCoordinator:
                     "Deletion receipt is missing during fencing",
                 )
             receipt.status = "DELETION_PENDING_LEDGER"
-            for session in database.scalars(
-                select(SessionRecord).where(
-                    SessionRecord.user_id == user.id,
-                    SessionRecord.revoked_at.is_(None),
-                )
-            ):
-                session.revoked_at = now
-            for job in database.scalars(
-                select(JobRecord).where(
-                    JobRecord.owner_user_id == user.id,
-                    JobRecord.scope_mode == "ACTIVE_SCOPE",
-                    JobRecord.state.in_(("QUEUED", "LEASED", "RUNNING")),
-                )
-            ):
-                job.cancel_requested = True
-                if job.state == "QUEUED":
-                    job.state = "CANCELLED"
-                    job.failure_code = "ACCOUNT_DELETION"
-                    job.completed_at = now
+            _fence_dependent_work(
+                database,
+                target_kind=intent.target_kind,
+                target=target,
+                owner_user_id=user.id,
+                now=now,
+            )
+            if intent.target_kind == "ACCOUNT":
+                for session in database.scalars(
+                    select(SessionRecord).where(
+                        SessionRecord.user_id == user.id,
+                        SessionRecord.revoked_at.is_(None),
+                    )
+                ):
+                    session.revoked_at = now
 
     def _ensure_requested(self, deletion_id: str, *, now: datetime) -> None:
         with self._session_factory() as database:
@@ -586,13 +673,21 @@ class DeletionCoordinator:
                     "PREPARATION_QUARANTINED",
                     "Deletion control is not fenced",
                 )
-            user = database.scalar(
-                select(UserRecord).where(UserRecord.deletion_scope_id == control.target_scope_id)
+            target = _target_by_scope(
+                database,
+                target_kind=control.target_kind,
+                target_scope_id=control.target_scope_id,
+            )
+            user = (
+                database.get(UserRecord, _target_owner_id(control.target_kind, target))
+                if target
+                else None
             )
             if not (
-                user is not None
-                and user.lifecycle_state in {"DELETION_PENDING_LEDGER", "DELETING"}
-                and user.lifecycle_generation == control.deletion_generation
+                target is not None
+                and target.lifecycle_state in {"DELETION_PENDING_LEDGER", "DELETING"}
+                and target.lifecycle_generation == control.deletion_generation
+                and _parent_scope_is_active(control.target_kind, user)
             ):
                 raise DeletionServiceError(
                     "DELETION_CONTROL_CORRUPT",
@@ -624,23 +719,31 @@ class DeletionCoordinator:
                     "DELETION_CONTROL_CORRUPT",
                     "Deletion control disappeared after REQUESTED",
                 )
-            user = database.scalar(
-                select(UserRecord)
-                .where(UserRecord.deletion_scope_id == control.target_scope_id)
-                .with_for_update()
+            target = _target_by_scope(
+                database,
+                target_kind=control.target_kind,
+                target_scope_id=control.target_scope_id,
+                lock=True,
+            )
+            user = (
+                database.get(UserRecord, _target_owner_id(control.target_kind, target))
+                if target
+                else None
             )
             _validate_control_event(requested, control, expected_phase="REQUESTED")
             if not (
-                user is not None
-                and user.lifecycle_generation == control.deletion_generation
-                and user.lifecycle_state in {"DELETION_PENDING_LEDGER", "DELETING"}
+                target is not None
+                and user is not None
+                and target.lifecycle_generation == control.deletion_generation
+                and target.lifecycle_state in {"DELETION_PENDING_LEDGER", "DELETING"}
+                and _parent_scope_is_active(control.target_kind, user)
             ):
                 raise DeletionServiceError(
                     "DELETION_CONTROL_CORRUPT",
                     "REQUESTED cannot transition the exact fenced target",
                 )
             self._store_ledger_receipt(database, requested)
-            if user.lifecycle_state == "DELETING":
+            if target.lifecycle_state == "DELETING":
                 if control.deletion_job_id is None:
                     raise DeletionServiceError(
                         "DELETION_CONTROL_CORRUPT",
@@ -648,8 +751,13 @@ class DeletionCoordinator:
                     )
                 return
             job_id = secrets.token_hex(16)
+            request_schema_version = f"{control.target_kind.lower()}-deletion-v1"
             request_json = json.dumps(
-                {"deletion_id": deletion_id, "schema_version": "account-deletion-v1"},
+                {
+                    "deletion_id": deletion_id,
+                    "schema_version": request_schema_version,
+                    "target_kind": control.target_kind,
+                },
                 sort_keys=True,
                 separators=(",", ":"),
             )
@@ -657,11 +765,29 @@ class DeletionCoordinator:
                 id=job_id,
                 owner_user_id=user.id,
                 kind="DELETION",
-                request_schema_version="account-deletion-v1",
+                request_schema_version=request_schema_version,
                 request_hash=hashlib.sha256(request_json.encode("ascii")).hexdigest(),
                 scope_mode="DELETING_SCOPE",
                 request_json=request_json,
-                captured_account_generation=control.deletion_generation,
+                import_id=(
+                    target.id
+                    if control.target_kind == "IMPORT"
+                    else target.import_id
+                    if isinstance(target, ProfileVersionRecord)
+                    else None
+                ),
+                profile_version_id=(target.id if control.target_kind == "PROFILE" else None),
+                captured_account_generation=user.lifecycle_generation,
+                captured_import_generation=(
+                    target.lifecycle_generation
+                    if control.target_kind == "IMPORT"
+                    else _profile_import_generation(database, target)
+                    if control.target_kind == "PROFILE"
+                    else None
+                ),
+                captured_profile_generation=(
+                    target.lifecycle_generation if control.target_kind == "PROFILE" else None
+                ),
                 state="QUEUED",
                 attempt_count=0,
                 max_attempts=100,
@@ -672,7 +798,7 @@ class DeletionCoordinator:
             )
             database.add(deletion_job)
             database.flush()
-            user.lifecycle_state = "DELETING"
+            target.lifecycle_state = "DELETING"
             control.phase = "DRAIN"
             control.deletion_job_id = job_id
             control.updated_at = now
@@ -767,6 +893,121 @@ class DeletionCoordinator:
             _validate_stored_receipt(existing, event)
 
 
+def _target_by_resource_id(
+    database: Session,
+    *,
+    target_kind: TargetKind,
+    target_resource_id: str,
+    owner_user_id: str,
+    lock: bool = False,
+) -> DeletionTarget | None:
+    if target_kind == "ACCOUNT":
+        account_query = select(UserRecord).where(
+            UserRecord.id == target_resource_id,
+            UserRecord.id == owner_user_id,
+        )
+        return database.scalar(account_query.with_for_update() if lock else account_query)
+    if target_kind == "IMPORT":
+        import_query = select(ImportRecord).where(
+            ImportRecord.id == target_resource_id,
+            ImportRecord.owner_user_id == owner_user_id,
+        )
+        return database.scalar(import_query.with_for_update() if lock else import_query)
+    profile_query = select(ProfileVersionRecord).where(
+        ProfileVersionRecord.id == target_resource_id,
+        ProfileVersionRecord.owner_user_id == owner_user_id,
+    )
+    return database.scalar(profile_query.with_for_update() if lock else profile_query)
+
+
+def _target_by_scope(
+    database: Session,
+    *,
+    target_kind: str,
+    target_scope_id: str,
+    lock: bool = False,
+) -> DeletionTarget | None:
+    if target_kind == "ACCOUNT":
+        account_query = select(UserRecord).where(UserRecord.deletion_scope_id == target_scope_id)
+        return database.scalar(account_query.with_for_update() if lock else account_query)
+    if target_kind == "IMPORT":
+        import_query = select(ImportRecord).where(ImportRecord.deletion_scope_id == target_scope_id)
+        return database.scalar(import_query.with_for_update() if lock else import_query)
+    if target_kind == "PROFILE":
+        profile_query = select(ProfileVersionRecord).where(
+            ProfileVersionRecord.deletion_scope_id == target_scope_id
+        )
+        return database.scalar(profile_query.with_for_update() if lock else profile_query)
+    return None
+
+
+def _target_owner_id(target_kind: str, target: DeletionTarget) -> str:
+    if target_kind == "ACCOUNT" and isinstance(target, UserRecord):
+        return target.id
+    if isinstance(target, (ImportRecord, ProfileVersionRecord)):
+        return target.owner_user_id
+    raise DeletionServiceError(
+        "DELETION_CONTROL_CORRUPT",
+        "Deletion target type does not match its registered kind",
+    )
+
+
+def _parent_scope_is_active(target_kind: str, user: UserRecord | None) -> bool:
+    return bool(
+        user is not None
+        and (
+            target_kind == "ACCOUNT"
+            or (user.lifecycle_state == "ACTIVE" and user.lifecycle_generation >= 0)
+        )
+    )
+
+
+def _profile_import_generation(database: Session, target: DeletionTarget) -> int:
+    if not isinstance(target, ProfileVersionRecord):
+        raise DeletionServiceError(
+            "DELETION_CONTROL_CORRUPT",
+            "Profile deletion target has the wrong record type",
+        )
+    imported = database.get(ImportRecord, target.import_id)
+    if (
+        imported is None
+        or imported.owner_user_id != target.owner_user_id
+        or imported.lifecycle_state != "ACTIVE"
+    ):
+        raise DeletionServiceError(
+            "DELETION_CONTROL_CORRUPT",
+            "Profile deletion requires its owning import to remain active",
+        )
+    return imported.lifecycle_generation
+
+
+def _fence_dependent_work(
+    database: Session,
+    *,
+    target_kind: str,
+    target: DeletionTarget,
+    owner_user_id: str,
+    now: datetime,
+) -> None:
+    query = select(JobRecord).where(
+        JobRecord.owner_user_id == owner_user_id,
+        JobRecord.state.in_(("QUEUED", "LEASED", "RUNNING")),
+    )
+    if target_kind == "ACCOUNT":
+        query = query.where(JobRecord.scope_mode.in_(("ACTIVE_SCOPE", "DELETING_SCOPE")))
+    elif target_kind == "IMPORT":
+        query = query.where(JobRecord.import_id == target.id)
+    else:
+        query = query.where(JobRecord.profile_version_id == target.id)
+    failure_code = f"{target_kind}_DELETION"
+    for job in database.scalars(query):
+        job.cancel_requested = True
+        if job.state == "QUEUED":
+            job.state = "CANCELLED"
+            job.failure_code = failure_code
+            job.completed_at = now
+
+
 def _validate_receipt_secret(secret: bytes) -> None:
     if len(secret) != 32:
         raise DeletionServiceError(
@@ -800,9 +1041,19 @@ def _receipt_digest(secret: bytes) -> str:
     return hashlib.sha256(b"RateReplay.DeletionReceipt.v1\x00" + secret).hexdigest()
 
 
-def _intent_payload_hash(receipt_digest: str) -> str:
+def _intent_payload_hash(
+    receipt_digest: str,
+    *,
+    target_kind: TargetKind,
+    target_scope_id: str,
+) -> str:
     payload = json.dumps(
-        {"receipt_digest": receipt_digest, "schema_version": INTENT_SCHEMA},
+        {
+            "receipt_digest": receipt_digest,
+            "schema_version": INTENT_SCHEMA,
+            "target_kind": target_kind,
+            "target_scope_id": target_scope_id,
+        },
         sort_keys=True,
         separators=(",", ":"),
     ).encode("ascii")
@@ -817,6 +1068,7 @@ def _intent_proof_digest(intent: DeletionIntentRecord) -> str:
             "original_generation": intent.original_generation,
             "owner_user_id": intent.owner_user_id,
             "receipt_digest": intent.receipt_digest,
+            "target_kind": intent.target_kind,
             "target_scope_id": intent.target_scope_id,
         },
         sort_keys=True,
@@ -908,10 +1160,10 @@ def _receipt_status(database: Session, deletion_id: str) -> str:
     return receipt.status
 
 
-def _has_unresolved_preparation(database: Session, owner_user_id: str) -> bool:
+def _has_unresolved_preparation(database: Session, target_scope_id: str) -> bool:
     prepared_ids = database.scalars(
         select(DeletionIntentRecord.deletion_id).where(
-            DeletionIntentRecord.owner_user_id == owner_user_id,
+            DeletionIntentRecord.target_scope_id == target_scope_id,
             DeletionIntentRecord.preparation_receipt.is_not(None),
         )
     ).all()

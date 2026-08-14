@@ -20,12 +20,18 @@ from ratereplay_persistence.deletion_ledger import (
     FilesystemDeletionLedger,
     LedgerEvent,
 )
-from ratereplay_persistence.deletion_sweep import _sweep_owner_rows
+from ratereplay_persistence.deletion_sweep import (
+    _delete_resource_rows,
+    _listed_resource_objects,
+    _resource_graph,
+    _sweep_owner_rows,
+)
 from ratereplay_persistence.deletions import (
     DeletionCoordinator,
     DeletionServiceError,
     _event_arguments,
     _scope_token,
+    _target_by_scope,
 )
 from ratereplay_persistence.imports import ImportService
 from ratereplay_persistence.models import (
@@ -34,6 +40,8 @@ from ratereplay_persistence.models import (
     DeletionFenceTargetRecord,
     DeletionLedgerReceiptRecord,
     DeletionReceiptRecord,
+    ImportRecord,
+    ProfileVersionRecord,
     UserRecord,
 )
 from ratereplay_persistence.object_store import ObjectStore
@@ -103,6 +111,14 @@ class RestoreQualification:
 
     def artifact_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True, separators=(",", ":")) + "\n"
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreTarget:
+    kind: Literal["ACCOUNT", "IMPORT", "PROFILE"]
+    resource_id: str
+    owner_user_id: str
+    scope_id: str
 
 
 class RestoreReconciler:
@@ -273,18 +289,23 @@ class RestoreReconciler:
         return validated
 
     def _fence_committed_restore(self, prepared: LedgerEvent) -> None:
-        owner_id = self._owner_for_event(prepared)
-        if owner_id is None:
+        restored = self._target_for_event(prepared)
+        if restored is None:
             return
         with self._session_factory.begin() as database:
-            user = database.scalar(
-                select(UserRecord).where(UserRecord.id == owner_id).with_for_update()
+            target = _target_by_scope(
+                database,
+                target_kind=restored.kind,
+                target_scope_id=restored.scope_id,
+                lock=True,
             )
-            if user is None:
+            if target is None:
                 return
+            user = database.get(UserRecord, restored.owner_user_id)
             control = database.get(DeletionControlOperationRecord, prepared.deletion_id)
             if control is not None and not (
-                control.target_scope_id == user.deletion_scope_id
+                control.target_kind == restored.kind
+                and control.target_scope_id == restored.scope_id
                 and control.scope_token == prepared.scope_token
                 and control.restore_key_version == prepared.restore_key_version
                 and control.original_generation == prepared.original_generation
@@ -297,15 +318,19 @@ class RestoreReconciler:
                     "Restored deletion control does not match the committed preparation",
                 )
             if (
-                user.lifecycle_state == "ACTIVE"
-                and user.lifecycle_generation == prepared.original_generation
+                target.lifecycle_state == "ACTIVE"
+                and target.lifecycle_generation == prepared.original_generation
+                and (
+                    restored.kind == "ACCOUNT"
+                    or (user is not None and user.lifecycle_state == "ACTIVE")
+                )
             ):
-                user.lifecycle_state = "DELETION_PENDING_LEDGER"
-                user.lifecycle_generation = prepared.proposed_generation
+                target.lifecycle_state = "DELETION_PENDING_LEDGER"
+                target.lifecycle_generation = prepared.proposed_generation
                 return
             if (
-                user.lifecycle_state in {"DELETION_PENDING_LEDGER", "DELETING"}
-                and user.lifecycle_generation == prepared.proposed_generation
+                target.lifecycle_state in {"DELETION_PENDING_LEDGER", "DELETING"}
+                and target.lifecycle_generation == prepared.proposed_generation
             ):
                 return
             raise RestoreQualificationError(
@@ -314,59 +339,105 @@ class RestoreReconciler:
             )
 
     def _suppress(self, prepared: LedgerEvent) -> None:
-        owner_id = self._owner_for_event(prepared)
-        if owner_id is None:
+        restored = self._target_for_event(prepared)
+        if restored is None:
             return
-        prefix = f"owners/{owner_id}"
-        for key in self._objects.list_prefix(prefix):
+        if restored.kind == "ACCOUNT":
+            object_keys = self._objects.list_prefix(f"owners/{restored.owner_user_id}")
+        else:
+            with self._session_factory() as database:
+                control = _restored_resource_control(database, restored, prepared)
+                graph = _resource_graph(database, control, deletion_job_id="")
+            object_keys = _listed_resource_objects(self._objects, graph)
+        for key in object_keys:
             self._objects.delete(key)
         with self._session_factory.begin() as database:
-            user = database.get(UserRecord, owner_id)
-            if user is None:
+            target = _target_by_scope(
+                database,
+                target_kind=restored.kind,
+                target_scope_id=restored.scope_id,
+                lock=True,
+            )
+            if target is None:
                 return
-            control = database.scalar(
+            stored_control = database.scalar(
                 select(DeletionControlOperationRecord).where(
-                    DeletionControlOperationRecord.target_scope_id == user.deletion_scope_id
+                    DeletionControlOperationRecord.target_scope_id == restored.scope_id
                 )
             )
-            if control is not None:
+            if stored_control is not None:
                 database.execute(
                     delete(DeletionFenceTargetRecord).where(
-                        DeletionFenceTargetRecord.deletion_id == control.deletion_id
+                        DeletionFenceTargetRecord.deletion_id == stored_control.deletion_id
                     )
                 )
                 database.execute(
                     delete(DeletionLedgerReceiptRecord).where(
-                        DeletionLedgerReceiptRecord.deletion_id == control.deletion_id
+                        DeletionLedgerReceiptRecord.deletion_id == stored_control.deletion_id
                     )
                 )
                 database.execute(
                     delete(DeletionReceiptRecord).where(
-                        DeletionReceiptRecord.deletion_id == control.deletion_id
+                        DeletionReceiptRecord.deletion_id == stored_control.deletion_id
                     )
                 )
-                database.delete(control)
+                database.delete(stored_control)
                 database.flush()
-            _sweep_owner_rows(
-                database,
-                owner_user_id=owner_id,
-                deletion_job_id="",
-            )
+            if restored.kind == "ACCOUNT":
+                _sweep_owner_rows(
+                    database,
+                    owner_user_id=restored.owner_user_id,
+                    deletion_job_id="",
+                )
+            else:
+                resource_control = _restored_resource_control(database, restored, prepared)
+                _delete_resource_rows(database, resource_control, deletion_job_id="")
             database.execute(
                 delete(DeletionAuditRecord).where(
                     DeletionAuditRecord.scope_token == prepared.scope_token
                 )
             )
-            database.delete(user)
+            database.delete(target)
 
-    def _owner_for_event(self, event: LedgerEvent) -> str | None:
-        matches: list[str] = []
+    def _target_for_event(self, event: LedgerEvent) -> RestoreTarget | None:
+        matches: list[RestoreTarget] = []
         with self._session_factory() as database:
-            scopes = database.execute(select(UserRecord.id, UserRecord.deletion_scope_id)).all()
-        for owner_id, scope_id in scopes:
+            account_scopes = database.execute(
+                select(UserRecord.id, UserRecord.deletion_scope_id)
+            ).all()
+            import_scopes = database.execute(
+                select(
+                    ImportRecord.id,
+                    ImportRecord.owner_user_id,
+                    ImportRecord.deletion_scope_id,
+                )
+            ).all()
+            profile_scopes = database.execute(
+                select(
+                    ProfileVersionRecord.id,
+                    ProfileVersionRecord.owner_user_id,
+                    ProfileVersionRecord.deletion_scope_id,
+                )
+            ).all()
+        scopes = (
+            tuple(
+                RestoreTarget("ACCOUNT", owner_id, owner_id, scope_id)
+                for owner_id, scope_id in account_scopes
+            )
+            + tuple(
+                RestoreTarget("IMPORT", resource_id, owner_id, scope_id)
+                for resource_id, owner_id, scope_id in import_scopes
+            )
+            + tuple(
+                RestoreTarget("PROFILE", resource_id, owner_id, scope_id)
+                for resource_id, owner_id, scope_id in profile_scopes
+            )
+        )
+        for restored in scopes:
+            scope_id = restored.scope_id
             candidate = _scope_token(self._restore_key, scope_id)
             if hmac.compare_digest(candidate, event.scope_token):
-                matches.append(owner_id)
+                matches.append(restored)
         if len(matches) > 1:
             raise RestoreQualificationError(
                 "RESTORE_SCOPE_COLLISION",
@@ -377,12 +448,47 @@ class RestoreReconciler:
     def _verify_suppressive_scopes_absent(self, events: tuple[LedgerEvent, ...]) -> None:
         for chain in _chains(events).values():
             if any(event.phase in {"REQUESTED", "COMPLETED"} for event in chain):
-                owner_id = self._owner_for_event(chain[0])
-                if owner_id is not None:
+                target = self._target_for_event(chain[0])
+                if target is not None:
                     raise RestoreQualificationError(
                         "SUPPRESSIVE_SCOPE_REMAINS",
                         "A suppressive deletion scope remains in the restored database",
                     )
+
+
+def _restored_resource_control(
+    database: Session,
+    restored: RestoreTarget,
+    prepared: LedgerEvent,
+) -> DeletionControlOperationRecord:
+    existing = database.scalar(
+        select(DeletionControlOperationRecord).where(
+            DeletionControlOperationRecord.target_scope_id == restored.scope_id
+        )
+    )
+    if existing is not None:
+        if existing.target_kind != restored.kind:
+            raise RestoreQualificationError(
+                "RESTORE_SCOPE_KIND_MISMATCH",
+                "Restored deletion control kind does not match its target",
+            )
+        return existing
+    occurred_at = datetime.fromisoformat(prepared.occurred_at)
+    return DeletionControlOperationRecord(
+        deletion_id=prepared.deletion_id,
+        target_kind=restored.kind,
+        target_scope_id=restored.scope_id,
+        scope_token=prepared.scope_token,
+        restore_key_version=prepared.restore_key_version,
+        original_generation=prepared.original_generation,
+        deletion_generation=prepared.proposed_generation,
+        preparation_digest=prepared.preparation_digest,
+        intent_proof_digest=prepared.intent_proof_digest,
+        phase="SWEEP",
+        artifact_counts_json="{}",
+        created_at=occurred_at,
+        updated_at=occurred_at,
+    )
 
 
 def sign_transaction_outcome(

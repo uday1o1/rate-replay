@@ -15,6 +15,9 @@ from ratereplay_persistence.models import (
     DeletionAuditRecord,
     DeletionControlOperationRecord,
     DeletionReceiptRecord,
+    ImportReadingRecord,
+    ImportRecord,
+    ProfileVersionRecord,
     SessionRecord,
     UserRecord,
 )
@@ -196,3 +199,158 @@ async def test_wrong_receipt_cannot_recover_deletion_status(
         "INVALID_DELETION_PROOF",
     )
     assert deletion_id not in denied.text
+
+
+@pytest.mark.anyio
+async def test_profile_then_import_deletion_use_durable_receipts_and_scoped_sweeps(
+    client: httpx.AsyncClient,
+    test_app: FastAPI,
+) -> None:
+    csrf = await _register(client)
+    installed = await client.post(
+        "/v1/imports/built-in-simulated-profile",
+        headers={
+            "Origin": ORIGIN,
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": "resource-delete-fixture",
+        },
+    )
+    assert installed.status_code == 201, installed.text
+    profile_id = cast(str, installed.json()["profile"]["profile_version_id"])
+    import_id = cast(str, installed.json()["profile"]["import_id"])
+
+    app = cast(Any, test_app)
+    worker = DeletionWorker(
+        worker_id="api-resource-deletion-worker",
+        jobs=app.state.job_service,
+        sweeps=DeletionSweepService(
+            app.state.session_factory,
+            app.state.object_store,
+            app.state.deletion_ledger,
+        ),
+    )
+    profile_headers = _intent_headers(csrf, key="delete-profile")
+    accepted_profile = await client.delete(
+        f"/v1/profiles/{profile_id}",
+        headers=profile_headers,
+    )
+    assert accepted_profile.status_code == 202, accepted_profile.text
+    profile_deletion_id = cast(str, accepted_profile.json()["deletion_id"])
+    repeated_profile = await client.delete(
+        f"/v1/profiles/{profile_id}",
+        headers=profile_headers,
+    )
+    assert repeated_profile.status_code == 202
+    assert repeated_profile.json()["deletion_id"] == profile_deletion_id
+    assert worker.run_once(now=app.state.auth_service.now)
+
+    profile_receipt = await client.get(
+        f"/v1/deletions/{profile_deletion_id}",
+        headers={"X-Deletion-Receipt-Secret": _encoded(SECRET)},
+    )
+    assert profile_receipt.status_code == 200
+    assert profile_receipt.json()["status"] == "DELETED"
+    assert (await client.get(f"/v1/profiles/{profile_id}")).status_code == 404
+    remaining_import = await client.get(f"/v1/imports/{import_id}")
+    assert remaining_import.status_code == 200
+    assert remaining_import.json()["state"] == "READY"
+
+    import_headers = _intent_headers(csrf, key="delete-import")
+    accepted_import = await client.delete(
+        f"/v1/imports/{import_id}",
+        headers=import_headers,
+    )
+    assert accepted_import.status_code == 202, accepted_import.text
+    import_deletion_id = cast(str, accepted_import.json()["deletion_id"])
+    assert import_deletion_id != profile_deletion_id
+    assert worker.run_once(now=app.state.auth_service.now)
+
+    import_receipt = await client.get(
+        f"/v1/deletions/{import_deletion_id}",
+        headers={"X-Deletion-Receipt-Secret": _encoded(SECRET)},
+    )
+    assert import_receipt.status_code == 200
+    assert import_receipt.json()["status"] == "DELETED"
+    assert (await client.get(f"/v1/imports/{import_id}")).status_code == 404
+    with app.state.session_factory() as database:
+        assert database.get(ProfileVersionRecord, profile_id) is None
+        assert database.get(ImportRecord, import_id) is None
+        assert not database.scalars(
+            select(ImportReadingRecord).where(ImportReadingRecord.import_id == import_id)
+        ).first()
+        profile_audit = database.get(DeletionAuditRecord, profile_deletion_id)
+        import_audit = database.get(DeletionAuditRecord, import_deletion_id)
+        assert profile_audit is not None and profile_audit.target_kind == "PROFILE"
+        assert import_audit is not None and import_audit.target_kind == "IMPORT"
+    assert tuple(event.phase for event in app.state.deletion_ledger.chain(profile_deletion_id)) == (
+        "PREPARED",
+        "REQUESTED",
+        "COMPLETED",
+    )
+    assert tuple(event.phase for event in app.state.deletion_ledger.chain(import_deletion_id)) == (
+        "PREPARED",
+        "REQUESTED",
+        "COMPLETED",
+    )
+
+
+@pytest.mark.anyio
+async def test_account_deletion_fences_and_completes_pending_child_deletion(
+    client: httpx.AsyncClient,
+    test_app: FastAPI,
+) -> None:
+    csrf = await _register(client)
+    installed = await client.post(
+        "/v1/imports/built-in-simulated-profile",
+        headers={
+            "Origin": ORIGIN,
+            "X-CSRF-Token": csrf,
+            "Idempotency-Key": "subsumed-delete-fixture",
+        },
+    )
+    profile_id = cast(str, installed.json()["profile"]["profile_version_id"])
+    child = await client.delete(
+        f"/v1/profiles/{profile_id}",
+        headers=_intent_headers(csrf, key="pending-profile-delete"),
+    )
+    assert child.status_code == 202, child.text
+    child_deletion_id = cast(str, child.json()["deletion_id"])
+
+    account_intent = await client.post(
+        "/v1/account/deletion-intents",
+        headers=_intent_headers(csrf, key="parent-account-delete"),
+    )
+    assert account_intent.status_code == 201, account_intent.text
+    account_deletion_id = cast(str, account_intent.json()["deletion_id"])
+    account = await client.request(
+        "DELETE",
+        "/v1/account",
+        headers=_intent_headers(csrf, key="parent-account-delete"),
+        json={"deletion_id": account_deletion_id},
+    )
+    assert account.status_code == 202, account.text
+
+    app = cast(Any, test_app)
+    worker = DeletionWorker(
+        worker_id="api-parent-deletion-worker",
+        jobs=app.state.job_service,
+        sweeps=DeletionSweepService(
+            app.state.session_factory,
+            app.state.object_store,
+            app.state.deletion_ledger,
+        ),
+    )
+    assert worker.run_once(now=app.state.auth_service.now)
+    client.cookies.clear()
+    for deletion_id in (child_deletion_id, account_deletion_id):
+        receipt = await client.get(
+            f"/v1/deletions/{deletion_id}",
+            headers={"X-Deletion-Receipt-Secret": _encoded(SECRET)},
+        )
+        assert receipt.status_code == 200, receipt.text
+        assert receipt.json()["status"] == "DELETED"
+    with app.state.session_factory() as database:
+        child_audit = database.get(DeletionAuditRecord, child_deletion_id)
+        assert child_audit is not None
+        assert child_audit.status_code == "SUBSUMED_BY_PARENT_DELETION"
+        assert database.scalar(select(UserRecord)) is None

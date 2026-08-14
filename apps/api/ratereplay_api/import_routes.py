@@ -232,6 +232,7 @@ def get_import(
         select(ImportRecord).where(
             ImportRecord.id == import_id,
             ImportRecord.owner_user_id == authenticated.user_id,
+            ImportRecord.lifecycle_state == "ACTIVE",
         )
     )
     if imported is None:
@@ -316,9 +317,15 @@ def list_profiles(
     cursor: Annotated[str | None, Query()] = None,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ProfileListResponse:
-    query = select(ProfileVersionRecord).where(
-        ProfileVersionRecord.owner_user_id == authenticated.user_id,
-        ProfileVersionRecord.lifecycle_state == "ACTIVE",
+    query = (
+        select(ProfileVersionRecord)
+        .join(ImportRecord, ImportRecord.id == ProfileVersionRecord.import_id)
+        .where(
+            ProfileVersionRecord.owner_user_id == authenticated.user_id,
+            ProfileVersionRecord.lifecycle_state == "ACTIVE",
+            ImportRecord.owner_user_id == authenticated.user_id,
+            ImportRecord.lifecycle_state == "ACTIVE",
+        )
     )
     if cursor is not None:
         created_at, profile_id = _decode_profile_cursor(request, cursor)
@@ -358,9 +365,14 @@ def get_profile(
     database: Annotated[Session, Depends(get_database)],
 ) -> ProfileResponse:
     profile = database.scalar(
-        select(ProfileVersionRecord).where(
+        select(ProfileVersionRecord)
+        .join(ImportRecord, ImportRecord.id == ProfileVersionRecord.import_id)
+        .where(
             ProfileVersionRecord.id == profile_id,
             ProfileVersionRecord.owner_user_id == authenticated.user_id,
+            ProfileVersionRecord.lifecycle_state == "ACTIVE",
+            ImportRecord.owner_user_id == authenticated.user_id,
+            ImportRecord.lifecycle_state == "ACTIVE",
         )
     )
     if profile is None:

@@ -526,6 +526,8 @@ def _scope_is_valid(
 ) -> bool:
     if job.scope_mode != definition.scope_mode:
         return False
+    if job.kind == "DELETION":
+        return _deletion_scope_is_valid(job, user, imported, profile)
     if definition.scope_mode == "SYSTEM_SCOPE":
         return bool(
             job.owner_user_id is None
@@ -559,6 +561,48 @@ def _scope_is_valid(
             and profile.lifecycle_generation == job.captured_profile_generation
         )
     return job.profile_version_id is None and job.captured_profile_generation is None
+
+
+def _deletion_scope_is_valid(
+    job: JobRecord,
+    user: UserRecord | None,
+    imported: ImportRecord | None,
+    profile: ProfileVersionRecord | None,
+) -> bool:
+    if user is None or user.lifecycle_generation != job.captured_account_generation:
+        return False
+    if job.request_schema_version == "account-deletion-v1":
+        return bool(
+            user.lifecycle_state == "DELETING"
+            and job.import_id is None
+            and job.profile_version_id is None
+            and job.captured_import_generation is None
+            and job.captured_profile_generation is None
+        )
+    if user.lifecycle_state != "ACTIVE":
+        return False
+    if job.request_schema_version == "import-deletion-v1":
+        return bool(
+            imported is not None
+            and imported.owner_user_id == user.id
+            and imported.lifecycle_state == "DELETING"
+            and imported.lifecycle_generation == job.captured_import_generation
+            and job.profile_version_id is None
+            and job.captured_profile_generation is None
+        )
+    if job.request_schema_version == "profile-deletion-v1":
+        return bool(
+            imported is not None
+            and imported.owner_user_id == user.id
+            and imported.lifecycle_state == "ACTIVE"
+            and imported.lifecycle_generation == job.captured_import_generation
+            and profile is not None
+            and profile.owner_user_id == user.id
+            and profile.import_id == imported.id
+            and profile.lifecycle_state == "DELETING"
+            and profile.lifecycle_generation == job.captured_profile_generation
+        )
+    return False
 
 
 def _finish_without_lease(

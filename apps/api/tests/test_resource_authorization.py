@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -43,7 +44,7 @@ REPORT_JOB_ID = "c" * 32
 @dataclass(frozen=True, slots=True)
 class AuthorizationCase:
     name: str
-    method: Literal["GET", "POST"]
+    method: Literal["DELETE", "GET", "POST"]
     path: str
     json: dict[str, object] | None = None
     mutation: bool = False
@@ -52,6 +53,8 @@ class AuthorizationCase:
 AUTHORIZATION_MATRIX = (
     AuthorizationCase("direct_import", "GET", f"/v1/imports/{IMPORT_ID}"),
     AuthorizationCase("direct_profile", "GET", f"/v1/profiles/{PROFILE_ID}"),
+    AuthorizationCase("delete_import", "DELETE", f"/v1/imports/{IMPORT_ID}", mutation=True),
+    AuthorizationCase("delete_profile", "DELETE", f"/v1/profiles/{PROFILE_ID}", mutation=True),
     AuthorizationCase("indirect_profile_slots", "GET", f"/v1/profiles/{PROFILE_ID}/scenario-slots"),
     AuthorizationCase("direct_replay", "GET", f"/v1/replays/{REPLAY_ID}"),
     AuthorizationCase("direct_comparison", "GET", f"/v1/comparisons/{COMPARISON_ID}"),
@@ -328,6 +331,9 @@ async def test_generated_resource_authorization_matrix_rejects_cross_account_ids
                 "Origin": ORIGIN,
                 "X-CSRF-Token": csrf,
                 "Idempotency-Key": f"matrix-{case.name}",
+                "X-Deletion-Receipt-Secret": base64.urlsafe_b64encode(b"m" * 32)
+                .rstrip(b"=")
+                .decode("ascii"),
             }
         response = await client.request(
             case.method,

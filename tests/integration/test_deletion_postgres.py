@@ -4,6 +4,7 @@ import os
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -18,8 +19,10 @@ from ratereplay_persistence.models import (
     DeletionIntentRecord,
     DeletionLedgerReceiptRecord,
     DeletionReceiptRecord,
+    ImportRecord,
     JobAttemptRecord,
     JobRecord,
+    RawObjectRecord,
     SessionRecord,
     UserRecord,
 )
@@ -158,5 +161,141 @@ def test_postgres_serializes_intent_and_deletion_start_races(tmp_path: Path) -> 
                 delete(DeletionAuditRecord).where(DeletionAuditRecord.deletion_id == deletion_id)
             )
             database.execute(delete(SessionRecord).where(SessionRecord.user_id == owner_id))
+            database.execute(delete(UserRecord).where(UserRecord.id == owner_id))
+        engine.dispose()
+
+
+def test_postgres_import_deletion_is_idempotent_scoped_and_object_complete(
+    tmp_path: Path,
+) -> None:
+    database_url = os.getenv("RATEREPLAY_TEST_DATABASE_URL")
+    if database_url is None:
+        pytest.skip("RATEREPLAY_TEST_DATABASE_URL is not configured")
+    engine = make_engine(database_url)
+    sessions = make_session_factory(engine)
+    ledger = FilesystemDeletionLedger(tmp_path / "child-ledger", integrity_key=b"l" * 32)
+    objects = FilesystemObjectStore(tmp_path / "child-objects")
+    coordinator = DeletionCoordinator(sessions, ledger, restore_key=b"r" * 32)
+    now = datetime.now(UTC)
+    owner_id = secrets.token_hex(16)
+    import_id = secrets.token_hex(16)
+    raw_id = secrets.token_hex(16)
+    raw_key = f"owners/{owner_id}/imports/{import_id}/raw"
+    deletion_id = ""
+    secret = b"i" * 32
+    try:
+        objects.put_file(raw_key, BytesIO(b"private import"), maximum_bytes=1024)
+        with sessions.begin() as database:
+            database.add(
+                UserRecord(
+                    id=owner_id,
+                    username_canonical=f"import_deletion_{owner_id}",
+                    password_hash="test-only",
+                    created_at=now,
+                    lifecycle_state="ACTIVE",
+                    lifecycle_generation=0,
+                )
+            )
+            database.flush()
+            database.add(
+                ImportRecord(
+                    id=import_id,
+                    owner_user_id=owner_id,
+                    state="READY",
+                    lifecycle_state="ACTIVE",
+                    lifecycle_generation=0,
+                    adapter="ESPI_XML",
+                    raw_content_hash="a" * 64,
+                    created_at=now,
+                )
+            )
+            database.flush()
+            database.add(
+                RawObjectRecord(
+                    id=raw_id,
+                    owner_user_id=owner_id,
+                    import_id=import_id,
+                    object_key=raw_key,
+                    content_hash="a" * 64,
+                    size_bytes=14,
+                    state="AVAILABLE",
+                    created_at=now,
+                    expires_at=now,
+                )
+            )
+
+        first = coordinator.start_resource_deletion(
+            owner_user_id=owner_id,
+            target_kind="IMPORT",
+            target_resource_id=import_id,
+            idempotency_key="postgres-import-deletion",
+            receipt_secret=secret,
+            now=now,
+        )
+        repeated = coordinator.start_resource_deletion(
+            owner_user_id=owner_id,
+            target_kind="IMPORT",
+            target_resource_id=import_id,
+            idempotency_key="postgres-import-deletion",
+            receipt_secret=secret,
+            now=now,
+        )
+        deletion_id = first.deletion_id
+        assert repeated.deletion_id == deletion_id
+        assert first.status == repeated.status == "DELETING"
+        worker = DeletionWorker(
+            worker_id="postgres-import-deletion-worker",
+            jobs=JobService(sessions),
+            sweeps=DeletionSweepService(sessions, objects, ledger),
+        )
+        assert worker.run_once(now=now)
+        assert (
+            coordinator.status(
+                deletion_id=deletion_id,
+                receipt_secret=secret,
+                now=now,
+            ).status
+            == "DELETED"
+        )
+        assert not objects.exists(raw_key)
+        with sessions() as database:
+            user = database.get(UserRecord, owner_id)
+            assert user is not None and user.lifecycle_state == "ACTIVE"
+            assert database.get(ImportRecord, import_id) is None
+            audit = database.get(DeletionAuditRecord, deletion_id)
+            assert audit is not None and audit.target_kind == "IMPORT"
+    finally:
+        with sessions.begin() as database:
+            database.execute(
+                delete(DeletionControlOperationRecord).where(
+                    DeletionControlOperationRecord.deletion_id == deletion_id
+                )
+            )
+            job_ids = database.scalars(
+                select(JobRecord.id).where(JobRecord.owner_user_id == owner_id)
+            ).all()
+            if job_ids:
+                database.execute(
+                    delete(JobAttemptRecord).where(JobAttemptRecord.job_id.in_(job_ids))
+                )
+                database.execute(delete(JobRecord).where(JobRecord.id.in_(job_ids)))
+            database.execute(
+                delete(DeletionLedgerReceiptRecord).where(
+                    DeletionLedgerReceiptRecord.deletion_id == deletion_id
+                )
+            )
+            database.execute(
+                delete(DeletionIntentRecord).where(DeletionIntentRecord.owner_user_id == owner_id)
+            )
+            database.execute(
+                delete(DeletionReceiptRecord).where(
+                    DeletionReceiptRecord.deletion_id == deletion_id
+                )
+            )
+            database.execute(
+                delete(DeletionAuditRecord).where(DeletionAuditRecord.deletion_id == deletion_id)
+            )
+            database.execute(delete(RawObjectRecord).where(RawObjectRecord.id == raw_id))
+            database.execute(delete(ImportRecord).where(ImportRecord.id == import_id))
             database.execute(delete(UserRecord).where(UserRecord.id == owner_id))
         engine.dispose()

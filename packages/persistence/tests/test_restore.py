@@ -132,6 +132,63 @@ def test_requested_event_suppresses_predeletion_backup_before_exposure(
         assert database.get(UserRecord, OWNER_ID) is None
 
 
+def test_requested_import_deletion_suppresses_only_restored_child_scope(
+    harness: Harness,
+) -> None:
+    import_id = "a" * 32
+    import_scope_id = "b" * 32
+    raw_key = f"owners/{OWNER_ID}/imports/{import_id}/raw"
+    harness.objects.put_file(raw_key, BytesIO(b"private child raw"), maximum_bytes=1024)
+    with harness.sessions.begin() as database:
+        database.add(
+            ImportRecord(
+                id=import_id,
+                owner_user_id=OWNER_ID,
+                state="READY",
+                lifecycle_state="ACTIVE",
+                lifecycle_generation=0,
+                deletion_scope_id=import_scope_id,
+                adapter="ESPI_XML",
+                raw_content_hash="c" * 64,
+                created_at=NOW,
+            )
+        )
+        database.add(
+            RawObjectRecord(
+                id="d" * 32,
+                owner_user_id=OWNER_ID,
+                import_id=import_id,
+                object_key=raw_key,
+                content_hash="c" * 64,
+                size_bytes=17,
+                state="AVAILABLE",
+                created_at=NOW,
+                expires_at=NOW + timedelta(days=1),
+            )
+        )
+    prepared = harness.ledger.append(
+        deletion_id="e" * 32,
+        phase="PREPARED",
+        scope_token=_scope_token(RESTORE_KEY, import_scope_id),
+        restore_key_version="restore-v1",
+        original_generation=0,
+        proposed_generation=1,
+        preparation_digest="f" * 64,
+        intent_proof_digest="0" * 64,
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    _request(harness, prepared)
+
+    qualification = harness.restore.qualify(now=NOW + timedelta(seconds=3))
+
+    assert qualification.exposure_allowed
+    assert qualification.suppressed_deletions == (prepared.deletion_id,)
+    assert not harness.objects.exists(raw_key)
+    with harness.sessions() as database:
+        assert database.get(UserRecord, OWNER_ID) is not None
+        assert database.get(ImportRecord, import_id) is None
+
+
 def test_unresolved_preparation_holds_restore_indefinitely(harness: Harness) -> None:
     prepared = _prepare(harness)
 

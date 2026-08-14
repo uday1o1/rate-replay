@@ -91,6 +91,7 @@ def _add_job(
     import_generation: int | None,
     profile_generation: int | None,
     max_attempts: int = 3,
+    request_schema_version: str | None = None,
 ) -> None:
     with harness.sessions.begin() as database:
         database.add(
@@ -98,7 +99,14 @@ def _add_job(
                 id=job_id,
                 owner_user_id=owner_user_id,
                 kind=kind,
-                request_schema_version=f"{kind.lower()}-request-v1",
+                request_schema_version=(
+                    request_schema_version
+                    or (
+                        "account-deletion-v1"
+                        if kind == "DELETION"
+                        else f"{kind.lower()}-request-v1"
+                    )
+                ),
                 request_hash="c" * 64,
                 request_json="{}",
                 scope_mode=scope_mode,
@@ -161,6 +169,49 @@ def test_active_compute_lease_is_fenced_by_profile_generation(harness: JobHarnes
     assert harness.jobs.rescue_expired(now=NOW + timedelta(seconds=21)) == 1
     with harness.sessions() as database:
         job = database.get(JobRecord, "replay-job")
+        assert job is not None
+        assert (job.state, job.failure_code) == ("CANCELLED", "SCOPE_FENCED")
+
+
+@pytest.mark.parametrize("target_kind", ["IMPORT", "PROFILE"])
+def test_child_deletion_job_requires_active_parent_and_exact_target_generation(
+    harness: JobHarness,
+    target_kind: str,
+) -> None:
+    with harness.sessions.begin() as database:
+        imported = database.get(ImportRecord, IMPORT_ID)
+        profile = database.get(ProfileVersionRecord, PROFILE_ID)
+        assert imported is not None and profile is not None
+        target = imported if target_kind == "IMPORT" else profile
+        target.lifecycle_state = "DELETING"
+        target.lifecycle_generation = 3
+    _add_job(
+        harness,
+        job_id=f"{target_kind.lower()}-deletion-job",
+        kind="DELETION",
+        scope_mode="DELETING_SCOPE",
+        owner_user_id=OWNER_ID,
+        import_id=IMPORT_ID,
+        profile_version_id=PROFILE_ID if target_kind == "PROFILE" else None,
+        account_generation=0,
+        import_generation=3 if target_kind == "IMPORT" else 0,
+        profile_generation=3 if target_kind == "PROFILE" else None,
+        request_schema_version=f"{target_kind.lower()}-deletion-v1",
+    )
+    lease = harness.jobs.lease_next(
+        worker_id="child-deletion-worker",
+        now=NOW,
+        kinds=frozenset({"DELETION"}),
+    )
+    assert lease is not None and harness.jobs.start(lease, now=NOW)
+    with harness.sessions.begin() as database:
+        user = database.get(UserRecord, OWNER_ID)
+        assert user is not None
+        user.lifecycle_generation += 1
+    assert not harness.jobs.heartbeat(lease, now=NOW + timedelta(seconds=1))
+    assert harness.jobs.rescue_expired(now=NOW + timedelta(seconds=21)) == 1
+    with harness.sessions() as database:
+        job = database.get(JobRecord, f"{target_kind.lower()}-deletion-job")
         assert job is not None
         assert (job.state, job.failure_code) == ("CANCELLED", "SCOPE_FENCED")
 

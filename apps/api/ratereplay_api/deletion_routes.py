@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, Header, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -83,6 +83,8 @@ def _problem(error: DeletionServiceError) -> ApiProblem:
         "INTENT_EXPIRED": 410,
         "DELETION_RECEIPT_EXPIRED": 410,
         "INVALID_DELETION_PROOF": 404,
+        "IMPORT_NOT_FOUND": 404,
+        "PROFILE_NOT_FOUND": 404,
     }.get(error.code, 503)
     safe_message = {
         404: "Deletion receipt authorization failed.",
@@ -169,6 +171,86 @@ def delete_account(
         ) from error
     response.headers["Cache-Control"] = "no-store"
     return _response(deletion_status)
+
+
+def _delete_resource(
+    *,
+    target_kind: Literal["IMPORT", "PROFILE"],
+    target_resource_id: str,
+    idempotency_key: str,
+    receipt_header: str | None,
+    request: Request,
+    response: Response,
+    authenticated: AuthenticatedSession,
+    coordinator: DeletionCoordinator,
+) -> DeletionStatusResponse:
+    try:
+        deletion_status = coordinator.start_resource_deletion(
+            owner_user_id=authenticated.user_id,
+            target_kind=target_kind,
+            target_resource_id=target_resource_id,
+            idempotency_key=idempotency_key,
+            receipt_secret=_receipt_secret(receipt_header),
+            now=request.app.state.auth_service.now,
+        )
+    except DeletionServiceError as error:
+        raise _problem(error) from error
+    response.headers["Cache-Control"] = "no-store"
+    return _response(deletion_status)
+
+
+@router.delete(
+    "/v1/imports/{import_id}",
+    response_model=DeletionStatusResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses=problem_openapi_responses(404, 409, 410, 422, 503),
+)
+def delete_import(
+    import_id: str,
+    request: Request,
+    response: Response,
+    authenticated: Annotated[AuthenticatedSession, Depends(require_csrf_session)],
+    coordinator: Annotated[DeletionCoordinator, Depends(get_deletion_coordinator)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=128)],
+    receipt_header: Annotated[str | None, Header(alias=RECEIPT_HEADER)] = None,
+) -> DeletionStatusResponse:
+    return _delete_resource(
+        target_kind="IMPORT",
+        target_resource_id=import_id,
+        idempotency_key=idempotency_key,
+        receipt_header=receipt_header,
+        request=request,
+        response=response,
+        authenticated=authenticated,
+        coordinator=coordinator,
+    )
+
+
+@router.delete(
+    "/v1/profiles/{profile_id}",
+    response_model=DeletionStatusResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses=problem_openapi_responses(404, 409, 410, 422, 503),
+)
+def delete_profile(
+    profile_id: str,
+    request: Request,
+    response: Response,
+    authenticated: Annotated[AuthenticatedSession, Depends(require_csrf_session)],
+    coordinator: Annotated[DeletionCoordinator, Depends(get_deletion_coordinator)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=128)],
+    receipt_header: Annotated[str | None, Header(alias=RECEIPT_HEADER)] = None,
+) -> DeletionStatusResponse:
+    return _delete_resource(
+        target_kind="PROFILE",
+        target_resource_id=profile_id,
+        idempotency_key=idempotency_key,
+        receipt_header=receipt_header,
+        request=request,
+        response=response,
+        authenticated=authenticated,
+        coordinator=coordinator,
+    )
 
 
 @router.get(

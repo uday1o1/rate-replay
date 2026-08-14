@@ -255,6 +255,51 @@ def test_replacement_attempt_rejects_stale_finalize_and_sweeps_artifact(
     assert not harness.objects.exists(staged.object_key)
 
 
+@pytest.mark.parametrize("target_kind", ["IMPORT", "PROFILE"])
+def test_child_lifecycle_fence_rejects_staged_artifact_finalization(
+    harness: ArtifactHarness,
+    target_kind: str,
+) -> None:
+    _add_report_job(harness, owner_prefix="1", job_id="a" * 32)
+    lease = _lease_report(harness, "worker-before-child-deletion")
+    staged = harness.artifacts.stage(
+        owner_user_id="1" * 32,
+        lease=lease,
+        artifact_class="REPORT",
+        source=BytesIO(b"must never publish"),
+        now=NOW,
+    )
+    with harness.sessions.begin() as database:
+        target = (
+            database.get(ImportRecord, "1i" * 16)
+            if target_kind == "IMPORT"
+            else database.get(ProfileVersionRecord, "1p" * 16)
+        )
+        assert target is not None
+        target.lifecycle_state = "DELETING"
+        target.lifecycle_generation += 1
+    with pytest.raises(ArtifactServiceError) as raised:
+        harness.artifacts.finalize(
+            owner_user_id="1" * 32,
+            lease=lease,
+            semantic_hash="d" * 64,
+            calculation_contract_version="report-contract-v1",
+            result_type="REPORT",
+            result_id="e" * 32,
+            artifact_registration_ids=(staged.registration_id,),
+            now=NOW + timedelta(seconds=1),
+        )
+    assert raised.value.code == "STALE_RESULT_ATTEMPT"
+    assert (
+        harness.artifacts.sweep_orphans(
+            now=NOW + timedelta(seconds=21),
+            older_than=NOW + timedelta(seconds=21),
+        )
+        == 1
+    )
+    assert not harness.objects.exists(staged.object_key)
+
+
 def test_same_owner_semantic_race_accepts_one_result_and_sweeps_loser(
     harness: ArtifactHarness,
 ) -> None:
