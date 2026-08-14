@@ -8,10 +8,11 @@ import socket
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Protocol
 
 import typer
 from ratereplay_domain.environment import environment_lock_hash
+from ratereplay_domain.telemetry import Telemetry, TelemetryConfiguration
 from ratereplay_persistence.artifacts import ArtifactService
 from ratereplay_persistence.backups import (
     BackupError,
@@ -58,6 +59,23 @@ from ratereplay_worker.scenario_worker import ScenarioWorker
 app = typer.Typer(no_args_is_help=True)
 WORKER_POLL_SECONDS = 1.0
 RETENTION_SCHEDULER_POLL_SECONDS = 60.0
+
+
+def _configured_telemetry() -> Telemetry:
+    return Telemetry(
+        TelemetryConfiguration.from_environment(
+            service_name="ratereplay-worker",
+            environment=os.getenv("RATEREPLAY_ENV", "development"),
+        )
+    )
+
+
+class PollableWorker(Protocol):
+    def run_once(self, *, now: datetime) -> bool: ...
+
+
+def _run_worker_poll(telemetry: Telemetry, kind: str, worker: PollableWorker) -> bool:
+    return telemetry.run_worker(kind, lambda: worker.run_once(now=datetime.now(UTC)))
 
 
 @app.callback()
@@ -389,9 +407,13 @@ def run_once() -> None:
     """Lease and process at most one durable import job."""
 
     worker, engine = _configured_worker()
-    processed = worker.run_once(now=datetime.now(UTC))
-    engine.dispose()
-    typer.echo("processed" if processed else "idle")
+    telemetry = _configured_telemetry()
+    try:
+        processed = _run_worker_poll(telemetry, "IMPORT", worker)
+        typer.echo("processed" if processed else "idle")
+    finally:
+        telemetry.shutdown()
+        engine.dispose()
 
 
 @app.command("run")
@@ -399,14 +421,16 @@ def run() -> None:
     """Poll continuously for durable import jobs."""
 
     worker, engine = _configured_worker()
+    telemetry = _configured_telemetry()
     try:
         while True:
-            processed = worker.run_once(now=datetime.now(UTC))
+            processed = _run_worker_poll(telemetry, "IMPORT", worker)
             if not processed:
                 time.sleep(WORKER_POLL_SECONDS)
     except KeyboardInterrupt:
         typer.echo("stopped")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -445,10 +469,12 @@ def run_deletion_once() -> None:
     """Lease and advance at most one durable account deletion."""
 
     worker, engine = _configured_deletion_worker()
+    telemetry = _configured_telemetry()
     try:
-        processed = worker.run_once(now=datetime.now(UTC))
+        processed = _run_worker_poll(telemetry, "DELETION", worker)
         typer.echo("processed" if processed else "idle")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -457,14 +483,16 @@ def run_deletions() -> None:
     """Poll continuously for durable account deletions."""
 
     worker, engine = _configured_deletion_worker()
+    telemetry = _configured_telemetry()
     try:
         while True:
-            processed = worker.run_once(now=datetime.now(UTC))
+            processed = _run_worker_poll(telemetry, "DELETION", worker)
             if not processed:
                 time.sleep(WORKER_POLL_SECONDS)
     except KeyboardInterrupt:
         typer.echo("stopped")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -508,10 +536,12 @@ def run_retention_once() -> None:
     """Lease and execute at most one durable system retention job."""
 
     worker, engine = _configured_retention_worker()
+    telemetry = _configured_telemetry()
     try:
-        processed = worker.run_once(now=datetime.now(UTC))
+        processed = _run_worker_poll(telemetry, "RETENTION", worker)
         typer.echo("processed" if processed else "idle")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -520,14 +550,16 @@ def run_retention() -> None:
     """Poll continuously for durable system retention jobs."""
 
     worker, engine = _configured_retention_worker()
+    telemetry = _configured_telemetry()
     try:
         while True:
-            processed = worker.run_once(now=datetime.now(UTC))
+            processed = _run_worker_poll(telemetry, "RETENTION", worker)
             if not processed:
                 time.sleep(WORKER_POLL_SECONDS)
     except KeyboardInterrupt:
         typer.echo("stopped")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -685,10 +717,12 @@ def run_report_once() -> None:
     """Lease and publish at most one redacted report export."""
 
     worker, engine = _configured_report_worker()
+    telemetry = _configured_telemetry()
     try:
-        processed = worker.run_once(now=datetime.now(UTC))
+        processed = _run_worker_poll(telemetry, "REPORT", worker)
         typer.echo("processed" if processed else "idle")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -697,14 +731,16 @@ def run_reports() -> None:
     """Poll continuously for durable redacted report jobs."""
 
     worker, engine = _configured_report_worker()
+    telemetry = _configured_telemetry()
     try:
         while True:
-            processed = worker.run_once(now=datetime.now(UTC))
+            processed = _run_worker_poll(telemetry, "REPORT", worker)
             if not processed:
                 time.sleep(WORKER_POLL_SECONDS)
     except KeyboardInterrupt:
         typer.echo("stopped")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -713,10 +749,12 @@ def run_replay_once() -> None:
     """Lease and publish at most one durable historical replay."""
 
     worker, engine = _configured_replay_worker()
+    telemetry = _configured_telemetry()
     try:
-        processed = worker.run_once(now=datetime.now(UTC))
+        processed = _run_worker_poll(telemetry, "REPLAY", worker)
         typer.echo("processed" if processed else "idle")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -725,14 +763,16 @@ def run_replays() -> None:
     """Poll continuously for durable historical replay jobs."""
 
     worker, engine = _configured_replay_worker()
+    telemetry = _configured_telemetry()
     try:
         while True:
-            processed = worker.run_once(now=datetime.now(UTC))
+            processed = _run_worker_poll(telemetry, "REPLAY", worker)
             if not processed:
                 time.sleep(WORKER_POLL_SECONDS)
     except KeyboardInterrupt:
         typer.echo("stopped")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -741,10 +781,12 @@ def run_comparison_once() -> None:
     """Lease and publish at most one durable tariff comparison."""
 
     worker, engine = _configured_comparison_worker()
+    telemetry = _configured_telemetry()
     try:
-        processed = worker.run_once(now=datetime.now(UTC))
+        processed = _run_worker_poll(telemetry, "COMPARISON", worker)
         typer.echo("processed" if processed else "idle")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -753,14 +795,16 @@ def run_comparisons() -> None:
     """Poll continuously for durable tariff comparison jobs."""
 
     worker, engine = _configured_comparison_worker()
+    telemetry = _configured_telemetry()
     try:
         while True:
-            processed = worker.run_once(now=datetime.now(UTC))
+            processed = _run_worker_poll(telemetry, "COMPARISON", worker)
             if not processed:
                 time.sleep(WORKER_POLL_SECONDS)
     except KeyboardInterrupt:
         typer.echo("stopped")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -769,10 +813,12 @@ def run_scenario_once() -> None:
     """Lease and publish at most one durable flexible-load scenario."""
 
     worker, engine = _configured_scenario_worker()
+    telemetry = _configured_telemetry()
     try:
-        processed = worker.run_once(now=datetime.now(UTC))
+        processed = _run_worker_poll(telemetry, "SCENARIO", worker)
         typer.echo("processed" if processed else "idle")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 
@@ -781,14 +827,16 @@ def run_scenarios() -> None:
     """Poll continuously for durable flexible-load scenario jobs."""
 
     worker, engine = _configured_scenario_worker()
+    telemetry = _configured_telemetry()
     try:
         while True:
-            processed = worker.run_once(now=datetime.now(UTC))
+            processed = _run_worker_poll(telemetry, "SCENARIO", worker)
             if not processed:
                 time.sleep(WORKER_POLL_SECONDS)
     except KeyboardInterrupt:
         typer.echo("stopped")
     finally:
+        telemetry.shutdown()
         engine.dispose()
 
 

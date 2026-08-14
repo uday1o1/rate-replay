@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Awaitable, Callable
+from typing import cast
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from ratereplay_domain.environment import environment_lock_hash
+from ratereplay_domain.telemetry import Telemetry, TelemetryConfiguration
 from ratereplay_ingestion.simulated import load_locked_simulated_profile
 from ratereplay_persistence import models as persistence_models  # noqa: F401
 from ratereplay_persistence.comparisons import ComparisonService
@@ -33,9 +35,19 @@ from ratereplay_api.resource_routes import router as resource_router
 from ratereplay_api.scenario_routes import router as scenario_router
 
 
-def create_app(settings: AppSettings | None = None) -> FastAPI:
+def create_app(
+    settings: AppSettings | None = None,
+    *,
+    telemetry: Telemetry | None = None,
+) -> FastAPI:
     resolved = settings or AppSettings.from_environment()
     application = FastAPI(title="RateReplay API", version="0.1.0")
+    application.state.telemetry = telemetry or Telemetry(
+        TelemetryConfiguration.from_environment(
+            service_name="ratereplay-api",
+            environment=resolved.environment,
+        )
+    )
     engine = make_engine(resolved.database_url)
     if resolved.auto_create_schema:
         Base.metadata.create_all(engine)
@@ -105,13 +117,31 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         request.state.request_id = secrets.token_hex(12)
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request.state.request_id
-        return response
+        process_telemetry = cast(Telemetry, request.app.state.telemetry)
+        with process_telemetry.http_request(request.method) as observation:
+            response = await call_next(request)
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", "unmatched")
+            observation.finish(
+                route=route_path,
+                status_code=response.status_code,
+                failed=response.status_code >= 500,
+            )
+            response.headers["X-Request-ID"] = request.state.request_id
+            return response
 
     @application.get("/healthz", include_in_schema=False)
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @application.get("/metrics", include_in_schema=False)
+    def metrics(request: Request) -> Response:
+        process_telemetry = cast(Telemetry, request.app.state.telemetry)
+        return Response(
+            content=process_telemetry.prometheus_bytes(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @application.get("/v1/meta")
     def metadata() -> dict[str, str]:
