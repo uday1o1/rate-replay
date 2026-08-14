@@ -44,3 +44,5 @@ backups/
 object-store/
 deletion-ledger/
 .local-secrets/
+.qualification-tools/
+.qualification-work-*/

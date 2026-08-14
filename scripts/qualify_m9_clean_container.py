@@ -195,9 +195,7 @@ rg --version | head -n 1
 
 def qualify() -> dict[str, Any]:
     commit = _validate_source_state()
-    with tempfile.TemporaryDirectory(
-        prefix="rate-replay-m9-clean-", dir="/private/tmp"
-    ) as directory:
+    with tempfile.TemporaryDirectory(prefix=".qualification-work-", dir=ROOT) as directory:
         checkout = Path(directory)
         _export_checkout(checkout)
         verification = _run(

@@ -78,3 +78,6 @@ def test_docker_context_retains_release_evidence_docs_and_tests() -> None:
     root = Path(__file__).resolve().parents[1]
     ignored = set((root / ".dockerignore").read_text(encoding="utf-8").splitlines())
     assert {"docs", "evidence", "tests"}.isdisjoint(ignored)
+    assert {".qualification-tools", ".qualification-work-*"}.issubset(ignored)
+    git_ignored = set((root / ".gitignore").read_text(encoding="utf-8").splitlines())
+    assert {".qualification-tools/", ".qualification-work-*/"}.issubset(git_ignored)

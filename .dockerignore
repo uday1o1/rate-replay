@@ -1,6 +1,8 @@
 .git
 .github
 .local-secrets
+.qualification-tools
+.qualification-work-*
 .mypy_cache
 .pytest_cache
 .ruff_cache
