@@ -26,4 +26,6 @@ It runs the locked simulated profile through the production tariff compiler, bil
 `make browser-test` runs the pinned Playwright release with its version-matched Chromium build against a production Vite preview.
 The suite exercises the complete public walkthrough, artifact corruption, request isolation, independent browser contexts, reload reset behavior, keyboard navigation, and the supported narrow viewport.
 It also exercises the private upload, replay, comparison, scenario, report, deletion, and session-expiry journeys against a strict in-browser API boundary that rejects unexpected requests.
+`make demo-video` uses a separate Playwright configuration to record the same successful public path without extending the routine browser suite.
+`make demo-video-check` binds the committed video to its exact static artifact manifest and independently probes the media contract.
 The repository makes no complete public-demo claim until the Milestone 6 browser walkthrough and its acceptance gates pass.

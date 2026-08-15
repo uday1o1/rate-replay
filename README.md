@@ -63,6 +63,8 @@ make demo-artifacts-check
 
 The discoverable report view is [docs/results/example-redacted-report.json](docs/results/example-redacted-report.json).
 The immutable release manifest is [artifacts/demo/manifest.v1.json](artifacts/demo/manifest.v1.json).
+The 110-second silent [product demonstration](docs/demo/ratereplay-demo.webm) follows the same six-stage browser path.
+Its [capture metadata](docs/demo/ratereplay-demo.json) locks the video hash, source commit, artifact manifest, browser assertions, duration, dimensions, and codec.
 
 ## Reproduce the calculation path
 

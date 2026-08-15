@@ -146,11 +146,21 @@ make qualification-m9-clean-container
 GitHub Actions is not counted as a second environment because the current jobs are blocked before execution by the repository owner's account billing state.
 No passing CI claim is made.
 
+## Product demonstration
+
+`make demo-video` records the actual production-built static walkthrough in a dedicated 1280 by 720 Chromium context.
+The capture visits all six stages and fails if any request is not a same-origin `GET`, if an authenticated route is used, or if cookies or mutable browser storage remain.
+The normal browser suite excludes this timed capture.
+
+`make demo-video-check` independently probes the committed WebM and verifies its SHA-256, size, 90-to-130-second duration boundary, video-only stream shape, dimensions, codec, and binding to the immutable demo manifest.
+The committed video is 110.24 seconds and contains one VP8 video stream with no audio.
+
 ## Public result map
 
 | Claim class                    | Primary evidence                                              | Reproduction                                                           |
 | ------------------------------ | ------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Public demo integrity          | `artifacts/demo/manifest.v1.json`                             | `make demo-artifacts-check`                                            |
+| Product demonstration          | `docs/demo/ratereplay-demo.webm`                              | `make demo-video-check`                                                |
 | Parser correctness             | `evidence/evaluation/m8-parser-correctness.json`              | `make qualification-m8-correctness`                                    |
 | Five-tariff golden agreement   | `evidence/correctness/m8-independent-golden-derivations.json` | `make qualification-m8-correctness`                                    |
 | Ranking coverage               | `evidence/evaluation/m8-comparison-coverage.json`             | `make qualification-m8-correctness`                                    |

@@ -50,6 +50,8 @@ def test_readme_status_demo_and_measurements_match_qualified_evidence() -> None:
     assert summary["human_validation"]["genuine_participant_count"] == 0
     assert "http://127.0.0.1:4173/#demo" in readme
     assert "docs/results/example-redacted-report.json" in readme
+    assert "docs/demo/ratereplay-demo.webm" in readme
+    assert "docs/demo/ratereplay-demo.json" in readme
 
     expected = {
         "variance-followup:import:one-year-15-minute:warm": "427.883 ms",

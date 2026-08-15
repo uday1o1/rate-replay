@@ -1,0 +1,29 @@
+{
+  "capture_assertions": {
+    "all_six_stages_displayed": true,
+    "authenticated_requests": 0,
+    "cookies_after_walkthrough": 0,
+    "mutable_storage_entries_after_walkthrough": 0,
+    "non_get_requests": 0,
+    "visitor_specific_server_state": false
+  },
+  "capture_command": "make demo-video",
+  "capture_source_commit": "eef9b9f09bd15430a18a9e445f30d957f3505fad",
+  "demo_manifest_path": "artifacts/demo/manifest.v1.json",
+  "demo_manifest_sha256": "8bdac2156589cf07522c4784813acf268a5334b03d079f3a364c9514c2967559",
+  "probe": {
+    "audio_stream_count": 0,
+    "average_frame_rate": "25/1",
+    "codec": "vp8",
+    "container": "matroska,webm",
+    "duration_seconds": 110.24,
+    "height": 720,
+    "video_stream_count": 1,
+    "width": 1280
+  },
+  "recorded_at_utc": "2026-08-15T00:58:08+00:00",
+  "schema_version": "ratereplay-demo-video-v1",
+  "video_path": "docs/demo/ratereplay-demo.webm",
+  "video_sha256": "d6349d13f20452b8c84a552cf1112fe2f167a12c7546f808a15ca13870677984",
+  "video_size_bytes": 4695420
+}
