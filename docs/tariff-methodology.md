@@ -3,7 +3,8 @@
 RateReplay admits tariff behavior only for a bounded service window, a fully specified account predicate, and a source-complete component vector.
 The current admitted boundary covers PG&E E-1, E-TOU-C, E-TOU-D, E-ELEC, and EV2-A historical replay for the half-open July 2026 service window `[2026-07-01, 2026-08-01)` and the account facts locked in `tariffs/admission/target-account-v1.json`.
 Unchanged-usage comparison is admitted only for candidates that pass the common account, dated eligibility, source-vector, and comparable-component gates.
-Optimization and forecasting remain outside this admitted boundary.
+Optimization is admitted only through the verified historical scheduling contract described below.
+Forecasting remains outside this admitted boundary.
 
 ## Source and admission chain
 
