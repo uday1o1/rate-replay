@@ -26,7 +26,7 @@ The same baseline passed dependency audits, current-tree credential scanning, a 
 | 10 | Not started by design | Not applicable to the V1 gate | `NOT_APPLICABLE_TO_V1` | This section defines optional post-release extensions, and no extension has been selected or authorized |
 
 No V1 implementation milestone is blocked by unavailable hardware, credentials, data, or infrastructure.
-GitHub Actions execution is currently blocked before job start by repository-owner billing state, but it is explicitly not counted as the required second environment because the pinned Linux qualification passed locally.
+The pinned Linux qualification supplies the required second-environment evidence.
 The only acceptance prerequisite requiring external participation is the genuine Milestone 6 study.
 
 To resume, conduct and record exactly five genuine sessions by following `docs/user-study-handoff.md`, then run:
@@ -1019,8 +1019,8 @@ Older results remain immutable and visibly versioned, while an intentional recal
 
 Import identities additionally include the raw content hash, adapter identifier, ESPI schema hash, parser-contract version, and finding-policy version.
 Report identities include the accepted result hash, redaction-policy version, and report-template version.
-CI fixtures prove that irrelevant object-key ordering does not change an identity and that every difference-making version or input does change it.
-CI fixtures also prove that changing the entered bill total, any unsupported-line-item tuple, reconciliation policy, heuristic contract, or rank calendar creates a distinct semantic result without overwriting the older result.
+Automated contract fixtures prove that irrelevant object-key ordering does not change an identity and that every difference-making version or input does change it.
+Automated contract fixtures also prove that changing the entered bill total, any unsupported-line-item tuple, reconciliation policy, heuristic contract, or rank calendar creates a distinct semantic result without overwriting the older result.
 
 ## 16. HTTP API
 
@@ -1116,7 +1116,7 @@ At the transition to `DELETION_PENDING_LEDGER`, the receipt-verifier row and del
 It remains available while deletion is nonterminal and for exactly 30 days after completion, after which the verifier is destroyed and the status endpoint returns `410 Gone`.
 
 Large uploads use streaming limits and never load the complete file into memory.
-The exact request, response, state-machine, validation, and authorization schemas are generated into OpenAPI and checked for backwards-incompatible drift in CI.
+The exact request, response, state-machine, validation, and authorization schemas are generated into OpenAPI and checked for backwards-incompatible drift by `make check`.
 
 ## 17. Durable job execution
 
@@ -1276,7 +1276,7 @@ Required controls include:
 - No exact load slot, occurrence-window, or daily-series field in the redacted export.
 - Rate limits on authentication, upload, and job creation.
 - A content-addressed, read-only public demo artifact set containing simulated data only, with no anonymous API mutation, upload, job, shared account, server-side visitor state, or private-data reference.
-- Dependency, container, secret, and static-analysis scans in CI.
+- Local dependency, container, secret, and static-analysis gates through `make check` and `make dependency-audit`.
 
 The deletion test must exercise the user-facing path and verify database rows, object-store objects, staged artifacts, caches, exports, sessions, idempotency records, and queued, leased, running, retryable, and finalizing work.
 It must inject deletion before and after `PREPARED`, at the initial fencing transaction, before and after `REQUESTED`, at the post-request state transition, lease acquisition, heartbeat, artifact staging, result finalization, report export, retry creation, orphan sweeping, every persisted deletion phase, `COMPLETED`, and the atomic terminal transition.
@@ -1562,7 +1562,7 @@ Deliverables:
 
 - Initialize the Python and TypeScript workspaces.
 - Pin formatters, linters, type checkers, test runners, and dependency locks.
-- Add CI for formatting, linting, typing, unit tests, secret scanning, and dependency review.
+- Add local gates for formatting, linting, typing, unit tests, secret scanning, and dependency review.
 - Lock the ESPI schema, namespaces, code tables, relationship rules, and independently sourced conformance fixtures.
 - Acquire one sanitized provider-produced PG&E CSV fixture, verify permission to retain its structure, freeze its header and time contract, and record the redaction procedure before CSV implementation begins.
 - Archive source metadata, stable regulator identifiers, component effective dates, and hashes for July 2026 E-1 and every candidate tariff.

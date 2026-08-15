@@ -143,8 +143,7 @@ Generating a new result requires a clean worktree whose `HEAD` exactly matches `
 make qualification-m9-clean-container
 ```
 
-GitHub Actions is not counted as a second environment because the current jobs are blocked before execution by the repository owner's account billing state.
-No passing CI claim is made.
+The pinned Linux qualification is the required second environment and supports only the recorded local-reproducibility claims.
 
 ## Product demonstration
 

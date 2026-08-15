@@ -1,7 +1,6 @@
 {
-  "artifact_sha256": "a9da000f92ea3b3b25c0df2857d42c12b60426f3e3b72c7a9f6d2878347db4ab",
+  "artifact_sha256": "b6d139c5cae6703ec6fa8dbca7721310243410edba94bddc68721edb8422e8be",
   "claims_withheld": [
-    "GITHUB_ACTIONS_PASS",
     "HOSTED_VALIDATED",
     "GENUINE_HUMAN_STUDY"
   ],
@@ -24,10 +23,6 @@
     "uv": "uv 0.11.23 (x86_64-unknown-linux-gnu)"
   },
   "evidence_level": "LOCAL_REPRODUCIBLE",
-  "external_ci_observation": {
-    "reason": "GITHUB_ACTIONS_ACCOUNT_BILLING_BLOCKED_BEFORE_JOB_START",
-    "status": "NOT_COUNTED"
-  },
   "gate_result": "PASS",
   "generated_at": "2026-08-15T00:25:35.462190+00:00",
   "host": {

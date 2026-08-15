@@ -3,7 +3,6 @@
 Status: Accepted for the pinned Milestone 0 dependency set.
 
 All direct Python, JavaScript, toolchain, and container versions are exact in `pyproject.toml`, `uv.lock`, `package.json`, `pnpm-lock.yaml`, and `compose.yaml`.
-CI actions are pinned to commit SHA.
 The local environment used Python 3.12.13, Node 24.16.0, pnpm 11.21.0 through Corepack, uv 0.11.23, Docker Engine 29.5.2, and Docker Compose 5.4.0.
 
 The direct Python runtime license review found MIT for FastAPI, Pydantic, SQLAlchemy, Alembic, Argon2-cffi, and Typer; Apache-2.0 for asyncpg, OR-Tools, and OpenTelemetry; BSD-3-Clause for lxml, Uvicorn, and HTTPX; PSFL for defusedxml; LGPL-3.0-only for psycopg; and the declared dual license for prometheus-client.

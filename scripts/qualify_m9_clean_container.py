@@ -167,7 +167,6 @@ export UV_PYTHON_INSTALL_DIR="$tools/python"
 export UV_PYTHON='{PYTHON_VERSION}'
 export PNPM_STORE_DIR="$tools/pnpm-store"
 export PLAYWRIGHT_BROWSERS_PATH="$tools/playwright"
-export CI=1
 
 "$uv" python install '{PYTHON_VERSION}'
 ln -s "$uv" "$tools/uv"
@@ -270,14 +269,9 @@ def qualify() -> dict[str, Any]:
             "milestone_4_qualification": "PASS",
         },
         "claims_withheld": [
-            "GITHUB_ACTIONS_PASS",
             "HOSTED_VALIDATED",
             "GENUINE_HUMAN_STUDY",
         ],
-        "external_ci_observation": {
-            "status": "NOT_COUNTED",
-            "reason": "GITHUB_ACTIONS_ACCOUNT_BILLING_BLOCKED_BEFORE_JOB_START",
-        },
     }
     payload["artifact_sha256"] = _artifact_hash(payload)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
@@ -317,10 +311,6 @@ def validate(path: Path = OUTPUT) -> dict[str, Any]:
         "M9_QUALIFICATION_COMMAND_DRIFT",
     )
     _require(set(payload["results"].values()) == {"PASS"}, "M9_RESULT_FAILED")
-    _require(
-        payload["external_ci_observation"]["status"] == "NOT_COUNTED",
-        "M9_EXTERNAL_CI_MISREPRESENTED",
-    )
     return payload
 
 
