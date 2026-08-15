@@ -47,6 +47,7 @@ from ratereplay_tariffs.schema import AccountFacts, DatedEligibilityFacts
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "artifacts/demo"
 TYPESCRIPT_LOCK = ROOT / "apps/web/src/demoReleaseLock.ts"
+EXAMPLE_REPORT = ROOT / "docs/results/example-redacted-report.json"
 ACCOUNT = ROOT / "tariffs/examples/m3-comparison-account.json"
 WORKLOAD = ROOT / "benchmarks/workloads/m4-july-optimization-v2.json"
 REQUIRED_LOGICAL_IDS = (
@@ -455,8 +456,14 @@ def _typescript_lock(manifest: bytes) -> bytes:
     ).encode("ascii")
 
 
-def _write_release(output: Path, typescript_lock: Path) -> None:
-    objects, allowlist, manifest = _release_files(build_artifacts())
+def _example_report(artifacts: dict[str, object]) -> bytes:
+    report = cast(dict[str, Any], artifacts["redacted-report"])
+    return (json.dumps(report, indent=2, sort_keys=True) + "\n").encode("ascii")
+
+
+def _write_release(output: Path, typescript_lock: Path, example_report: Path) -> None:
+    artifacts = build_artifacts()
+    objects, allowlist, manifest = _release_files(artifacts)
     object_directory = output / "objects"
     object_directory.mkdir(parents=True, exist_ok=True)
     for stale in object_directory.glob("*.json"):
@@ -469,6 +476,8 @@ def _write_release(output: Path, typescript_lock: Path) -> None:
     (output / "release.v1.json").unlink(missing_ok=True)
     typescript_lock.parent.mkdir(parents=True, exist_ok=True)
     typescript_lock.write_bytes(_typescript_lock(manifest))
+    example_report.parent.mkdir(parents=True, exist_ok=True)
+    example_report.write_bytes(_example_report(artifacts))
 
 
 def _compare_tree(expected: Path, observed: Path) -> None:
@@ -501,17 +510,20 @@ def main() -> None:
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args()
     if not arguments.check:
-        _write_release(OUTPUT, TYPESCRIPT_LOCK)
+        _write_release(OUTPUT, TYPESCRIPT_LOCK, EXAMPLE_REPORT)
         print("Generated the content-addressed public demo release.")
         return
     with tempfile.TemporaryDirectory(prefix="ratereplay-demo-") as directory:
         root = Path(directory)
         generated = root / "demo"
         lock = root / "demoReleaseLock.ts"
-        _write_release(generated, lock)
+        example_report = root / "example-redacted-report.json"
+        _write_release(generated, lock, example_report)
         _compare_tree(generated, OUTPUT)
         if lock.read_bytes() != TYPESCRIPT_LOCK.read_bytes():
             raise RuntimeError("DEMO_RELEASE_LOCK_STALE")
+        if example_report.read_bytes() != EXAMPLE_REPORT.read_bytes():
+            raise RuntimeError("DEMO_EXAMPLE_REPORT_STALE")
     print("Public demo artifacts are reproducible and current.")
 
 

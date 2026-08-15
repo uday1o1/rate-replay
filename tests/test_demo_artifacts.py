@@ -9,6 +9,7 @@ from scripts.generate_demo_artifacts import REQUIRED_LOGICAL_IDS
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / "artifacts/demo"
+EXAMPLE_REPORT = ROOT / "docs/results/example-redacted-report.json"
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -59,6 +60,7 @@ def test_public_demo_release_is_complete_content_addressed_and_redacted() -> Non
     assert verification["status"] == "VALID"
 
     report = cast(dict[str, Any], artifacts["redacted-report"]["payload"])
+    assert _json(EXAMPLE_REPORT) == report
     assert set(report) == {
         "schema_version",
         "redaction_policy_version",
