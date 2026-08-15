@@ -13,6 +13,8 @@ from scripts.finalize_m8_evaluation import (
     _source_evidence,
     build_outputs,
     build_rows,
+    build_summary,
+    build_svg,
 )
 
 
@@ -37,6 +39,31 @@ def test_m8_summary_does_not_accept_deferred_human_gate() -> None:
         "synthetic_sessions_counted": 0,
     }
     assert summary["public_claim_boundary"]["genuine_human_comprehension_claim"] is False
+
+
+def test_m8_summary_can_replace_deferred_state_only_with_qualified_human_result() -> None:
+    sources = _source_evidence()
+    rows = build_rows(sources)
+    human = {
+        "state": "ACCEPTED",
+        "genuine_participant_count": 5,
+        "successful_participant_count": 4,
+        "synthetic_sessions_counted": 0,
+        "synthetic_personas_are_development_only": True,
+        "qualification_command": "make qualification-m6-study",
+        "after_human_qualification_command": "make qualification-m8",
+        "run_id": "m6-comprehension-v1-run-01",
+        "run_sha256": "a" * 64,
+    }
+
+    summary = build_summary(sources, rows, human)
+
+    assert summary["implementation_status"] == "ACCEPTED"
+    assert summary["acceptance_gate_result"] == "PASS"
+    assert summary["acceptance_blocker"] is None
+    assert summary["human_validation"] == human
+    assert summary["public_claim_boundary"]["genuine_human_comprehension_claim"] is True
+    assert "deferred" not in build_svg(rows, human).lower()
 
 
 def test_m8_performance_aggregate_preserves_source_measurements() -> None:

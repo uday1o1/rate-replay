@@ -12,12 +12,15 @@ import math
 from pathlib import Path
 from typing import Any, cast
 
+from scripts.user_comprehension_study import load_protocol, validate_run_chain
+
 ROOT = Path(__file__).resolve().parents[1]
 SUMMARY_PATH = ROOT / "evidence/evaluation/m8-summary.json"
 PERFORMANCE_PATH = ROOT / "evidence/evaluation/m8-performance.json"
 CSV_PATH = ROOT / "docs/results/m8-performance.csv"
 SVG_PATH = ROOT / "docs/results/m8-performance.svg"
 MANIFEST_PATH = ROOT / "benchmarks/manifests/m8-evaluation-v1.json"
+HUMAN_RESULTS_DIRECTORY = ROOT / "evidence/user-study"
 
 SOURCE_PATHS = (
     "evidence/correctness/m8-independent-golden-derivations.json",
@@ -76,6 +79,32 @@ def _source_evidence() -> dict[str, dict[str, Any]]:
         )
         sources[relative] = payload
     return sources
+
+
+def _human_validation() -> dict[str, Any]:
+    paths = sorted(HUMAN_RESULTS_DIRECTORY.glob("m6-comprehension-v1-run-*.json"))
+    if not paths:
+        return {
+            "state": "HUMAN_VALIDATION_DEFERRED",
+            "genuine_participant_count": 0,
+            "synthetic_sessions_counted": 0,
+            "synthetic_personas_are_development_only": True,
+            "qualification_command": "make qualification-m6-study",
+            "after_human_qualification_command": "make qualification-m8",
+        }
+    summaries = validate_run_chain(paths, load_protocol())
+    latest = summaries[-1]
+    return {
+        "state": "ACCEPTED",
+        "genuine_participant_count": 5,
+        "successful_participant_count": latest.successful_participants,
+        "synthetic_sessions_counted": 0,
+        "synthetic_personas_are_development_only": True,
+        "qualification_command": "make qualification-m6-study",
+        "after_human_qualification_command": "make qualification-m8",
+        "run_id": latest.run_id,
+        "run_sha256": latest.sha256,
+    }
 
 
 def _measurement_row(
@@ -195,7 +224,11 @@ def build_rows(sources: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-def build_summary(sources: dict[str, dict[str, Any]], rows: list[dict[str, Any]]) -> dict[str, Any]:
+def build_summary(
+    sources: dict[str, dict[str, Any]],
+    rows: list[dict[str, Any]],
+    human_validation: dict[str, Any],
+) -> dict[str, Any]:
     manifest = _load(MANIFEST_PATH)
     _require(
         manifest["manifest_sha256"] == _content_sha256(manifest, "manifest_sha256"),
@@ -216,22 +249,18 @@ def build_summary(sources: dict[str, dict[str, Any]], rows: list[dict[str, Any]]
         if row["coefficient_of_variation"] is not None
         and float(row["coefficient_of_variation"]) > 0.20
     ]
+    human_accepted = human_validation["state"] == "ACCEPTED"
     release = sources["evidence/evaluation/m8-release-topology.json"]
     crash = sources["evidence/evaluation/m8-crash-recovery.json"]
     payload: dict[str, Any] = {
         "schema_version": "m8-evaluation-summary-v1",
-        "implementation_status": "IMPLEMENTED_PENDING_GATE",
+        "implementation_status": "ACCEPTED" if human_accepted else "IMPLEMENTED_PENDING_GATE",
         "automated_gate_result": "PASS",
-        "acceptance_gate_result": "DEFERRED",
-        "acceptance_blocker": "GENUINE_FIVE_PERSON_HUMAN_STUDY_NOT_RECORDED",
-        "human_validation": {
-            "state": "HUMAN_VALIDATION_DEFERRED",
-            "genuine_participant_count": 0,
-            "synthetic_sessions_counted": 0,
-            "synthetic_personas_are_development_only": True,
-            "qualification_command": "make qualification-m6-study",
-            "after_human_qualification_command": "make qualification-m8",
-        },
+        "acceptance_gate_result": "PASS" if human_accepted else "DEFERRED",
+        "acceptance_blocker": (
+            None if human_accepted else "GENUINE_FIVE_PERSON_HUMAN_STUDY_NOT_RECORDED"
+        ),
+        "human_validation": human_validation,
         "manifest": {
             "path": str(MANIFEST_PATH.relative_to(ROOT)),
             "manifest_sha256": manifest["manifest_sha256"],
@@ -257,15 +286,21 @@ def build_summary(sources: dict[str, dict[str, Any]], rows: list[dict[str, Any]]
         "public_claim_boundary": {
             "evidence_level": "LOCAL_REPRODUCIBLE",
             "data_scope": "PUBLIC_SIMULATED_AND_SYNTHETIC_ENGINEERING_ONLY",
-            "genuine_human_comprehension_claim": False,
+            "genuine_human_comprehension_claim": human_accepted,
             "private_customer_data_used": False,
             "withheld_claims": release["claims_withheld"],
         },
-        "limitations": [
-            "The genuine five-person comprehension gate has not run, so Milestone 8 is not "
-            "accepted.",
-            "Synthetic persona sessions are development-only and do not count toward the "
-            "human gate.",
+        "limitations": (
+            [
+                "The genuine five-person comprehension gate has not run, so Milestone 8 "
+                "is not accepted.",
+                "Synthetic persona sessions are development-only and do not count toward "
+                "the human gate.",
+            ]
+            if not human_accepted
+            else []
+        )
+        + [
             "Performance evidence is local and supports no hosted, customer-workload, or "
             "multi-host claim.",
             "Fast-operation variance is preserved in the original artifact and investigated "
@@ -369,8 +404,9 @@ def _select_chart_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [indexed[metric] for metric in wanted]
 
 
-def build_svg(rows: list[dict[str, Any]]) -> str:
+def build_svg(rows: list[dict[str, Any]], human_validation: dict[str, Any]) -> str:
     selected = _select_chart_rows(rows)
+    human_accepted = human_validation["state"] == "ACCEPTED"
     labels = (
         "1-year import, warm follow-up",
         "5-load optimization, warm",
@@ -405,8 +441,12 @@ def build_svg(rows: list[dict[str, Any]]) -> str:
             '  <title id="title">Milestone 8 local p95 measurements against frozen '
             "thresholds</title>",
             '  <desc id="description">Six horizontal bars show each measured p95 as a '
-            "fraction of its frozen acceptance threshold. All are below threshold. Human "
-            "validation remains deferred.</desc>",
+            "fraction of its frozen acceptance threshold. All are below threshold. "
+            + (
+                "The genuine five-person study passed.</desc>"
+                if human_accepted
+                else "Human validation remains deferred.</desc>"
+            ),
             "  <style>",
             "    .background { fill: #f8fafc; }",
             "    .track { fill: #dbe4f0; }",
@@ -421,8 +461,13 @@ def build_svg(rows: list[dict[str, Any]]) -> str:
             '  <text x="28" y="59" class="subtitle">Bar length is p95 divided by the '
             "pre-frozen threshold. Exact values are shown at right.</text>",
             *bars,
-            '  <text x="28" y="507" class="note">Automated evidence only. The genuine '
-            "five-person comprehension gate is deferred.</text>",
+            '  <text x="28" y="507" class="note">'
+            + (
+                "The frozen genuine five-person comprehension gate passed.</text>"
+                if human_accepted
+                else "Automated evidence only. The genuine five-person comprehension gate "
+                "is deferred.</text>"
+            ),
             "</svg>",
             "",
         ]
@@ -432,13 +477,14 @@ def build_svg(rows: list[dict[str, Any]]) -> str:
 def build_outputs() -> dict[Path, str]:
     sources = _source_evidence()
     rows = build_rows(sources)
-    summary = build_summary(sources, rows)
+    human_validation = _human_validation()
+    summary = build_summary(sources, rows, human_validation)
     performance = build_performance_artifact(sources, rows)
     return {
         SUMMARY_PATH: _canonical_json(summary),
         PERFORMANCE_PATH: _canonical_json(performance),
         CSV_PATH: build_csv(rows),
-        SVG_PATH: build_svg(rows),
+        SVG_PATH: build_svg(rows, human_validation),
     }
 
 
