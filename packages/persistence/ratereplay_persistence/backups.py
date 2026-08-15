@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import time
 from collections.abc import Mapping
@@ -989,6 +990,9 @@ def _run_command(
 
     if not command or any(not argument or "\x00" in argument for argument in command):
         raise OSError("Command argument vector is invalid")
+    executable = shutil.which(command[0], path=environment.get("PATH", os.defpath))
+    if executable is None:
+        raise FileNotFoundError(command[0])
     with open(os.devnull, "r+b") as null:
         input_fd = stdin.fileno() if stdin is not None else null.fileno()
         output_fd = stdout.fileno() if stdout is not None else null.fileno()
@@ -997,8 +1001,8 @@ def _run_command(
             (os.POSIX_SPAWN_DUP2, output_fd, 1),
             (os.POSIX_SPAWN_DUP2, null.fileno(), 2),
         )
-        process_id = os.posix_spawnp(
-            command[0],
+        process_id = os.posix_spawn(
+            executable,
             command,
             dict(environment),
             file_actions=file_actions,

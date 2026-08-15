@@ -244,6 +244,7 @@ def test_backup_normalizes_unexpected_dump_io_failure(tmp_path: Path) -> None:
 def test_postgres_dump_runner_uses_custom_format_and_verifies_restore(
     tmp_path: Path,
 ) -> None:
+    python = Path(sys.executable)
     dump_script = """
 import sys
 if "--version" in sys.argv:
@@ -256,9 +257,9 @@ import sys
 raise SystemExit(0 if sys.stdin.buffer.read(5) == b"PGDMP" else 1)
 """
     configuration = PostgresDumpConfiguration(
-        dump_command=(sys.executable, "-c", dump_script),
+        dump_command=(python.name, "-c", dump_script),
         restore_command=(sys.executable, "-c", restore_script),
-        process_environment=(("PATH", "/usr/bin"),),
+        process_environment=(("PATH", str(python.parent)),),
         maximum_bytes=1024,
         timeout_seconds=10,
     )
