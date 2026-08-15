@@ -1,8 +1,59 @@
 # RateReplay Build Plan
 
-Status: implementation-ready plan.
+Status: V1 implementation is complete through Milestone 9, with formal acceptance deferred at Milestone 6.
 
 Planning snapshot: 2026-08-13.
+
+## Implementation and acceptance status
+
+This ledger separates implementation, automated verification, genuine human validation, and formal sequential acceptance.
+The latest clean verification baseline is remote-confirmed commit `0d0ed1b7bc43a6905209fc214ed4a4cabf0edea5` on `origin/main`.
+Its disposable clean-checkout workflow passed on 2026-08-14 in `America/Los_Angeles` with 605 Python tests passing, 13 environment-gated skips, 85.11 percent coverage, 18 web tests passing, and 11 browser journeys passing.
+The same baseline passed dependency audits, current-tree credential scanning, a redacted gitleaks 8.30.1 scan across all 120 commits, the seeded credential control, the public-demo artifact checks, and the 110.24-second product-video check.
+
+| Milestone | Implementation | Automated or local verification | Acceptance state | Exact deferred or blocked condition |
+| --- | --- | --- | --- | --- |
+| 0 | Complete | Full gate passed | `ACCEPTED` | None |
+| 1 | Complete | Full gate passed | `ACCEPTED` | None |
+| 2 | Complete | Full gate and source-linked golden qualification passed | `ACCEPTED` | None |
+| 3 | Complete | Five-tariff comparison qualification passed | `ACCEPTED` | None |
+| 4 | Complete | Optimizer, verifier, seeded-defect, and portfolio-core qualification passed | `ACCEPTED` | None |
+| 5 | Complete | Authorization, durable-job, deletion, restore, retention, and privacy gates passed | `ACCEPTED` | None |
+| 6 | Complete | Automated UI, accessibility, stateless-demo, degraded-flow, and report-redaction checks passed | `HUMAN_VALIDATION_DEFERRED` | Five genuine uncoached first-time-user sessions have not occurred, and synthetic sessions count as zero |
+| 7 | Complete | Local restore, rollback, deployment, observability, fault, security, and abuse qualifications passed | `IMPLEMENTED_PENDING_GATE` | Sequential acceptance waits for Milestone 6 human validation; no implementation work is blocked |
+| 8 | Complete | Frozen correctness, independent golden, optimizer-oracle, performance, crash-recovery, chart, and result checks passed | `IMPLEMENTED_PENDING_GATE` | Sequential acceptance and the frozen study result wait for Milestone 6 human validation |
+| 9 | Complete | Public documentation, example report, video, license and secret audits, native clean checkout, and pinned Linux qualification passed | `IMPLEMENTED_PENDING_GATE` | Sequential acceptance waits for Milestones 6 through 8; publication still requires explicit authorization |
+| 10 | Not started by design | Not applicable to the V1 gate | `NOT_APPLICABLE_TO_V1` | This section defines optional post-release extensions, and no extension has been selected or authorized |
+
+No V1 implementation milestone is blocked by unavailable hardware, credentials, data, or infrastructure.
+GitHub Actions execution is currently blocked before job start by repository-owner billing state, but it is explicitly not counted as the required second environment because the pinned Linux qualification passed locally.
+The only acceptance prerequisite requiring external participation is the genuine Milestone 6 study.
+
+To resume, conduct and record exactly five genuine sessions by following `docs/user-study-handoff.md`, then run:
+
+```sh
+make qualification-m6-study
+make qualification-m7-restore
+make qualification-m7-deployment
+make finalize-m8-evaluation
+make qualification-m8
+make check
+make dependency-audit
+make clean-checkout-check
+make demo-video-check
+```
+
+Commit and push the genuine study plus regenerated Milestone 8 evidence, confirm that `HEAD` equals `origin/main`, and then regenerate the final second-environment evidence with:
+
+```sh
+make qualification-m9-clean-container
+make m9-clean-container-check
+```
+
+After genuine results replace the deferred state, regenerate the Milestone 8 summary, CSV, SVG, evidence indexes, README status wording, limitations wording, and any study-dependent demonstration wording.
+Do not regenerate the static demo artifacts, protocol, or video unless the admitted inputs, interface, or frozen protocol changed.
+Do not mark Milestones 6 through 9 `ACCEPTED` until every command above passes in sequence.
+Do not publish, deploy, release, or begin a Milestone 10 extension without separate explicit authorization.
 
 RateReplay is an auditable household electricity bill-replay and flexible-load scheduling product.
 A residential customer imports interval usage, reconstructs supported charges from versioned official tariffs, compares eligible plans, and tests how a feasible EV or appliance schedule would change cost.
